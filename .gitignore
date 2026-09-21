@@ -1,0 +1,29 @@
+# Local credentials and configuration
+.env
+.env.*
+!.env.example
+
+# Local editor and OS files
+.idea/
+.vscode/
+.DS_Store
+
+# Generated caches
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.venv/
+node_modules/
+
+# Runtime artifacts
+logs/
+artifacts/
+*.log
+
+# Platform build and browser test artifacts
+frontend/dist/
+frontend/test-results/
+frontend/playwright-report/
+*.egg-info/
+.ruff_cache/
+*.dump
