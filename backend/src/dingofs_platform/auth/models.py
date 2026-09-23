@@ -7,6 +7,8 @@ from dingofs_platform.db import Base, Record
 class User(Record, Base):
     __tablename__ = "users"
     username: Mapped[str] = mapped_column(String(80), unique=True)
+    # Legacy accounts remain NULL until their owner supplies a real address.
+    email: Mapped[str | None] = mapped_column(String(254), nullable=True)
     password_hash: Mapped[str] = mapped_column(String(512))
     role: Mapped[str] = mapped_column(String(16))
     disabled: Mapped[bool] = mapped_column(Boolean, default=False)

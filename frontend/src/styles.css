@@ -505,3 +505,274 @@ small {
     padding: 0 22px;
   }
 }
+.profile-grid {
+  display: grid;
+  gap: 24px;
+}
+.profile-grid .detail {
+  min-height: 0;
+}
+.user-create {
+  margin-bottom: 24px;
+  min-height: 0;
+}
+.user-table {
+  overflow: auto;
+}
+.user-table table {
+  border-collapse: collapse;
+  width: 100%;
+  text-align: left;
+  font-size: 13px;
+}
+.user-table th,
+.user-table td {
+  padding: 16px;
+  border-bottom: 1px solid #e6eeee;
+}
+.user-table th {
+  color: #647d81;
+  background: #f8fbfa;
+  font-size: 12px;
+}
+.user-actions {
+  display: flex;
+  gap: 8px;
+  white-space: nowrap;
+}
+.user-actions button {
+  font-size: 12px;
+  padding: 7px 10px;
+}
+
+.machine-hardware {
+  margin-top: 28px;
+  border-top: 1px solid #dde4ee;
+  padding-top: 20px;
+}
+.hardware-snapshot {
+  margin-top: 22px;
+}
+.hardware-snapshot h4 {
+  margin: 22px 0 12px;
+}
+.hardware-overview {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+.hardware-table {
+  overflow-x: auto;
+}
+.hardware-table table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+.hardware-table th,
+.hardware-table td {
+  padding: 10px;
+  text-align: left;
+  border-bottom: 1px solid #e5eaf0;
+  overflow-wrap: anywhere;
+}
+.hardware-table th {
+  background: #f5f7fa;
+  white-space: nowrap;
+}
+.hardware-table small,
+.resource small {
+  display: block;
+  margin-top: 5px;
+  color: #64748b;
+}
+.hardware-warnings {
+  color: #805b14;
+  padding-left: 20px;
+}
+.checkbox-label {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 8px;
+  margin: 12px 0;
+}
+.checkbox-label input {
+  width: auto;
+}
+
+.host-trust-prompt {
+  margin: 18px 0;
+  padding: 18px;
+  border: 1px solid #9bc9c2;
+  border-radius: 8px;
+  background: #f2faf8;
+}
+.host-trust-prompt.changed {
+  border-color: #dda48d;
+  background: #fff5f0;
+}
+.host-trust-prompt h4 {
+  margin: 0 0 12px;
+}
+.host-trust-prompt code,
+.machine-hardware code {
+  overflow-wrap: anywhere;
+}
+
+/* Full-width machine inventory, with a separate detail route. */
+.machines-content {
+  max-width: none;
+}
+.machine-detail-layout {
+  display: block;
+}
+.machine-table-toolbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 16px;
+  padding: 18px 20px;
+}
+.machine-table-toolbar strong {
+  margin-right: 18px;
+}
+.machine-overview .actions {
+  margin: 0;
+  align-items: center;
+}
+.machine-table-scroll {
+  overflow: auto;
+  max-height: calc(100vh - 330px);
+  min-height: 200px;
+  border-top: 1px solid #e2e9e9;
+  border-bottom: 1px solid #e2e9e9;
+}
+.machine-table {
+  width: 100%;
+  min-width: 1510px;
+  border-collapse: separate;
+  border-spacing: 0;
+  font-size: 13px;
+}
+.machine-table thead {
+  position: sticky;
+  top: 0;
+  z-index: 3;
+}
+.machine-table th {
+  background: #f3f8f7;
+  padding: 12px 10px;
+  text-align: left;
+  min-width: 115px;
+  border-bottom: 1px solid #dce6e7;
+}
+.machine-table th:first-child {
+  min-width: 185px;
+}
+.machine-table th:nth-child(2),
+.machine-table th:nth-child(3) {
+  min-width: 180px;
+}
+.machine-table th:last-child {
+  min-width: 195px;
+}
+.machine-table .sort-heading {
+  border: 0;
+  background: transparent;
+  border-radius: 0;
+  padding: 0 0 10px;
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  white-space: nowrap;
+  font-weight: 600;
+}
+.sort-heading span {
+  color: #087f71;
+}
+.machine-table input {
+  padding: 7px 8px;
+  font-size: 12px;
+  font-weight: 400;
+}
+.machine-table td {
+  padding: 15px 10px;
+  border-bottom: 1px solid #e5eceb;
+  background: white;
+  cursor: pointer;
+}
+.machine-table tr:hover td {
+  background: #f0f8f5;
+}
+.machine-table th:first-child,
+.machine-table td:first-child {
+  position: sticky;
+  left: 0;
+  z-index: 1;
+  border-right: 1px solid #e1e9e7;
+}
+.machine-table th:first-child {
+  z-index: 4;
+}
+.machine-name {
+  border: 0;
+  padding: 0;
+  background: none;
+  color: #087f71;
+  font-weight: 600;
+  text-align: left;
+  max-width: 230px;
+  overflow-wrap: anywhere;
+}
+.machine-table small {
+  display: block;
+  color: #7a8e91;
+  font-size: 11px;
+  margin-top: 6px;
+}
+.machine-cell {
+  display: block;
+  max-width: 280px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.machine-overview > .pagination {
+  padding: 15px 20px;
+  flex-wrap: wrap;
+  gap: 14px;
+  color: #657d80;
+  font-size: 12px;
+}
+.machine-overview > .error {
+  margin: 12px 20px;
+}
+@media (max-width: 800px) {
+  .machine-table-toolbar {
+    flex-wrap: wrap;
+  }
+  .machine-table-scroll {
+    max-height: none;
+  }
+}
+
+.cluster-operation { margin: 18px 0; padding: 16px; border: 1px solid #d5dfe5; border-radius: 10px; background: #f7fafc; }
+.cluster-operation form { max-width: 620px; }
+.cluster-operation button { margin: 8px 8px 0 0; }
+.cluster-discover { max-width: 1100px; margin: 0 auto; }
+.discovered-list { display: grid; grid-template-columns: repeat(auto-fit,minmax(240px,1fr)); gap: 8px; margin: 16px 0; max-height: 45vh; overflow: auto; }
+.cluster-summary { display: grid; grid-template-columns: repeat(4,minmax(0,1fr)); gap: 18px; }
+.cluster-summary strong,.cluster-summary small { display:block; }
+.cluster-summary strong { font-size:24px; margin-top:8px; }
+.cluster-filters { display:flex; gap:16px; flex-wrap:wrap; margin-bottom:16px; }
+.cluster-services-scroll { overflow:auto; }
+.cluster-services { width:100%; border-collapse:collapse; font-size:13px; }
+.cluster-services td,.cluster-services th { padding:12px; text-align:left; border-bottom:1px solid #e4eaf0; white-space:nowrap; }
+.cluster-service-error { background:#fff2f0; }
+.cluster-directory { padding:12px 0; max-width:550px; white-space:normal; }
+.cluster-directory code { display:block; overflow-wrap:anywhere; margin:8px 0; }
+.cluster-raw { white-space:pre-wrap; overflow-wrap:anywhere; padding:16px; background:#f4f7fa; max-height:500px; overflow:auto; }
+@media(max-width:800px){.cluster-summary{grid-template-columns:repeat(2,minmax(0,1fr));}}

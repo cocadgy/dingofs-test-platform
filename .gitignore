@@ -27,3 +27,6 @@ frontend/playwright-report/
 *.egg-info/
 .ruff_cache/
 *.dump
+
+# Deployment-specific SSH trust store
+/deploy/ssh/known_hosts*

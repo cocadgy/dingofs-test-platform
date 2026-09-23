@@ -1,3 +1,4 @@
+from dingofs_platform.clusters import models as cluster_models  # noqa: F401
 from uuid import uuid4
 from fastapi import FastAPI
 from fastapi.exceptions import RequestValidationError
@@ -8,8 +9,12 @@ from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from .settings import Settings
 from .errors import Problem
 from .auth.routes import router as auth
+from .auth.users import router as users
 from .configuration.routes import router as configs
+from .inventory.hardware_routes import router as hardware
+from .inventory.overview import router as overview
 from .inventory.routes import router as inventory
+from .clusters.routes import router as clusters
 
 
 def create_app(settings=None):
@@ -72,5 +77,9 @@ def create_app(settings=None):
 
     app.include_router(auth)
     app.include_router(configs)
+    app.include_router(users)
+    app.include_router(hardware)
+    app.include_router(overview)
+    app.include_router(clusters)
     app.include_router(inventory)
     return app

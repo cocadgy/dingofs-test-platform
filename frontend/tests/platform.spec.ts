@@ -42,7 +42,6 @@ test("real inventory and YAML lifecycle, validation, conflict and reference prot
 }) => {
   const suffix = Date.now();
   const machine = "e2e-node-" + suffix,
-    context = "e2e-context-" + suffix,
     cluster = "e2e-cluster-" + suffix,
     env = "e2e-env-" + suffix;
   await login(page);
@@ -50,24 +49,28 @@ test("real inventory and YAML lifecycle, validation, conflict and reference prot
     名称: machine,
     主机地址: "node-" + suffix + ".example",
     "SSH 用户": "tester",
+    "SSH 密码（留空保留原密码）": "test-ssh-password",
   });
-  await register(
-    page,
-    "管理上下文",
-    {
-      名称: context,
-      执行用户: "tester",
-      "dingo 工具路径": "/usr/local/bin/dingo",
-      "dingo 配置目录": "/home/tester/.dingo",
-    },
-    { 管理机器: machine },
-  );
-  await register(
-    page,
-    "集群管理",
-    { 名称: cluster, "dingo 集群名称": cluster },
-    { 管理上下文: context, 关联机器: machine },
-  );
+  await expect(
+    page.getByRole("navigation").getByRole("button", { name: "管理上下文" }),
+  ).toHaveCount(0);
+  await nav(page, "集群管理");
+  await page.getByRole("button", { name: "发现集群", exact: true }).click();
+  await page
+    .getByLabel("执行机器")
+    .selectOption({ label: machine + " · node-" + suffix + ".example" });
+  await page.getByLabel("执行用户").fill("tester");
+  await page.getByRole("button", { name: "查询集群" }).click();
+  await page.getByLabel("main-dingofs", { exact: true }).check();
+  await page.getByRole("button", { name: "导入所选集群" }).click();
+  await page.getByLabel("搜索执行用户").fill("tester");
+  await page.getByRole("button", { name: "main-dingofs", exact: true }).click();
+  await page.getByRole("button", { name: "编辑登记信息" }).click();
+  await page.getByLabel("显示名称").fill(cluster);
+  await page.getByRole("button", { name: "保存", exact: true }).click();
+  await expect(
+    page.getByRole("heading", { name: cluster, exact: true }),
+  ).toBeVisible();
   await register(
     page,
     "测试环境",
@@ -134,9 +137,8 @@ test("real inventory and YAML lifecycle, validation, conflict and reference prot
   await page.getByRole("button", { name: env + " 已登记" }).click();
   await expect(page.getByText("版本 2", { exact: true })).toBeVisible();
   await nav(page, "机器资源");
-  await page
-    .getByRole("button", { name: machine + " node-" + suffix + ".example" })
-    .click();
+  await page.getByLabel("搜索资源名").fill(machine);
+  await page.getByRole("button", { name: machine, exact: true }).click();
   page.once("dialog", (d) => d.accept());
   await page.getByRole("button", { name: "归档资源" }).click();
   await expect(page.getByRole("alert")).toContainText("仍被引用");
@@ -149,17 +151,20 @@ test("real inventory and YAML lifecycle, validation, conflict and reference prot
     fullPage: true,
   });
 });
-test("member sees read-only assets and cannot mutate through API", async ({
-  page,
-}) => {
+test("member can register own machine but cannot change another user's machine", async ({ page }) => {
   await login(page, "member");
-  await expect(page.getByRole("button", { name: "登记机器资源" })).toHaveCount(
-    0,
-  );
+  await expect(page.getByRole("button", {name: "登记机器资源"})).toBeVisible();
   const me = await (await page.request.get("/api/v1/auth/me")).json();
-  const r = await page.request.post("/api/v1/machines", {
-    headers: { "X-CSRF-Token": me.csrf_token },
-    data: { name: "forbidden", address: "forbidden", ssh_user: "test" },
-  });
-  expect(r.status()).toBe(403);
+  const headers = {"X-CSRF-Token": me.csrf_token};
+  const name = "member-machine-" + Date.now();
+  const result = await page.request.post("/api/v1/machines", {headers, data:{name,address:name+".test",ssh_user:"test"}});
+  expect(result.status()).toBe(201);
+  const owned = await result.json();
+  const update = await page.request.patch(`/api/v1/machines/${owned.id}`, {headers,data:{base_revision:owned.revision,maintenance:true}});
+  expect(update.status()).toBe(200);
+  const rows = await (await page.request.get("/api/v1/machines?limit=200")).json();
+  const other = rows.items.find((r: any) => r.creator_id !== me.id);
+  expect(other).toBeTruthy();
+  const denied = await page.request.patch(`/api/v1/machines/${other.id}`,{headers,data:{base_revision:other.revision,maintenance:true}});
+  expect(denied.status()).toBe(403);
 });

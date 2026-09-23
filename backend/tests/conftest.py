@@ -20,8 +20,12 @@ def app():
     Base.metadata.drop_all(app.state.engine)
     Base.metadata.create_all(app.state.engine)
     with app.state.session_factory() as db:
-        create_user(db, "admin", "test-password-123", "admin")
-        create_user(db, "member", "test-password-123", "member")
+        create_user(
+            db, "admin", "test-password-123", "admin", email="admin@example.com"
+        )
+        create_user(
+            db, "member", "test-password-123", "member", email="member@example.com"
+        )
     yield app
     Base.metadata.drop_all(app.state.engine)
     app.state.engine.dispose()
@@ -53,29 +57,74 @@ def machine(client, name="node1"):
     return r.json()
 
 
+def register_cluster(client, m, name="c1", user="test", display="cluster1"):
+    from cryptography.fernet import Fernet
+    from pathlib import Path
+    from dingofs_platform.inventory.models import Machine
+    from dingofs_platform.inventory.credentials import encrypt_password
+    from dingofs_platform.clusters.transport import (
+        ClusterCommandResult,
+        ExecutionIdentity,
+    )
+
+    app = client.app
+    if not app.state.settings.credential_encryption_key:
+        app.state.settings.credential_encryption_key = Fernet.generate_key().decode()
+    with app.state.session_factory.begin() as db:
+        db.get(Machine, m["id"]).ssh_password_ciphertext = encrypt_password(
+            "test-secret", app.state.settings.credential_encryption_key
+        )
+    raw = (Path(__file__).parent / "fixtures/dingo/cluster-status-main.txt").read_text()
+    old = getattr(app.state, "cluster_transport", None)
+
+    def transport(config, cmd, **kw):
+        return ClusterCommandResult(
+            ExecutionIdentity(
+                cmd.target_user, "/home/" + cmd.target_user, "/opt/dingo"
+            ),
+            name + "\n"
+            if cmd.kind == "discover"
+            else raw.replace("main-dingofs", cmd.cluster_name),
+            "",
+            0,
+        )
+
+    app.state.cluster_transport = transport
+    try:
+        op = client.post(
+            "/api/v1/cluster-discoveries",
+            json={
+                "machine_id": m["id"],
+                "machine_revision": m["revision"],
+                "target_user": user,
+            },
+        )
+        assert op.status_code == 202, op.text
+        result = client.post(
+            "/api/v1/cluster-discoveries/" + op.json()["id"] + "/import",
+            json={"names": [name]},
+        )
+        assert result.status_code == 200, result.text
+        cid = (result.json()["created"] + result.json()["existing"])[0]["id"]
+        # Preserve the legacy test fixture's initial revision and display alias.
+        from dingofs_platform.inventory.models import Cluster
+
+        with app.state.session_factory.begin() as db:
+            row = db.get(Cluster, cid)
+            row.name = display
+        return client.get("/api/v1/clusters/" + cid).json()
+    finally:
+        if old is None:
+            del app.state.cluster_transport
+        else:
+            app.state.cluster_transport = old
+
+
 def linked(client):
     m = machine(client)
-    c = client.post(
-        "/api/v1/management-contexts",
-        json={
-            "name": "context1",
-            "machine_id": m["id"],
-            "os_user": "test",
-            "dingo_path": "/opt/dingo",
-            "config_dir": "/home/test/.dingo",
-        },
-    ).json()
-    cluster = client.post(
-        "/api/v1/clusters",
-        json={
-            "name": "cluster1",
-            "context_id": c["id"],
-            "external_name": "c1",
-            "machine_ids": [m["id"]],
-        },
-    ).json()
+    cluster = register_cluster(client, m)
     e = client.post(
         "/api/v1/environments",
         json={"name": "env1", "cluster_id": cluster["id"], "machine_ids": [m["id"]]},
     ).json()
-    return m, c, cluster, e
+    return m, cluster, e

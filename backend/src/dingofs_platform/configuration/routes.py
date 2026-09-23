@@ -3,11 +3,12 @@ from typing import Literal
 from fastapi import APIRouter, Depends, Request, Query
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import select, func
-from dingofs_platform.auth.dependencies import current_user, require_admin
+from dingofs_platform.auth.dependencies import current_user
 from dingofs_platform.db import get_db
 from dingofs_platform.errors import Problem
 from dingofs_platform.inventory.models import Cluster, Environment
 from dingofs_platform.inventory.service import active, lock_inventory, audit
+from dingofs_platform.inventory.permissions import require_manage
 from .models import ConfigDraft, ConfigVersion
 from .yaml_document import parse, merge
 
@@ -37,7 +38,7 @@ def owner(db, kind, id):
     models = {"cluster": Cluster, "environment": Environment}
     if kind not in models:
         raise Problem(404, "not_found", "配置类型不存在")
-    active(db, models[kind], id)
+    return active(db, models[kind], id)
 
 
 def draft(db, kind, id):
@@ -80,11 +81,11 @@ def save(
     id: str,
     payload: DraftInput,
     request: Request,
-    user=Depends(require_admin),
+    user=Depends(current_user),
 ):
     with get_db(request) as db, db.begin():
         lock_inventory(db)
-        owner(db, kind, id)
+        require_manage(user, owner(db, kind, id))
         row = draft(db, kind, id)
         if payload.base_revision != (row.revision if row else 0):
             raise Problem(
@@ -112,11 +113,11 @@ def save(
 
 @router.post("/{kind}/{id}/publish", status_code=201)
 def publish(
-    kind: str, id: str, payload: Revision, request: Request, user=Depends(require_admin)
+    kind: str, id: str, payload: Revision, request: Request, user=Depends(current_user)
 ):
     with get_db(request) as db, db.begin():
         lock_inventory(db)
-        owner(db, kind, id)
+        require_manage(user, owner(db, kind, id))
         row = draft(db, kind, id)
         if not row or row.revision != payload.base_revision:
             raise Problem(409, "revision_conflict", "草稿不存在或已更新")

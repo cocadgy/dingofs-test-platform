@@ -1,10 +1,12 @@
 from fastapi import APIRouter, Depends, Request, Query
 from pydantic import ValidationError
 from sqlalchemy import select, func
-from dingofs_platform.auth.dependencies import current_user, require_admin
+from dingofs_platform.auth.dependencies import current_user
 from dingofs_platform.db import get_db
 from dingofs_platform.errors import Problem
-from .schemas import MachineInput, ContextInput, ClusterInput, EnvironmentInput
+from .permissions import require_manage
+from .credentials import credential_changes
+from .schemas import MachineInput, ClusterInput, EnvironmentInput
 from .service import (
     MODELS,
     serialize,
@@ -18,7 +20,6 @@ from .service import (
 router = APIRouter(prefix="/api/v1")
 SCHEMAS = {
     "machines": MachineInput,
-    "management-contexts": ContextInput,
     "clusters": ClusterInput,
     "environments": EnvironmentInput,
 }
@@ -73,14 +74,22 @@ def detail(kind: str, id: str, request: Request, user=Depends(current_user)):
 
 
 @router.post("/{kind}", status_code=201)
-def create(kind: str, request: Request, payload: dict, user=Depends(require_admin)):
+def create(kind: str, request: Request, payload: dict, user=Depends(current_user)):
     model = model_for(kind)
+    if kind != "machines" and user.role != "admin":
+        raise Problem(403, "forbidden", "需要管理员权限")
     data = validated(kind, payload)
+    if kind == "machines":
+        data = credential_changes(
+            data, request.app.state.settings.credential_encryption_key
+        )
     with get_db(request) as db, db.begin():
         lock_inventory(db)
         validate_refs(db, kind, data)
         ids = data.pop("machine_ids", [])
         row = model(**data)
+        if kind == "machines":
+            row.creator_id = user.id
         db.add(row)
         db.flush()
         set_links(db, kind, row, ids)
@@ -90,14 +99,15 @@ def create(kind: str, request: Request, payload: dict, user=Depends(require_admi
 
 @router.patch("/{kind}/{id}")
 def patch(
-    kind: str, id: str, request: Request, payload: dict, user=Depends(require_admin)
+    kind: str, id: str, request: Request, payload: dict, user=Depends(current_user)
 ):
     model = model_for(kind)
     with get_db(request) as db, db.begin():
         lock_inventory(db)
-        row = db.get(model, id)
+        row = db.scalar(select(model).where(model.id == id).with_for_update())
         if not row:
             raise Problem(404, "not_found", "资源不存在")
+        require_manage(user, row)
         revision = payload.get("base_revision")
         if type(revision) != int:
             raise Problem(422, "invalid_revision", "需要整数 base_revision")
@@ -110,8 +120,16 @@ def patch(
         }
         current = serialize(db, kind, row)
         data = validated(
-            kind, {**{k: current[k] for k in SCHEMAS[kind].model_fields}, **changes}
+            kind,
+            {
+                **{k: current[k] for k in SCHEMAS[kind].model_fields if k in current},
+                **changes,
+            },
         )
+        if kind == "machines":
+            data = credential_changes(
+                data, request.app.state.settings.credential_encryption_key
+            )
         archived = payload.get("archived", row.archived)
         if type(archived) != bool:
             raise Problem(422, "invalid_fields", "archived 必须为布尔值")

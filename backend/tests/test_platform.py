@@ -61,7 +61,7 @@ def test_csrf_required(admin):
     )
 
 
-def test_member_read_only(client):
+def test_member_can_register_machine(client):
     r = client.post(
         "/api/v1/auth/login",
         json={"username": "member", "password": "test-password-123"},
@@ -72,7 +72,7 @@ def test_member_read_only(client):
         client.post(
             "/api/v1/machines", json={"name": "n", "address": "n", "ssh_user": "u"}
         ).status_code
-        == 403
+        == 201
     )
 
 
@@ -113,20 +113,10 @@ def test_bad_port_and_unknown_fields(admin):
     )
 
 
-def test_context_identity_and_reference_protection(admin):
-    m, c, cl, e = linked(admin)
+def test_cluster_identity_and_reference_protection(admin):
+    m, cl, e = linked(admin)
     assert cl["observed_state"] == "unknown"
-    r = admin.post(
-        "/api/v1/management-contexts",
-        json={
-            "name": "other",
-            "machine_id": m["id"],
-            "os_user": "test",
-            "dingo_path": "/another/dingo",
-            "config_dir": "/home/test/.dingo/",
-        },
-    )
-    assert r.status_code == 409
+    assert admin.post('/api/v1/clusters', json={"name":"bypass"}).status_code == 422
     assert (
         admin.patch(
             "/api/v1/machines/" + m["id"], json={"base_revision": 1, "archived": True}
@@ -248,7 +238,7 @@ def test_secret_never_reflected_and_unknown_form_field_rejected(admin):
 
 
 def test_cluster_yaml_is_not_marked_deployable(admin):
-    _, _, cl, _ = linked(admin)
+    _, cl, _ = linked(admin)
     url = "/api/v1/configs/cluster/" + cl["id"]
     r = admin.put(
         url + "/draft",
@@ -305,11 +295,10 @@ def test_list_search_total_and_page(admin):
 def test_archive_restore_checks_parent_and_audit_has_no_values(admin, app):
     from dingofs_platform.audit.models import AuditEvent
 
-    m, c, cl, e = linked(admin)
+    m, cl, e = linked(admin)
     for kind, row in [
         ("environments", e),
         ("clusters", cl),
-        ("management-contexts", c),
         ("machines", m),
     ]:
         assert (

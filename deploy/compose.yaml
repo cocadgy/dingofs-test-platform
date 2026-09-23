@@ -31,6 +31,16 @@ services:
     environment:
       PLATFORM_DATABASE_URL: postgresql+psycopg://platform:${POSTGRES_PASSWORD}@db:5432/platform
       PLATFORM_COOKIE_SECURE: ${PLATFORM_COOKIE_SECURE:-true}
+      PLATFORM_CREDENTIAL_ENCRYPTION_KEY: ${PLATFORM_CREDENTIAL_ENCRYPTION_KEY:-}
+      PLATFORM_SSH_KNOWN_HOSTS: /app/deploy/ssh/known_hosts
+      PLATFORM_CLUSTER_DISCOVERY_TIMEOUT: ${PLATFORM_CLUSTER_DISCOVERY_TIMEOUT:-60}
+      PLATFORM_CLUSTER_STATUS_TIMEOUT: ${PLATFORM_CLUSTER_STATUS_TIMEOUT:-120}
+      PLATFORM_CLUSTER_MAX_BYTES: ${PLATFORM_CLUSTER_MAX_BYTES:-2097152}
+      PLATFORM_CLUSTER_MACHINE_CONCURRENCY: ${PLATFORM_CLUSTER_MACHINE_CONCURRENCY:-2}
+      PLATFORM_CLUSTER_AUTH_SECONDS: ${PLATFORM_CLUSTER_AUTH_SECONDS:-300}
+      PLATFORM_CLUSTER_DISCOVERY_SECONDS: ${PLATFORM_CLUSTER_DISCOVERY_SECONDS:-900}
+    volumes:
+      - ./ssh:/app/deploy/ssh:ro
     command: [uvicorn, dingofs_platform.app:create_app, --factory, --host, 0.0.0.0, --port, '8000', --proxy-headers, --forwarded-allow-ips, '*']
     depends_on:
       migrate:
@@ -46,7 +56,7 @@ services:
       context: ..
       dockerfile: deploy/web.Dockerfile
     ports:
-      - '127.0.0.1:${PLATFORM_HTTP_PORT:-58080}:8080'
+      - '172.30.14.126:${PLATFORM_HTTP_PORT:-58080}:8080'
     depends_on:
       api:
         condition: service_healthy

@@ -1,9 +1,13 @@
 import { useEffect, useState } from "react";
 import { api } from "../../api/client";
+import {
+  MachineHardware,
+  hardwareSummary,
+  statusNames,
+} from "./MachineHardware";
 import { ConfigEditor } from "../configuration/ConfigEditor";
 export const sections: Record<string, string> = {
   machines: "机器资源",
-  "management-contexts": "管理上下文",
   clusters: "集群管理",
   environments: "测试环境",
 };
@@ -20,6 +24,7 @@ type Field = {
   type?: string;
   source?: string;
   optional?: boolean;
+  description?: string;
 };
 const fields: Record<string, Field[]> = {
   machines: [
@@ -27,24 +32,34 @@ const fields: Record<string, Field[]> = {
     { key: "address", label: "主机地址" },
     { key: "ssh_port", label: "SSH 端口", type: "number" },
     { key: "ssh_user", label: "SSH 用户" },
+    {
+      key: "ssh_password",
+      label: "SSH 密码（留空保留原密码）",
+      type: "password",
+      optional: true,
+    },
     { key: "credential_ref", label: "凭据引用", optional: true },
     { key: "physical_id", label: "物理机标识", optional: true },
   ],
-  "management-contexts": [
+  clusters: [
     { key: "name", label: "名称" },
-    { key: "machine_id", label: "管理机器", source: "machines" },
+    { key: "external_name", label: "dingo 集群名称" },
+    {
+      key: "management_machine_id",
+      label: "dingo 执行机器",
+      source: "machines",
+      description:
+        "运行 dingo 管理命令的机器，可以是独立运维机，也可以是集群节点。",
+    },
     { key: "os_user", label: "执行用户" },
     { key: "dingo_path", label: "dingo 工具路径" },
     { key: "config_dir", label: "dingo 配置目录" },
     { key: "credential_ref", label: "凭据引用", optional: true },
-  ],
-  clusters: [
-    { key: "name", label: "名称" },
-    { key: "context_id", label: "管理上下文", source: "management-contexts" },
-    { key: "external_name", label: "dingo 集群名称" },
     {
       key: "machine_ids",
-      label: "关联机器",
+      label: "集群节点",
+      description:
+        "实际部署 DingoFS 服务的机器，可多选，也可包含上面的 dingo 执行机器。",
       source: "machines",
       type: "multiple",
     },
@@ -63,24 +78,62 @@ const fields: Record<string, Field[]> = {
 export function InventoryPage({
   kind,
   admin,
+  userId,
   onDirty,
+  detailOnly = false,
+  initialMachineId,
+  createMachine = false,
+  onBack,
+  onMachineSaved,
 }: {
   kind: string;
   admin: boolean;
+  userId?: string;
   onDirty: (v: boolean) => void;
+  detailOnly?: boolean;
+  initialMachineId?: string;
+  createMachine?: boolean;
+  onBack?: () => void;
+  onMachineSaved?: (id: string) => void;
 }) {
   const [items, setItems] = useState<Row[]>([]);
   const [total, setTotal] = useState(0);
   const [offset, setOffset] = useState(0);
   const [query, setQuery] = useState("");
   const [selected, setSelected] = useState<Row>();
-  const [editing, setEditing] = useState(false);
-  const [values, setValues] = useState<Record<string, any>>({});
+  const canEdit =
+    admin ||
+    (kind === "machines" && !!userId && selected?.creator_id === userId);
+  const [editing, setEditing] = useState(createMachine);
+  const [values, setValues] = useState<Record<string, any>>(
+    createMachine ? { ssh_port: 22, machine_ids: [] } : {},
+  );
+  const [detailLoading, setDetailLoading] = useState(!!initialMachineId);
   const [refs, setRefs] = useState<Record<string, Row[]>>({});
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
+  const [refreshingId, setRefreshingId] = useState<string>();
   const [configDirty, setConfigDirty] = useState(false);
+  useEffect(() => {
+    if (!detailOnly || !initialMachineId) return;
+    let live = true;
+    setDetailLoading(true);
+    api<Row>(`/machines/${encodeURIComponent(initialMachineId)}`)
+      .then((row) => {
+        if (live) setSelected(row);
+      })
+      .catch((e) => {
+        if (live) setError(e.message);
+      })
+      .finally(() => {
+        if (live) setDetailLoading(false);
+      });
+    return () => {
+      live = false;
+    };
+  }, [detailOnly, initialMachineId]);
   async function refresh() {
+    if (detailOnly) return;
     const r = await api<{ items: Row[]; total: number }>(
       `/${kind}?limit=20&offset=${offset}&q=${encodeURIComponent(query)}`,
     );
@@ -123,6 +176,67 @@ export function InventoryPage({
       live = false;
     };
   }, [kind, items.length]);
+  useEffect(() => {
+    if (
+      kind !== "machines" ||
+      !selected ||
+      (selected.collection_status !== "collecting" &&
+        refreshingId !== selected.id)
+    )
+      return;
+    const id = selected.id;
+    let live = true;
+    const timer = window.setInterval(() => {
+      api<Row>(`/machines/${id}`)
+        .then((row) => {
+          if (live)
+            setSelected((current) => (current?.id === id ? row : current));
+        })
+        .catch(() => {
+          /* The refresh request reports its own failure. */
+        });
+    }, 2000);
+    return () => {
+      live = false;
+      window.clearInterval(timer);
+    };
+  }, [kind, selected?.id, selected?.collection_status, refreshingId]);
+  async function refreshHardware(trust = false) {
+    if (
+      !selected ||
+      refreshingId ||
+      (trust && !selected.ssh_host_trust?.pending)
+    )
+      return;
+    const id = selected.id;
+    setRefreshingId(id);
+    setError("");
+    try {
+      let target = selected;
+      if (trust) {
+        target = await api<Row>(`/machines/${id}/trust-host-key`, "POST", {
+          base_revision: selected.revision,
+          challenge_id: selected.ssh_host_trust.pending.challenge_id,
+        });
+        setSelected((current) => (current?.id === id ? target : current));
+      }
+      const row = await api<Row>(`/machines/${id}/refresh-hardware`, "POST", {
+        base_revision: target.revision,
+      });
+      setSelected((current) => (current?.id === id ? row : current));
+      await refresh();
+    } catch (e) {
+      setError((e as Error).message);
+      try {
+        const row = await api<Row>(`/machines/${id}`);
+        setSelected((current) => (current?.id === id ? row : current));
+      } catch {
+        /* Preserve current detail if the connection is unavailable. */
+      }
+    } finally {
+      setRefreshingId(undefined);
+    }
+  }
   function leave() {
     return (
       !(editing || configDirty) || window.confirm("有未保存修改，确定离开？")
@@ -153,6 +267,8 @@ export function InventoryPage({
         else value = value ?? "";
         body[f.key] = value;
       }
+      if (kind === "machines")
+        body.clear_ssh_password = values.clear_ssh_password === true;
       if (selected) body.base_revision = selected.revision;
       const row = await api<Row>(
         "/" + kind + (selected ? "/" + selected.id : ""),
@@ -160,8 +276,10 @@ export function InventoryPage({
         body,
       );
       setEditing(false);
+      setValues({});
       setSelected(row);
       await refresh();
+      onMachineSaved?.(row.id);
     } catch (e) {
       setError((e as Error).message);
     } finally {
@@ -198,17 +316,29 @@ export function InventoryPage({
       <header className="page-header">
         <div>
           <p className="eyebrow">PLATFORM / INVENTORY</p>
-          <h1>{sections[kind]}</h1>
+          <h1>
+            {detailOnly
+              ? createMachine
+                ? "登记机器资源"
+                : "机器资源详情"
+              : sections[kind]}
+          </h1>
           <p className="muted">
             {kind === "clusters"
               ? "登记已有集群及管理入口。运行状态尚未探测，运维操作将在后续阶段开放。"
               : "集中管理测试所需的资源与配置。"}
           </p>
         </div>
-        {admin && (
-          <button className="primary" onClick={() => edit()}>
-            登记{sections[kind]}
+        {detailOnly ? (
+          <button onClick={onBack} disabled={busy}>
+            返回机器概览
           </button>
+        ) : (
+          (admin || kind === "machines") && (
+            <button className="primary" onClick={() => edit()}>
+              登记{sections[kind]}
+            </button>
+          )
         )}
       </header>
       {error && (
@@ -216,66 +346,77 @@ export function InventoryPage({
           {error}
         </p>
       )}
-      <div className="inventory-layout">
-        <section className="panel">
-          <label className="search">
-            搜索名称
-            <input
-              placeholder="输入资源名称"
-              value={query}
-              onChange={(e) => {
-                setQuery(e.target.value);
-                setOffset(0);
-              }}
-            />
-          </label>
-          <div className="resource-list">
-            {items.map((row) => (
-              <button
-                key={row.id}
-                className={
-                  "resource " + (selected?.id === row.id ? "selected" : "")
-                }
-                onClick={() => {
-                  if (leave()) {
-                    setSelected(row);
-                    setEditing(false);
-                    setError("");
-                  }
+      <div
+        className={detailOnly ? "machine-detail-layout" : "inventory-layout"}
+      >
+        {!detailOnly && (
+          <section className="panel">
+            <label className="search">
+              搜索名称
+              <input
+                placeholder="输入资源名称"
+                value={query}
+                onChange={(e) => {
+                  setQuery(e.target.value);
+                  setOffset(0);
                 }}
+              />
+            </label>
+            <div className="resource-list">
+              {items.map((row) => (
+                <button
+                  key={row.id}
+                  className={
+                    "resource " + (selected?.id === row.id ? "selected" : "")
+                  }
+                  onClick={() => {
+                    if (leave()) {
+                      setSelected(row);
+                      setValues({});
+                      setEditing(false);
+                      setError("");
+                    }
+                  }}
+                >
+                  <strong>{row.name}</strong>
+                  <span>
+                    {row.archived
+                      ? "已归档"
+                      : kind === "clusters"
+                        ? "尚未探测"
+                        : kind === "machines"
+                          ? row.address
+                          : "已登记"}
+                  </span>
+                  {kind === "machines" && (
+                    <small>
+                      {hardwareSummary(row)} ·{" "}
+                      {statusNames[row.collection_status || "never"] || "未知"}
+                    </small>
+                  )}
+                </button>
+              ))}
+              {!items.length && (
+                <p className="empty">暂无资源，请先登记所需的机器或集群。</p>
+              )}
+            </div>
+            <div className="pagination">
+              <button
+                disabled={offset === 0}
+                onClick={() => setOffset(Math.max(0, offset - 20))}
               >
-                <strong>{row.name}</strong>
-                <span>
-                  {row.archived
-                    ? "已归档"
-                    : kind === "clusters"
-                      ? "尚未探测"
-                      : kind === "machines"
-                        ? row.address
-                        : "已登记"}
-                </span>
+                上一页
               </button>
-            ))}
-            {!items.length && (
-              <p className="empty">暂无资源，先登记机器和管理上下文。</p>
-            )}
-          </div>
-          <div className="pagination">
-            <button
-              disabled={offset === 0}
-              onClick={() => setOffset(Math.max(0, offset - 20))}
-            >
-              上一页
-            </button>
-            <span>共 {total} 条</span>
-            <button
-              disabled={offset + 20 >= total}
-              onClick={() => setOffset(offset + 20)}
-            >
-              下一页
-            </button>
-          </div>
-        </section>
+              <span>共 {total} 条</span>
+              <button
+                disabled={offset + 20 >= total}
+                onClick={() => setOffset(offset + 20)}
+              >
+                下一页
+              </button>
+            </div>
+          </section>
+        )}
         <section className="panel detail">
           {editing ? (
             <form onSubmit={save}>
@@ -290,6 +431,9 @@ export function InventoryPage({
                     {f.source ? (
                       <select
                         aria-label={f.label}
+                        aria-describedby={
+                          f.description ? `${kind}-${f.key}-help` : undefined
+                        }
                         required={!f.optional && f.type !== "multiple"}
                         multiple={f.type === "multiple"}
                         value={
@@ -313,7 +457,12 @@ export function InventoryPage({
                         )}
                         {(refs[f.source] || []).map((r) => (
                           <option key={r.id} value={r.id}>
-                            {r.name}
+                            {f.source === "clusters" &&
+                            (refs.clusters || []).filter(
+                              (c) => c.name === r.name,
+                            ).length > 1
+                              ? `${r.name} · ${r.os_user} · ${(refs.machines || []).find((m) => m.id === r.management_machine_id)?.name || r.management_machine_id}`
+                              : r.name}
                           </option>
                         ))}
                       </select>
@@ -321,15 +470,47 @@ export function InventoryPage({
                       <input
                         required={!f.optional}
                         type={f.type || "text"}
+                        autoComplete={
+                          f.type === "password" ? "new-password" : undefined
+                        }
                         value={values[f.key] ?? ""}
                         onChange={(e) =>
                           setValues({ ...values, [f.key]: e.target.value })
                         }
                       />
                     )}
+                    {f.description && (
+                      <small className="muted" id={`${kind}-${f.key}-help`}>
+                        {f.description}
+                      </small>
+                    )}
                   </label>
                 ))}
               </div>
+              {kind === "machines" && (
+                <>
+                  <p className="muted">
+                    {selected?.has_ssh_password
+                      ? "已配置 SSH 密码，留空不会修改。"
+                      : "未配置 SSH 密码，采集前需要填写。"}
+                  </p>
+                  {selected?.has_ssh_password && (
+                    <label className="checkbox-label">
+                      <input
+                        type="checkbox"
+                        checked={values.clear_ssh_password === true}
+                        onChange={(e) =>
+                          setValues({
+                            ...values,
+                            clear_ssh_password: e.target.checked,
+                          })
+                        }
+                      />
+                      清除已保存的 SSH 密码
+                    </label>
+                  )}
+                </>
+              )}
               <div className="actions">
                 <button className="primary" disabled={busy}>
                   保存资源
@@ -337,7 +518,14 @@ export function InventoryPage({
                 <button
                   type="button"
                   onClick={() => {
-                    if (leave()) setEditing(false);
+                    if (detailOnly && createMachine && !selected) {
+                      onBack?.();
+                      return;
+                    }
+                    if (leave()) {
+                      setEditing(false);
+                      setValues({});
+                    }
                   }}
                 >
                   取消
@@ -351,29 +539,36 @@ export function InventoryPage({
                 <span className="badge">修订 {selected.revision}</span>
               </div>
               <dl>
-                {fields[kind].map((f) => (
-                  <div key={f.key}>
-                    <dt>{f.label}</dt>
-                    <dd>
-                      {f.source
-                        ? f.type === "multiple"
-                          ? (selected[f.key] as string[])
-                              .map(
-                                (id) =>
-                                  (refs[f.source!] || []).find(
-                                    (x) => x.id === id,
-                                  )?.name || id,
-                              )
-                              .join("、")
-                          : (refs[f.source] || []).find(
-                              (x) => x.id === selected[f.key],
-                            )?.name || selected[f.key]
-                        : String(selected[f.key] ?? "—")}
-                    </dd>
-                  </div>
-                ))}
+                {fields[kind]
+                  .filter((f) => f.type !== "password")
+                  .map((f) => (
+                    <div key={f.key}>
+                      <dt>{f.label}</dt>
+                      <dd>
+                        {f.source
+                          ? f.type === "multiple"
+                            ? (selected[f.key] as string[])
+                                .map(
+                                  (id) =>
+                                    (refs[f.source!] || []).find(
+                                      (x) => x.id === id,
+                                    )?.name || id,
+                                )
+                                .join("、")
+                            : (refs[f.source] || []).find(
+                                (x) => x.id === selected[f.key],
+                              )?.name || selected[f.key]
+                          : String(selected[f.key] ?? "—")}
+                      </dd>
+                    </div>
+                  ))}
               </dl>
-              {admin && (
+              {kind === "machines" && (
+                <p>
+                  SSH 密码：{selected.has_ssh_password ? "已配置" : "未配置"}
+                </p>
+              )}
+              {canEdit && (
                 <div className="actions">
                   <button onClick={() => edit(selected)}>编辑资源</button>
                   <button onClick={archive} disabled={busy}>
@@ -381,21 +576,40 @@ export function InventoryPage({
                   </button>
                 </div>
               )}
+              {kind === "machines" && (
+                <MachineHardware
+                  machine={selected}
+                  canEdit={canEdit}
+                  refreshing={refreshingId === selected.id}
+                  onRefresh={() => refreshHardware()}
+                  onTrust={() => refreshHardware(true)}
+                />
+              )}
               {["clusters", "environments"].includes(kind) &&
                 !selected.archived && (
                   <ConfigEditor
                     key={selected.id}
                     kind={kind === "clusters" ? "cluster" : "environment"}
                     id={selected.id}
-                    admin={admin}
+                    admin={canEdit}
                     onDirty={setConfigDirty}
                   />
                 )}
             </>
           ) : (
             <div className="empty">
-              <h2>选择一项资源</h2>
-              <p>查看关联信息、维护配置与版本。</p>
+              <h2>
+                {detailOnly
+                  ? detailLoading
+                    ? "正在读取机器信息…"
+                    : "无法读取机器信息"
+                  : "选择一项资源"}
+              </h2>
+              <p>
+                {detailOnly
+                  ? "可返回机器概览重新选择。"
+                  : "查看关联信息、维护配置与版本。"}
+              </p>
             </div>
           )}
         </section>

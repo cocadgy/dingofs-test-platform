@@ -12,7 +12,8 @@ def main():
     parser.add_argument("command", choices=["create-admin", "create-member"])
     args = parser.parse_args()
     username = input("Username: ").strip()
-    password = getpass.getpass("Password (at least 12 characters): ")
+    email = input("Email (required): ").strip()
+    password = getpass.getpass("Password (at least 6 characters): ")
     if password != getpass.getpass("Confirm password: "):
         raise SystemExit("Passwords do not match")
     engine = create_engine(Settings().database_url)
@@ -22,6 +23,7 @@ def main():
             username,
             password,
             "admin" if args.command == "create-admin" else "member",
+            email=email,
         )
     print("Account created:", username)
 

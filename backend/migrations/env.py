@@ -1,3 +1,4 @@
+from dingofs_platform.clusters import models as cluster_models  # noqa: F401
 from alembic import context
 from sqlalchemy import create_engine
 from dingofs_platform.settings import Settings

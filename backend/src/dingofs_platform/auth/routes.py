@@ -23,6 +23,7 @@ def identity(user, token):
         "id": user.id,
         "username": user.username,
         "role": user.role,
+        "email": user.email,
         "csrf_token": csrf_token(token),
     }
 
@@ -33,6 +34,9 @@ def login(body: Login, request: Request, response: Response):
     if origin and origin.rstrip("/") != str(request.base_url).rstrip("/"):
         raise Problem(403, "origin_failed", "请求来源不匹配")
     with get_db(request) as db:
+        from .users import lock_accounts
+
+        lock_accounts(db)
         user = verify_login(db, body.username, body.password)
         token = secrets.token_urlsafe(48)
         # Rotate an existing session if the browser logs in again.

@@ -1,7 +1,17 @@
 import { useEffect, useState } from "react";
 import { api, setCsrf } from "./api/client";
 import { InventoryPage, sections } from "./features/inventory/InventoryPage";
-type User = { username: string; role: string; csrf_token: string };
+import { ClusterPage } from "./features/clusters/ClusterPage";
+import { MachinePage } from "./features/inventory/MachinePage";
+import { UsersPage } from "./features/users/UsersPage";
+import { ProfilePage } from "./features/users/ProfilePage";
+type User = {
+  id: string;
+  username: string;
+  email: string | null;
+  role: string;
+  csrf_token: string;
+};
 export function App() {
   const [user, setUser] = useState<User>();
   const [loading, setLoading] = useState(true);
@@ -13,7 +23,15 @@ export function App() {
   const [kind, setKind] = useState("machines");
   function session(u: User) {
     setUser(u);
+    setKind(
+      u.email
+        ? window.location.hash.startsWith("#/clusters")
+          ? "clusters"
+          : "machines"
+        : "profile",
+    );
     setCsrf(u.csrf_token);
+    if (!u.email) setKind("profile");
   }
   useEffect(() => {
     api<User>("/auth/me")
@@ -37,6 +55,22 @@ export function App() {
     };
     window.addEventListener("beforeunload", before);
     return () => window.removeEventListener("beforeunload", before);
+  }, [dirty]);
+  useEffect(() => {
+    const navigate = (event: Event) => {
+      const detail = (event as CustomEvent).detail;
+      if (detail?.kind !== "machines" || typeof detail.id !== "string") return;
+      if (dirty && !confirm("有未保存修改，确定离开？")) return;
+      setDirty(false);
+      window.history.pushState(
+        null,
+        "",
+        "#/machines/" + encodeURIComponent(detail.id),
+      );
+      setKind("machines");
+    };
+    window.addEventListener("platform-navigate", navigate);
+    return () => window.removeEventListener("platform-navigate", navigate);
   }, [dirty]);
   async function login(e: React.FormEvent) {
     e.preventDefault();
@@ -122,14 +156,29 @@ export function App() {
         </div>
         <p className="nav-label">工作空间</p>
         <nav>
-          {Object.entries(sections).map(([key, label]) => (
+          {Object.entries({
+            ...sections,
+            ...(user.role === "admin" ? { users: "用户管理" } : {}),
+            profile: "个人设置",
+          }).map(([key, label]) => (
             <button
               key={key}
               aria-current={kind === key ? "page" : undefined}
               onClick={() => {
-                if (key === kind) return;
+                if (key === kind) {
+                  if (["machines", "clusters"].includes(key))
+                    window.location.hash = "#/" + key;
+                  return;
+                }
                 if (!dirty || confirm("有未保存修改，确定离开？")) {
                   setDirty(false);
+                  window.history.replaceState(
+                    null,
+                    "",
+                    ["machines", "clusters"].includes(key)
+                      ? "#/" + key
+                      : window.location.pathname + window.location.search,
+                  );
                   setKind(key);
                 }
               }}
@@ -146,7 +195,7 @@ export function App() {
         </div>
         <div className="account">
           <strong>{user.username}</strong>
-          <span>{user.role === "admin" ? "管理员" : "普通成员 · 只读"}</span>
+          <span>{user.role === "admin" ? "管理员" : "普通成员"}</span>
           <button onClick={logout}>退出登录</button>
         </div>
       </aside>
@@ -155,13 +204,57 @@ export function App() {
           <span>团队测试工作台</span>
           <span className="badge">配置管理</span>
         </div>
-        <div className="content">
-          <InventoryPage
-            key={kind}
-            kind={kind}
-            admin={user.role === "admin"}
-            onDirty={setDirty}
-          />
+        <div
+          className={
+            "content" +
+            (["machines", "clusters"].includes(kind) ? " machines-content" : "")
+          }
+        >
+          {kind === "users" && user.role === "admin" ? (
+            <UsersPage
+              currentId={user.id}
+              onDirty={setDirty}
+              onSessionRevoked={() => {
+                setUser(undefined);
+                setCsrf("");
+                setDirty(false);
+                setKind("machines");
+                setError("账号状态或密码已变更，请重新登录");
+              }}
+            />
+          ) : kind === "profile" ? (
+            <ProfilePage
+              email={user.email}
+              onDirty={setDirty}
+              onEmailSaved={(email) => setUser({ ...user, email })}
+              onPasswordChanged={() => {
+                setUser(undefined);
+                setCsrf("");
+                setDirty(false);
+                setKind("machines");
+                setError("密码已修改，请使用新密码登录");
+              }}
+            />
+          ) : kind === "clusters" ? (
+            <ClusterPage
+              userId={user.id}
+              admin={user.role === "admin"}
+              onDirty={setDirty}
+            />
+          ) : kind === "machines" ? (
+            <MachinePage
+              userId={user.id}
+              admin={user.role === "admin"}
+              onDirty={setDirty}
+            />
+          ) : (
+            <InventoryPage
+              key={kind}
+              kind={kind}
+              admin={user.role === "admin"}
+              onDirty={setDirty}
+            />
+          )}
         </div>
       </main>
     </div>

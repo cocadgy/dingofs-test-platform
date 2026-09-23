@@ -1,7 +1,7 @@
+from datetime import datetime, timezone
 from sqlalchemy import select, delete, text
 from dingofs_platform.inventory.models import (
     Machine,
-    ManagementContext,
     Cluster,
     Environment,
     cluster_machines,
@@ -12,7 +12,6 @@ from dingofs_platform.audit.models import AuditEvent
 
 MODELS = {
     "machines": Machine,
-    "management-contexts": ManagementContext,
     "clusters": Cluster,
     "environments": Environment,
 }
@@ -23,7 +22,44 @@ LINKS = {
 
 
 def serialize(db, kind, row):
-    data = {col.name: getattr(row, col.name) for col in row.__table__.columns}
+    if kind == "machines":
+        fields = (
+            "id",
+            "creator_id",
+            "created_at",
+            "updated_at",
+            "revision",
+            "name",
+            "archived",
+            "address",
+            "ssh_port",
+            "ssh_user",
+            "credential_ref",
+            "physical_id",
+            "tags",
+            "maintenance",
+            "hardware_info",
+            "last_attempt_info",
+            "last_attempt_at",
+            "last_success_at",
+            "collection_status",
+            "collection_error",
+            "collection_expires_at",
+        )
+        data = {name: getattr(row, name) for name in fields}
+        data["has_ssh_password"] = bool(row.ssh_password_ciphertext)
+        from .host_trust import public_trust
+
+        data["ssh_host_trust"] = public_trust(row)
+        if (
+            row.collection_status == "collecting"
+            and row.collection_expires_at
+            and row.collection_expires_at <= datetime.now(timezone.utc)
+        ):
+            data["collection_status"] = "interrupted"
+            data["collection_error"] = "上次采集中断，可重新更新"
+    else:
+        data = {col.name: getattr(row, col.name) for col in row.__table__.columns}
     if kind in LINKS:
         table, key = LINKS[kind]
         data["machine_ids"] = list(
@@ -45,10 +81,8 @@ def active(db, model, id):
 
 
 def validate_refs(db, kind, data):
-    if kind == "management-contexts":
-        active(db, Machine, data["machine_id"])
     if kind == "clusters":
-        active(db, ManagementContext, data["context_id"])
+        active(db, Machine, data["management_machine_id"])
     if kind == "environments":
         active(db, Cluster, data["cluster_id"])
     for mid in data.get("machine_ids", []):
@@ -59,8 +93,8 @@ def check_archive(db, kind, id):
     queries = []
     if kind == "machines":
         queries = [
-            select(ManagementContext.id).where(
-                ManagementContext.machine_id == id, ManagementContext.archived == False
+            select(Cluster.id).where(
+                Cluster.management_machine_id == id, Cluster.archived == False
             ),
             select(Cluster.id)
             .join(cluster_machines, Cluster.id == cluster_machines.c.cluster_id)
@@ -73,12 +107,6 @@ def check_archive(db, kind, id):
             .where(
                 environment_machines.c.machine_id == id, Environment.archived == False
             ),
-        ]
-    if kind == "management-contexts":
-        queries = [
-            select(Cluster.id).where(
-                Cluster.context_id == id, Cluster.archived == False
-            )
         ]
     if kind == "clusters":
         queries = [

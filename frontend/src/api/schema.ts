@@ -158,6 +158,316 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/users": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Users */
+        get: operations["list_users_api_v1_users_get"];
+        put?: never;
+        /** Add User */
+        post: operations["add_user_api_v1_users_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/users/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Delete User */
+        delete: operations["delete_user_api_v1_users__id__delete"];
+        options?: never;
+        head?: never;
+        /** Set Status */
+        patch: operations["set_status_api_v1_users__id__patch"];
+        trace?: never;
+    };
+    "/api/v1/users/{id}/reset-password": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Reset Password */
+        post: operations["reset_password_api_v1_users__id__reset_password_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/auth/profile": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /** Profile */
+        patch: operations["profile_api_v1_auth_profile_patch"];
+        trace?: never;
+    };
+    "/api/v1/machines/{id}/refresh-hardware": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Refresh */
+        post: operations["refresh_api_v1_machines__id__refresh_hardware_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/machines/{id}/trust-host-key": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Confirm Host */
+        post: operations["confirm_host_api_v1_machines__id__trust_host_key_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/machines/overview": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Listing */
+        get: operations["listing_api_v1_machines_overview_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/cluster-discoveries": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Discover */
+        post: operations["discover_api_v1_cluster_discoveries_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/cluster-operations/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Operation */
+        get: operations["operation_api_v1_cluster_operations__id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/cluster-operations/{id}/authenticate": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Authenticate */
+        post: operations["authenticate_api_v1_cluster_operations__id__authenticate_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/cluster-operations/{id}/cancel": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Cancel */
+        post: operations["cancel_api_v1_cluster_operations__id__cancel_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/cluster-discoveries/{id}/import": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Importing */
+        post: operations["importing_api_v1_cluster_discoveries__id__import_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/clusters/overview": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Overview */
+        get: operations["overview_api_v1_clusters_overview_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/clusters/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Detail */
+        get: operations["detail_api_v1_clusters__id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /** Edit */
+        patch: operations["edit_api_v1_clusters__id__patch"];
+        trace?: never;
+    };
+    "/api/v1/clusters/{id}/refresh-status": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Refresh Status */
+        post: operations["refresh_status_api_v1_clusters__id__refresh_status_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/clusters/{id}/topology": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Stored Topology */
+        get: operations["stored_topology_api_v1_clusters__id__topology_get"];
+        put?: never;
+        /** Topology */
+        post: operations["topology_api_v1_clusters__id__topology_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/clusters/{id}/rebind": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Binding */
+        post: operations["binding_api_v1_clusters__id__rebind_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/clusters": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** No Manual Create */
+        post: operations["no_manual_create_api_v1_clusters_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/{kind}": {
         parameters: {
             query?: never;
@@ -198,6 +508,175 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        /** AuthInput */
+        AuthInput: {
+            /** Challenge */
+            challenge: string;
+            /**
+             * Password
+             * Format: password
+             */
+            password: string;
+        };
+        /** BindingCandidate */
+        BindingCandidate: {
+            /** Id */
+            id: string;
+            /** Name */
+            name: string;
+            /** Config Dir */
+            config_dir: string;
+            /** Archived */
+            archived: boolean;
+            /** Revision */
+            revision: number;
+        };
+        /** BindingChoice */
+        BindingChoice: {
+            /** Name */
+            name: string;
+            /** Candidates */
+            candidates: components["schemas"]["BindingCandidate"][];
+        };
+        /** ClusterDetailView */
+        ClusterDetailView: {
+            /** Creator Id */
+            creator_id?: string | null;
+            /** Node Links */
+            node_links?: {
+                [key: string]: string;
+            };
+            /** Id */
+            id: string;
+            /** Name */
+            name: string;
+            /** External Name */
+            external_name: string;
+            /** Machine Name */
+            machine_name: string;
+            /** Machine Address */
+            machine_address: string;
+            /** Management Machine Id */
+            management_machine_id: string;
+            /** Ssh User */
+            ssh_user: string;
+            /** Os User */
+            os_user: string;
+            /** Archived */
+            archived: boolean;
+            /** Binding State */
+            binding_state: string;
+            /** Revision */
+            revision: number;
+            status_snapshot: components["schemas"]["ClusterSnapshot"] | null;
+            /** Status Success At */
+            status_success_at: string | null;
+            /** Status Attempt At */
+            status_attempt_at: string | null;
+            /** Status Attempt State */
+            status_attempt_state: string;
+            /** Status Error Code */
+            status_error_code: string | null;
+            /** Status Output */
+            status_output: {
+                [key: string]: unknown;
+            } | null;
+            /** Config Dir */
+            config_dir: string;
+            /** Execution Home */
+            execution_home: string | null;
+            /** Resolved Dingo Path */
+            resolved_dingo_path: string | null;
+        } & {
+            [key: string]: unknown;
+        };
+        /** ClusterList */
+        ClusterList: {
+            /** Items */
+            items: components["schemas"]["ClusterSummary"][];
+            /** Total */
+            total: number;
+        };
+        /** ClusterSnapshot */
+        ClusterSnapshot: {
+            /** Cluster Name */
+            cluster_name: string;
+            /** Cluster Kind */
+            cluster_kind: string;
+            /** Mds Addresses */
+            mds_addresses: string[];
+            /** Tikv Addresses */
+            tikv_addresses: string[];
+            /** Services */
+            services: components["schemas"]["ServiceRow"][];
+            /** Role Counts */
+            role_counts: {
+                [key: string]: number;
+            };
+            /** Node Count */
+            node_count: number;
+            /** Service Count */
+            service_count: number;
+            /** Running Instances */
+            running_instances: number;
+            /** Expected Instances */
+            expected_instances: number;
+            /** State */
+            state: string;
+            /**
+             * Parser Version
+             * @default 1
+             */
+            parser_version: number;
+        };
+        /** ClusterSummary */
+        ClusterSummary: {
+            /** Creator Id */
+            creator_id?: string | null;
+            /** Id */
+            id: string;
+            /** Name */
+            name: string;
+            /** External Name */
+            external_name: string;
+            /** Machine Name */
+            machine_name: string;
+            /** Machine Address */
+            machine_address: string;
+            /** Os User */
+            os_user: string;
+            /** Archived */
+            archived: boolean;
+            /** Binding State */
+            binding_state: string;
+            /** Cluster Kind */
+            cluster_kind: string | null;
+            /** State */
+            state: string;
+            /** Node Count */
+            node_count: number | null;
+            /** Service Count */
+            service_count: number | null;
+            /** Running Instances */
+            running_instances: number | null;
+            /** Expected Instances */
+            expected_instances: number | null;
+            /** Status Success At */
+            status_success_at: string | null;
+            /** Status Attempt State */
+            status_attempt_state: string;
+            /** Revision */
+            revision: number;
+        };
+        /** DiscoverInput */
+        DiscoverInput: {
+            /** Machine Id */
+            machine_id: string;
+            /** Machine Revision */
+            machine_revision: number;
+            /** Target User */
+            target_user: string;
+        };
         /** DraftInput */
         DraftInput: {
             /** Base Revision */
@@ -234,10 +713,40 @@ export interface components {
                 [key: string]: boolean;
             };
         };
+        /** EditInput */
+        EditInput: {
+            /** Base Revision */
+            base_revision: number;
+            /** Name */
+            name?: string | null;
+            /** Archived */
+            archived?: boolean | null;
+        };
         /** HTTPValidationError */
         HTTPValidationError: {
             /** Detail */
             detail?: components["schemas"]["ValidationError"][];
+        };
+        /** ImportInput */
+        ImportInput: {
+            /** Names */
+            names: string[];
+        };
+        /** ImportResult */
+        ImportResult: {
+            /** Created */
+            created: components["schemas"]["ImportedCluster"][];
+            /** Existing */
+            existing: components["schemas"]["ImportedCluster"][];
+            /** Needs Confirmation */
+            needs_confirmation: components["schemas"]["BindingChoice"][];
+        };
+        /** ImportedCluster */
+        ImportedCluster: {
+            /** Id */
+            id: string;
+            /** Name */
+            name: string;
         };
         /** Login */
         Login: {
@@ -246,10 +755,194 @@ export interface components {
             /** Password */
             password: string;
         };
+        /** MachineOverviewItem */
+        MachineOverviewItem: {
+            /** Id */
+            id: string;
+            /** Name */
+            name: string;
+            /** Address */
+            address: string;
+            /** Ip */
+            ip: string;
+            /** Archived */
+            archived: boolean;
+            /** Collection Status */
+            collection_status: string;
+            /** Hardware Source */
+            hardware_source: string;
+            /** Cpu Model */
+            cpu_model: string | null;
+            /** Physical Cores */
+            physical_cores: number | null;
+            /** Logical Cores */
+            logical_cores: number | null;
+            /** Memory Bytes */
+            memory_bytes: number | null;
+            /** Disk Bytes */
+            disk_bytes: number | null;
+            /** Max Speed Mbps */
+            max_speed_mbps: number | null;
+            /** Rdma Devices */
+            rdma_devices: string[] | null;
+            /** Info Updated At */
+            info_updated_at: string | null;
+        };
+        /** MachineOverviewList */
+        MachineOverviewList: {
+            /** Items */
+            items: components["schemas"]["MachineOverviewItem"][];
+            /** Total */
+            total: number;
+        };
+        /** NewUser */
+        NewUser: {
+            /** Username */
+            username: string;
+            /** Email */
+            email: string;
+            /** Password */
+            password: string;
+            /**
+             * Role
+             * @default member
+             * @enum {string}
+             */
+            role: "admin" | "member";
+        };
+        /** OperationView */
+        OperationView: {
+            /** Id */
+            id: string;
+            /** Kind */
+            kind: string;
+            /** State */
+            state: string;
+            /** Machine Id */
+            machine_id: string;
+            /** Machine Name */
+            machine_name: string;
+            /** Ssh User */
+            ssh_user: string;
+            /** Target User */
+            target_user: string;
+            /** Cluster Id */
+            cluster_id: string | null;
+            /** Error Code */
+            error_code: string | null;
+            /** Message */
+            message: string | null;
+            /** Result */
+            result: {
+                [key: string]: unknown;
+            } | null;
+            /** Auth Account */
+            auth_account: string | null;
+            /** Challenge */
+            challenge: string | null;
+            /** Expires At */
+            expires_at: string;
+        };
+        /** ProfileUpdate */
+        ProfileUpdate: {
+            /** Current Password */
+            current_password: string;
+            /** Email */
+            email?: string | null;
+            /** New Password */
+            new_password?: string | null;
+        };
+        /** RebindInput */
+        RebindInput: {
+            /** Base Revision */
+            base_revision: number;
+            /** Discovery Id */
+            discovery_id: string;
+            /** Name */
+            name: string;
+        };
+        /** RefreshInput */
+        RefreshInput: {
+            /** Base Revision */
+            base_revision: number;
+        };
         /** Revision */
         Revision: {
             /** Base Revision */
             base_revision: number;
+        };
+        /** RevisionInput */
+        RevisionInput: {
+            /** Base Revision */
+            base_revision: number;
+        };
+        /** ServiceRow */
+        ServiceRow: {
+            /** Id */
+            id: string;
+            /** Role */
+            role: string;
+            /** Host */
+            host: string;
+            /** Running Instances */
+            running_instances: number;
+            /** Expected Instances */
+            expected_instances: number;
+            /** Container Id */
+            container_id: string | null;
+            /** Status Text */
+            status_text: string;
+            /** State */
+            state: string;
+            /** Ports */
+            ports: string[];
+            /** Log Dir */
+            log_dir: string | null;
+            /** Data Dir */
+            data_dir: string | null;
+            /** Raft Dir */
+            raft_dir: string | null;
+        };
+        /** TrustInput */
+        TrustInput: {
+            /** Base Revision */
+            base_revision: number;
+            /** Challenge Id */
+            challenge_id: string;
+        };
+        /** UserList */
+        UserList: {
+            /** Items */
+            items: components["schemas"]["UserView"][];
+            /** Total */
+            total: number;
+        };
+        /** UserRevision */
+        UserRevision: {
+            /** Base Revision */
+            base_revision: number;
+        };
+        /** UserStatus */
+        UserStatus: {
+            /** Base Revision */
+            base_revision: number;
+            /** Disabled */
+            disabled: boolean;
+        };
+        /** UserView */
+        UserView: {
+            /** Id */
+            id: string;
+            /** Username */
+            username: string;
+            /** Email */
+            email: string | null;
+            /** Role */
+            role: string;
+            /** Disabled */
+            disabled: boolean;
+            /** Revision */
+            revision: number;
         };
         /** ValidationError */
         ValidationError: {
@@ -551,6 +1244,727 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_users_api_v1_users_get: {
+        parameters: {
+            query?: {
+                q?: string;
+                limit?: number;
+                offset?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UserList"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    add_user_api_v1_users_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["NewUser"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UserView"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    delete_user_api_v1_users__id__delete: {
+        parameters: {
+            query: {
+                base_revision: number;
+            };
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    set_status_api_v1_users__id__patch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UserStatus"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UserView"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    reset_password_api_v1_users__id__reset_password_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UserRevision"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    profile_api_v1_auth_profile_patch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ProfileUpdate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    refresh_api_v1_machines__id__refresh_hardware_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RefreshInput"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    confirm_host_api_v1_machines__id__trust_host_key_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TrustInput"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    listing_api_v1_machines_overview_get: {
+        parameters: {
+            query?: {
+                limit?: number;
+                offset?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MachineOverviewList"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    discover_api_v1_cluster_discoveries_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DiscoverInput"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OperationView"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    operation_api_v1_cluster_operations__id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OperationView"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    authenticate_api_v1_cluster_operations__id__authenticate_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AuthInput"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OperationView"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    cancel_api_v1_cluster_operations__id__cancel_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OperationView"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    importing_api_v1_cluster_discoveries__id__import_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ImportInput"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ImportResult"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    overview_api_v1_clusters_overview_get: {
+        parameters: {
+            query?: {
+                limit?: number;
+                offset?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ClusterList"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    detail_api_v1_clusters__id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ClusterDetailView"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    edit_api_v1_clusters__id__patch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EditInput"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ClusterDetailView"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    refresh_status_api_v1_clusters__id__refresh_status_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RevisionInput"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OperationView"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    stored_topology_api_v1_clusters__id__topology_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    topology_api_v1_clusters__id__topology_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RevisionInput"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OperationView"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    binding_api_v1_clusters__id__rebind_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RebindInput"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ClusterDetailView"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    no_manual_create_api_v1_clusters_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
                 };
             };
         };
