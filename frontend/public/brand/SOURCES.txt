@@ -1,0 +1,17 @@
+八斗 · 九章云极 DataCanvas 吉祥物
+
+Source page: https://www.datacanvas.com/news/478.html
+Article: YLearn因果学习开源项目「贡献者计划」精彩来袭
+Original image: https://www.datacanvas.com/static/upload/2025/07/07/74732137.jpg
+Retrieved: 2026-10-10
+Local asset: badou-official-luckybag.jpg (original, unchanged, 1023 × 341)
+
+The UI displays the mascot at the right of the official Luckybag photograph
+using an SVG viewport and clipping path. Animation uses CSS transforms only.
+This is a photograph of official merchandise, not an original transparent logo.
+The mascot and source artwork belong to DataCanvas; this source note does not
+relicense them under the application's code license.
+
+Login, sidebar and running indicator use the smiling portrait. The component
+also supports the open-eyed portrait from the upper middle eye mask in the
+same photograph, but this variant is not currently selected.

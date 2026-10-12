@@ -11,6 +11,7 @@ from dingofs_platform.inventory.ssh_transport import CollectionError
 @pytest.fixture
 def node(admin, app):
     app.state.settings.credential_encryption_key = Fernet.generate_key().decode()
+    app.state.hardware_transport = lambda *a, **k: {}
     r = admin.post(
         "/api/v1/machines",
         json=dict(
@@ -18,7 +19,7 @@ def node(admin, app):
         ),
     )
     assert r.status_code == 201
-    return r.json()
+    return admin.get("/api/v1/machines/" + r.json()["id"]).json()
 
 
 def refresh(admin, node):

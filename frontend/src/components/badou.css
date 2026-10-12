@@ -1,0 +1,61 @@
+.badou {
+  position: relative;
+  display: inline-flex;
+  flex: 0 0 auto;
+  width: 52px;
+  align-items: center;
+  justify-content: center;
+  vertical-align: middle;
+}
+.badou--large {
+  width: 136px;
+}
+.badou-portrait {
+  display: block;
+  width: 100%;
+  height: auto;
+  overflow: visible;
+  transform-origin: 50% 85%;
+}
+.badou--animated {
+  padding-bottom: 15px;
+}
+.badou--animated .badou-portrait {
+  animation: badou-hop 1.5s ease-in-out infinite;
+}
+.badou-shadow {
+  position: absolute;
+  bottom: 0;
+  left: 24%;
+  width: 52%;
+  height: 9px;
+  border-radius: 50%;
+  background: #193e4520;
+  animation: badou-shadow 1.5s ease-in-out infinite;
+}
+@keyframes badou-hop {
+  0%,
+  100% {
+    transform: translateY(0) rotate(-3deg);
+  }
+  50% {
+    transform: translateY(-9px) rotate(3deg);
+  }
+}
+@keyframes badou-shadow {
+  0%,
+  100% {
+    transform: scaleX(1);
+    opacity: 0.8;
+  }
+  50% {
+    transform: scaleX(0.75);
+    opacity: 0.4;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .badou--animated .badou-portrait,
+  .badou-shadow {
+    animation: none;
+  }
+}

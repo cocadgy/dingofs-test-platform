@@ -1,0 +1,118 @@
+dingo-cache main-fe4384a0b [local]
+
+Usage:
+  dingo-cache [OPTIONS] --id <uuid> --listen_ip <ip>
+
+Examples:
+  $ dingo-cache --id=85a4b352-... --listen_ip=10.0.0.2
+  $ dingo-cache --conf cache.conf --daemonize
+
+RUNTIME OPTIONS:
+  --buffer_pool_mb=uint64                                   buffer pool per shard in MiB (default: 256)
+  --cpuset=string                                           cores the shards run on, e.g. 0-31
+  --idle_poll_us=uint32                                     microseconds a reactor spins on an empty queue before it sleeps; ignored under --poll_mode, which never sleeps (default: 200)
+  --iodepth=uint32                                          submission queue entries per shard's ring (default: 1024)
+  --offload_cpu_min_bytes=uint32                            copies below this stay on the shard (default: 32768)
+  --offload_cpu_spin_us=uint32                              cpu workers spin this long for more work before parking; matches the reactor's idle_poll_us so a QD1 stream never pays a condvar wakeup per completion (default: 200)
+  --offload_queue_capacity=uint32                           queued offload jobs beyond which submits answer busy (default: 4096)
+  --offload_threads=uint32                                  worker threads for offloaded blocking work (default: 32)
+  --pin_cpu=bool                                            pin each shard to its core (default: false)
+  --poll_mode=bool                                          busy-poll the reactors (default: false)
+  --shards=uint32                                           reactor shards, 0 means one per core (default: 8)
+  --task_quota_us=uint32                                    microseconds a task may run before the reactor preempts it (default: 500)
+
+NODE OPTIONS:
+  --bind_all=bool                                           bind 0.0.0.0 instead of listen_ip (default: true)
+  --cache_mds_request_retry_times=uint32                    retry count for the cache mds request wrapper (default: 3)
+  --cache_mds_rpc_retry_times=int32                         retry count for each cache mds rpc attempt (default: 1)
+  --cache_mds_rpc_timeout_ms=int64                          timeout for cache mds rpcs in milliseconds (default: 3000)
+  --conf=string                                             config file path
+  --daemonize=bool                                          run in background (default: false)
+  --group_name=string                                       cache group to join (default: default)
+  --group_weight=uint32                                     node weight in consistent hash (default: 100)
+  --heartbeat_interval_s=uint32                             heartbeat interval in seconds (default: 3)
+  --id=string                                               cache node id [required]
+  --listen_ip=string                                        ip to listen on [required]
+  --listen_port=uint32                                      port to listen on (default: 9300)
+  --mds_addrs=string                                        mds addresses (default: 127.0.0.1:7400)
+
+NETWORK OPTIONS:
+  --brpc_idle_timeout_second=int32                          seconds an idle connection is kept; -1 never reaps (default: -1)
+  --brpc_max_concurrency=int32                              requests in flight brpc admits; 0 is unlimited (default: 0)
+  --brpc_reply_on_bthread=bool                              run brpc's done on a bthread instead of on the owning shard (default: false)
+  --cache_rdma_device=string                                rdma device; empty picks the first
+  --cache_rdma_port_num=uint32                              hca port to use (default: 1)
+  --rdma_bulk_qps=uint32                                    bulk queue pairs per connection (default: 2)
+  --rdma_bulk_send_wr=uint32                                send queue depth of one bulk queue pair (default: 256)
+  --rdma_cq_entries=uint32                                  initial completion queue entries; grows on demand (default: 4096)
+  --rdma_gid_idx=int32                                      gid index; -1 auto-selects a RoCEv2 IPv4 gid (RoCE only) (default: -1)
+  --rdma_heartbeat_interval_s=uint32                        seconds between heartbeats (default: 2)
+  --rdma_idle_timeout_s=uint32                              seconds before an idle connection is reaped (default: 10)
+  --rdma_max_connections=uint32                             max rdma connections per shard (default: 64)
+  --rdma_max_inflight_rpcs=uint32                           max in-flight rpcs per connection (default: 256)
+  --rdma_max_inline_data=uint32                             max bytes inlined into a wqe (default: 192)
+  --rdma_message_bytes=uint32                               bytes in one message; both ends must agree (default: 4096)
+  --use_rdma=bool                                           use rdma transport (default: false)
+
+BLOCK CACHE OPTIONS:
+  --max_range_size_kb=uint32                                whole-block fetch threshold (KB) (default: 128)
+  --upload_stage_max_inflights=uint32                       upload stage block concurrency (default: 32)
+  --upload_stage_max_tries=uint32                           max tries for upload stage block (default: 3)
+  --upload_stage_retry_delay_s=uint32                       delay before a failed retry (default: 60)
+
+CACHE STORE OPTIONS:
+  --cache_cleanup_expire_interval_ms=uint32                 interval to evict expired blocks (default: 1000)
+  --cache_dir=string                                        cache directories, comma-separated path[:size_mb] (default: /home/jenkins/.dingo/cache)
+  --cache_dir_uuid=string                                   uuid suffix appended to each cache directory; set internally
+  --cache_eviction=string                                   eviction: lru | 2random | s3fifo | sieve | none (default: 2random)
+  --cache_expire_s=uint32                                   expire time of cached blocks (0 means never) (default: 259200)
+  --cache_size_mb=uint32                                    cache size in mb (default: 102400)
+  --disk_state_check_duration_ms=uint32                     probe interval (default: 3000)
+  --disk_state_normal2unstable_error_num=uint32             errors that turn a disk unstable (default: 3)
+  --disk_state_probe_timeout_ms=uint32                      probe timeout (default: 5000)
+  --disk_state_tick_duration_s=uint32                       state window length (default: 60)
+  --disk_state_unstable2down_s=uint32                       unstable seconds before a disk goes down (default: 1800)
+  --disk_state_unstable2normal_succ_num=uint32              successes that turn a disk normal (default: 10)
+  --free_space_ratio=double                                 min free space (ratio) (default: 0.10000000000000001)
+
+OBJECT STORAGE OPTIONS:
+  --block_access_logging=bool                               enable block access log (default: true)
+  --io_bandwidth_read_mb=uint32                             read io bandwidth limit in MB(0 means no limit) (default: 0)
+  --io_bandwidth_total_mb=uint32                            total io bandwidth limit in MB(0 means no limit) (default: 0)
+  --io_bandwidth_write_mb=uint32                            write io bandwidth limit in MB(0 means no limit) (default: 0)
+  --io_max_inflight_async_bytes=uint32                      max inflight async bytes(0 means no limit) (default: 0)
+  --iops_read_limit=uint32                                  read iops limit(0 means no limit) (default: 0)
+  --iops_total_limit=uint32                                 total iops limit(0 means no limit) (default: 0)
+  --iops_write_limit=uint32                                 write iops limit(0 means no limit) (default: 0)
+  --rados_map_refresh_enable=bool                           enable background refresh of the latest RADOS OSDMap (default: true)
+  --rados_map_refresh_interval_s=uint32                     background RADOS OSDMap refresh interval in seconds (default: 60)
+  --rados_map_refresh_jitter_pct=uint32                     random jitter percentage for the RADOS OSDMap refresh interval (clamped to 50) (default: 20)
+  --rados_op_timeout=int32                                  rados operation timeout in seconds (default: 120)
+  --s3_async_thread_num=int32                               async thread num in thread pool (default: 256)
+  --s3_connect_timeout=int32                                s3 connect timeout in milliseconds (default: 60000)
+  --s3_crt_event_loop_threads=int32                         aws crt client event loop group thread count; 0 means use all available cpu cores. Only effective when s3_use_crt_client=true. (default: 0)
+  --s3_crt_throughput_target_gbps=int32                     crt client throughput target in Gbps; crt derives its real connection count from ceil(target/0.4), maxConnections is ignored on the crt path. Defaults to 20; 0 keeps the sdk default (10.0 -> 25 connections) (default: 20)
+  --s3_enable_telemetry=bool                                whether to enable telemetry (default: false)
+  --s3_loglevel=int32                                       aws sdk log level (default: 4)
+  --s3_max_connections=int32                                max connections to s3 (default: 32)
+  --s3_region=string                                        aws s3 region (default: us-east-1)
+  --s3_request_timeout=int32                                s3 request timeout in milliseconds (default: 10000)
+  --s3_sdk_max_retries=int32                                aws sdk internal max retries, 0 means disable sdk internal retry (retry is handled by the upper storage client) (default: 0)
+  --s3_use_crt_client=bool                                  whether to use crt client (default: true)
+  --s3_use_thread_pool=bool                                 whether to use thread pool (default: true)
+  --s3_use_virtual_address=bool                             whether to use virtual address (default: false)
+  --s3_verify_ssl=bool                                      whether to verify ssl (default: false)
+  --storage_download_max_tries=uint32                       retrieval tries per block (default: 10)
+  --storage_download_notfound_max_tries=uint32              retrieval tries when storage says not found (default: 8)
+  --storage_download_notfound_retry_backoff_base_ms=uint32  first retry delay after a not-found retrieve (ms) (default: 500)
+  --storage_download_retry_backoff_base_ms=uint32           first retrieve retry delay, doubling up to the cap (ms) (default: 300)
+  --storage_upload_max_tries=uint32                         upload tries per block (default: 10)
+  --storage_upload_retry_backoff_base_ms=uint32             first upload retry delay, doubling up to the cap (ms) (default: 1000)
+  --use_fake_block_access=bool                              use fake block access (default: false)
+
+OTHER OPTIONS:
+  --log_dir=string                                          If specified, logfiles are written into this directory instead of the default logging directory.
+  --log_level=string                                        log level (default: INFO)
+  --log_v=int32                                             log level (default: 0)
+
+dingo-cache was written by dingofs team <https://github.com/dingodb/dingofs>

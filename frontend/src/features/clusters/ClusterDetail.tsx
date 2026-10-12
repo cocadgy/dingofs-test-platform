@@ -1,7 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { api } from "../../api/client";
+import { copyText } from "../../clipboard";
+import { ClusterControl } from "./ClusterControl";
 import { ClusterTopology } from "./ClusterTopology";
 import { OperationAuthDialog } from "./OperationAuthDialog";
+import { logAccessReason, type RemoteTargets } from "../remote/types";
 import {
   type ClusterDetailData,
   type Operation,
@@ -32,14 +35,31 @@ export function ClusterDetail({
     [state, setState] = useState(""),
     [editing, setEditing] = useState(false),
     [name, setName] = useState(""),
-    [copied, setCopied] = useState("");
+    [copied, setCopied] = useState<{
+      key?: string;
+      message: string;
+      failed: boolean;
+    }>();
+  const copySequence = useRef(0);
+  const [remoteTargets, setRemoteTargets] = useState<RemoteTargets>();
+  const [terminalMachine, setTerminalMachine] = useState("");
+  useEffect(() => {
+    let active = true;
+    api<RemoteTargets>(`/clusters/${encodeURIComponent(id)}/remote-targets`)
+      .then((targets) => {
+        if (active) setRemoteTargets(targets);
+      })
+      .catch(() => {});
+    return () => {
+      active = false;
+    };
+  }, [id, data?.revision, data?.status_success_at]);
   const live = useRef(true);
   const completed = useRef("");
   const load = useCallback(async () => {
     const row = await api<ClusterDetailData>("/clusters/" + id);
     if (live.current) {
       setData(row);
-      setName(row.name);
     }
     return row;
   }, [id]);
@@ -93,6 +113,13 @@ export function ClusterDetail({
       load().catch((e) => setError(e.message));
     }
   }, [op, load]);
+  const controlCompleted = useCallback(() => {
+    load()
+      .then((row) => refresh(row))
+      .catch((e) => {
+        if (live.current) setError(e.message);
+      });
+  }, [load, refresh]);
   async function edit(e: React.FormEvent) {
     e.preventDefault();
     if (!data) return;
@@ -136,16 +163,20 @@ export function ClusterDetail({
       setBusy(false);
     }
   }
-  async function copy(value: string) {
+  async function copy(value: string, key?: string) {
+    const sequence = ++copySequence.current;
+    setCopied(undefined);
     try {
-      if (navigator.clipboard) {
-        await navigator.clipboard.writeText(value);
-        setCopied("已复制");
-      } else {
-        setCopied("浏览器未提供剪贴板权限，请选中文本复制");
-      }
+      await copyText(value);
+      if (sequence === copySequence.current)
+        setCopied({ key, message: "已复制", failed: false });
     } catch {
-      setCopied("复制失败，请选中文本复制");
+      if (sequence === copySequence.current)
+        setCopied({
+          key,
+          message: "复制失败，请选中文本后手动复制。",
+          failed: true,
+        });
     }
   }
   if (!data)
@@ -181,6 +212,12 @@ export function ClusterDetail({
       (a, b) => Number(a.state === "running") - Number(b.state === "running"),
     );
   const raw = data.status_output;
+  const terminalTargets = remoteTargets?.items || [];
+  const selectedTerminal = terminalTargets.some(
+    (t) => t.machine_id === terminalMachine,
+  )
+    ? terminalMachine
+    : terminalTargets[0]?.machine_id;
   const active = busy || (!!op && ["pending", "running"].includes(op.state));
   return (
     <>
@@ -195,12 +232,13 @@ export function ClusterDetail({
                 rel="noopener noreferrer"
                 title="打开 DingoFS 看板"
               >
-                {data.name}
+                {data.external_name}
               </a>
             ) : (
-              data.name
+              data.external_name
             )}
           </h1>
+          <p>别名：{data.name}</p>
           <p>
             {data.machine_name} · {data.machine_address} · 执行用户{" "}
             {data.os_user}
@@ -228,6 +266,7 @@ export function ClusterDetail({
             <button
               disabled={busy}
               onClick={() => {
+                setName(data.name);
                 setEditing(true);
                 onDirty(true);
               }}
@@ -237,6 +276,34 @@ export function ClusterDetail({
           )}
         </div>
       </header>
+      <div className="cluster-resource-entry">
+        <a
+          className="cluster-resource-card"
+          href={`#/clusters/${encodeURIComponent(id)}/resources`}
+          aria-label="资源管理"
+          aria-describedby="cluster-resource-summary"
+        >
+          <span className="cluster-resource-icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
+              <rect x="3" y="3" width="7" height="7" rx="2" />
+              <rect x="14" y="3" width="7" height="7" rx="2" />
+              <rect x="3" y="14" width="7" height="7" rx="2" />
+              <path d="M14 17.5h7M17.5 14v7" />
+            </svg>
+          </span>
+          <span className="cluster-resource-copy">
+            <strong>资源管理</strong>
+            <span id="cluster-resource-summary">文件系统 · 缓存组 · 挂载管理</span>
+          </span>
+          <span className="cluster-resource-go" aria-hidden="true">进入管理 <span>→</span></span>
+        </a>
+        <div className="cluster-resource-tooltip" role="tooltip">
+          <strong>集群日常操作入口</strong>
+          <span>文件系统：创建、查询、删除、配额、回收站和目录统计</span>
+          <span>缓存组：创建与添加成员、停止、删除和成员管理</span>
+          <span>挂载管理：挂载文件系统、卸载和查看客户端日志</span>
+        </div>
+      </div>
       {error && (
         <p className="error" role="alert">
           {error}
@@ -253,7 +320,7 @@ export function ClusterDetail({
         <form className="panel" onSubmit={edit}>
           <h2>编辑登记信息</h2>
           <label>
-            显示名称
+            别名
             <input
               required
               maxLength={120}
@@ -346,6 +413,35 @@ export function ClusterDetail({
           ))}
         </div>
       </section>
+      {admin && !data.archived && terminalTargets.length > 0 && (
+        <section className="panel">
+          <div className="remote-terminal-launch">
+            <label>
+              终端目标
+              <select
+                aria-label="终端目标"
+                value={selectedTerminal}
+                onChange={(e) => setTerminalMachine(e.target.value)}
+              >
+                {terminalTargets.map((target) => (
+                  <option key={target.machine_id} value={target.machine_id}>
+                    {target.name} · {target.address} · {target.ssh_user}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <a
+              className="button"
+              target="_blank"
+              rel="noopener noreferrer"
+              href={`#/clusters/${encodeURIComponent(id)}/terminal/${encodeURIComponent(selectedTerminal || "")}`}
+            >
+              打开终端 ↗
+            </a>
+          </div>
+          <small className="muted">在新标签页确认机器和 SSH 用户后连接。</small>
+        </section>
+      )}
       <section className="panel">
         <h2>服务实例</h2>
         <div className="cluster-filters">
@@ -399,6 +495,7 @@ export function ClusterDetail({
                   "运行状态",
                   "端口",
                   "目录",
+                  "日志",
                 ].map((n) => (
                   <th key={n}>{n}</th>
                 ))}
@@ -435,7 +532,15 @@ export function ClusterDetail({
                     ) : (
                       <>
                         {s.host}
-                        <small className="muted"> · 未匹配机器资源</small>
+                        <small className="muted">
+                          {" "}
+                          ·{" "}
+                          {remoteTargets?.services?.find(
+                            (row) => row.id === s.id,
+                          )?.match_state === "ambiguous"
+                            ? "匹配冲突"
+                            : "未匹配机器资源"}
+                        </small>
                       </>
                     )}
                   </td>
@@ -457,13 +562,43 @@ export function ClusterDetail({
                           <strong>{label}</strong>
                           <code>{value || "未提供"}</code>
                           {value && (
-                            <button onClick={() => copy(value)}>
+                            <button
+                              type="button"
+                              onClick={() => copy(value, `${s.id}:${label}`)}
+                            >
                               复制路径
                             </button>
+                          )}
+                          {copied?.key === `${s.id}:${label}` && (
+                            <span
+                              role="status"
+                              className={copied.failed ? "error" : "muted"}
+                            >
+                              {copied.message}
+                            </span>
                           )}
                         </div>
                       ))}
                     </details>
+                  </td>
+                  <td>
+                    <a
+                      href={`#/clusters/${encodeURIComponent(id)}/logs/${encodeURIComponent(s.id)}`}
+                    >
+                      查看日志
+                    </a>
+                    {remoteTargets?.services &&
+                      logAccessReason(
+                        remoteTargets.services.find((row) => row.id === s.id),
+                      ) && (
+                        <small className="remote-access-hint">
+                          {logAccessReason(
+                            remoteTargets.services.find(
+                              (row) => row.id === s.id,
+                            ),
+                          )}
+                        </small>
+                      )}
                   </td>
                 </tr>
               ))}
@@ -471,8 +606,21 @@ export function ClusterDetail({
           </table>
         </div>
         {!filtered.length && <p className="empty">没有可展示的服务实例</p>}
-        <p role="status">{copied}</p>
+        {copied && !copied.key && <p role="status">{copied.message}</p>}
       </section>
+      <ClusterControl
+        id={id}
+        name={data.external_name}
+        revision={data.revision}
+        services={services}
+        canOperate={
+          canEdit &&
+          !data.archived &&
+          data.binding_state === "verified" &&
+          !active
+        }
+        onComplete={controlCompleted}
+      />
       <section className="panel">
         <details>
           <summary>原始输出与查询信息</summary>
@@ -489,7 +637,7 @@ export function ClusterDetail({
       {!data.archived && data.binding_state === "verified" && (
         <ClusterTopology
           canOperate={canEdit}
-          key={id}
+          key={`topology-${id}`}
           id={id}
           revision={data.revision}
         />

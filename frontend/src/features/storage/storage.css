@@ -1,0 +1,124 @@
+.storage-editor {
+  padding: 26px;
+  margin-bottom: 24px;
+}
+.storage-editor fieldset {
+  border: 0;
+  padding: 0;
+  margin: 0;
+  min-width: 0;
+}
+.storage-form-wide {
+  grid-column: 1 / -1;
+}
+.storage-editor textarea {
+  resize: vertical;
+}
+.storage-editor .storage-enabled {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 9px;
+  margin-top: 20px;
+}
+.storage-enabled input {
+  width: 16px;
+  height: 16px;
+  accent-color: #087f71;
+}
+.storage-help,
+.storage-credentials-note {
+  font-size: 12px;
+}
+.storage-help {
+  margin: 6px 0 0 25px;
+}
+.storage-table-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+  padding: 22px;
+}
+.storage-table-toolbar h2 {
+  margin: 0 0 6px;
+}
+.storage-table-toolbar p {
+  font-size: 12px;
+  margin: 0;
+}
+.storage-table-scroll {
+  overflow-x: auto;
+}
+.storage-overview table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+.storage-overview th,
+.storage-overview td {
+  padding: 16px 20px;
+  text-align: left;
+  border-top: 1px solid #e9eff0;
+  vertical-align: middle;
+}
+.storage-overview th {
+  background: #f8fafb;
+  color: #657e83;
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+.storage-overview td:first-child {
+  min-width: 150px;
+  max-width: 250px;
+  overflow-wrap: anywhere;
+}
+.storage-cell-detail {
+  display: block;
+  font-size: 11px;
+  margin-top: 5px;
+  overflow-wrap: anywhere;
+  max-width: 270px;
+}
+.storage-row-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  min-width: 150px;
+}
+.storage-row-actions button {
+  padding: 6px 10px;
+  font-size: 12px;
+}
+.storage-time {
+  color: #657e83;
+  font-size: 12px;
+  min-width: 145px;
+}
+.storage-disabled {
+  color: #697c83;
+  background: #edf0f2;
+}
+.storage-loading,
+.storage-count {
+  font-size: 12px;
+  padding: 0 22px 16px;
+  margin: 0;
+}
+.storage-count {
+  border-top: 1px solid #e9eff0;
+  padding-top: 14px;
+}
+@media (max-width: 760px) {
+  .storage-profiles-page .page-header {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+  .storage-editor {
+    padding: 20px;
+  }
+  .storage-editor .form-grid {
+    grid-template-columns: 1fr;
+  }
+}

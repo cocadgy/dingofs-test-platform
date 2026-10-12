@@ -7,7 +7,8 @@ import {
   statusNames,
 } from "./types";
 const columns = [
-  ["name", "集群名称"],
+  ["name", "别名"],
+  ["external_name", "集群名称"],
   ["cluster_kind", "集群类型"],
   ["machine_name", "dingo 执行机器"],
   ["os_user", "执行用户"],

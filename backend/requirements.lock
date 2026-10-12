@@ -38,3 +38,4 @@ cryptography==50.0.1
 invoke==3.0.3
 paramiko==5.0.0
 PyNaCl==1.6.2
+websockets==16.1.1

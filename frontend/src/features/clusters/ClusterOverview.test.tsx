@@ -9,7 +9,7 @@ afterEach(() => {
 it("shows uncollected and same-name clusters, filters all rows and opens details", async () => {
   const rows = Array.from({ length: 25 }, (_, i) => ({
     id: "c" + i,
-    name: "main",
+    name: "机器别名",
     external_name: "main",
     os_user: "user" + i,
     machine_name: "node",
@@ -39,7 +39,10 @@ it("shows uncollected and same-name clusters, filters all rows and opens details
   }
   render(<Harness />);
   await screen.findByText("user0");
-  expect(screen.getAllByRole("columnheader")).toHaveLength(10);
+  expect(screen.getAllByRole("columnheader")).toHaveLength(11);
+  expect(screen.getAllByRole("columnheader")[0].textContent).toContain("别名");
+  expect(screen.getByLabelText("搜索别名")).toBeTruthy();
+  expect(screen.getByLabelText("搜索集群名称")).toBeTruthy();
   fireEvent.change(screen.getByLabelText("搜索执行用户"), {
     target: { value: "user24" },
   });

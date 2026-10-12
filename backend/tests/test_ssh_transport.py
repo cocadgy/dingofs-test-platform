@@ -55,16 +55,12 @@ def config():
     return SSHConfig("host", 22, "user", " PRIVATE ", "/known_hosts")
 
 
-def test_unknown_host_is_rejected_and_closed(config):
-    from dingofs_platform.inventory.ssh_transport import RejectUnknownHost
-
+def test_unknown_host_is_automatically_trusted_and_closed(config):
+    import paramiko
     client = MagicMock()
-    client.connect.side_effect = CollectionError("host_key_unknown")
-    with pytest.raises(CollectionError, match="host_key_unknown"):
-        run_session(config, {}, 30, 1024, client_factory=lambda: client)
-    assert isinstance(
-        client.set_missing_host_key_policy.call_args.args[0], RejectUnknownHost
-    )
+    run_session(config, {}, 30, 1024, client_factory=lambda: client)
+    assert isinstance(client.set_missing_host_key_policy.call_args.args[0], paramiko.AutoAddPolicy)
+    client.load_host_keys.assert_not_called()
     assert client.connect.call_args.kwargs["allow_agent"] is False
     assert client.connect.call_args.kwargs["look_for_keys"] is False
     client.close.assert_called_once()
@@ -75,7 +71,6 @@ def test_unknown_host_is_rejected_and_closed(config):
     [
         ("auth", "authentication_failed"),
         ("host", "host_key_changed"),
-        ("unreadable", "known_hosts_missing"),
     ],
 )
 def test_errors_do_not_leak_password(config, failure, code):

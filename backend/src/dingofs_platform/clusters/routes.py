@@ -8,6 +8,7 @@ from dingofs_platform.inventory.service import lock_inventory, check_archive, au
 from dingofs_platform.inventory.permissions import require_manage
 from .schemas import (
     DiscoverInput,
+    ControlInput,
     AuthInput,
     ImportInput,
     RevisionInput,
@@ -160,21 +161,52 @@ def refresh_status(
     return op
 
 
+@router.post("/clusters/{id}/control", status_code=202, response_model=OperationView)
+def control(
+    id: str,
+    payload: ControlInput,
+    request: Request,
+    background: BackgroundTasks,
+    user=Depends(current_user),
+):
+    if not payload.confirmed:
+        raise Problem(422, "confirmation_required", "请先确认操作")
+    op, new = refresh(
+        request,
+        user,
+        id,
+        payload.base_revision,
+        kind=payload.action,
+        parameters={"scope": payload.scope, "target": payload.target},
+    )
+    if new:
+        background.add_task(run_operation, request, op["id"])
+    return op
+
+
 @router.get("/clusters/{id}/topology")
 def stored_topology(id: str, request: Request, user=Depends(current_user)):
     from .models import ClusterOperation
+
     with get_db(request) as db:
         c = db.get(Cluster, id)
         if not c:
             raise Problem(404, "not_found", "集群不存在")
-        op = db.scalar(select(ClusterOperation).where(
-            ClusterOperation.cluster_id == id,
-            ClusterOperation.cluster_revision == c.revision,
-            ClusterOperation.kind == "topology",
-            ClusterOperation.state == "succeeded",
-        ).order_by(ClusterOperation.finished_at.desc()).limit(1))
-        return {"stdout": op.result.get("stdout", "") if op and op.result else None,
-                "collected_at": op.finished_at if op else None}
+        op = db.scalar(
+            select(ClusterOperation)
+            .where(
+                ClusterOperation.cluster_id == id,
+                ClusterOperation.cluster_revision == c.revision,
+                ClusterOperation.kind == "topology",
+                ClusterOperation.state == "succeeded",
+            )
+            .order_by(ClusterOperation.finished_at.desc())
+            .limit(1)
+        )
+        return {
+            "stdout": op.result.get("stdout", "") if op and op.result else None,
+            "collected_at": op.finished_at if op else None,
+        }
 
 
 @router.post("/clusters/{id}/topology", status_code=202, response_model=OperationView)

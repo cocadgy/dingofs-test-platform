@@ -2,6 +2,8 @@ from sqlalchemy import select
 from dingofs_platform.db import get_db
 from dingofs_platform.errors import Problem
 from dingofs_platform.inventory.models import Cluster, Machine
+from dingofs_platform.resources.models import ManagedResource
+from dingofs_platform.inventory.host_identity import resolve_hosts
 from dingofs_platform.inventory.service import lock_inventory, serialize, audit
 from .operations import (
     load_owned,
@@ -40,20 +42,18 @@ def detail_view(db, c):
     result.update(machine_name=m.name, machine_address=m.address, ssh_user=m.ssh_user)
     result["status_attempt_state"] = attempt_state(db, c)
     hosts = {row["host"] for row in (c.status_snapshot or {}).get("services", [])}
-    machines = (
-        list(db.scalars(select(Machine).where(Machine.archived == False)))
-        if hosts
-        else []
-    )
     result["node_links"] = {}
-    for host in hosts:
-        matches = [m.id for m in machines if m.address.lower() == host.lower()]
+    result["node_match_states"] = {}
+    for host, matches in resolve_hosts(db, hosts).items():
+        result["node_match_states"][host] = (
+            "matched" if len(matches) == 1 else "ambiguous" if matches else "missing"
+        )
         if len(matches) == 1:
-            result["node_links"][host] = matches[0]
+            result["node_links"][host] = matches[0].id
     return result
 
 
-def refresh(request, actor, id, revision, kind="status"):
+def refresh(request, actor, id, revision, kind="status", parameters=None):
     with get_db(request) as db:
         c = db.get(Cluster, id)
         if not c:
@@ -61,6 +61,7 @@ def refresh(request, actor, id, revision, kind="status"):
         m = db.get(Machine, c.management_machine_id)
         args = dict(
             kind=kind,
+            parameters=parameters,
             machine_id=m.id,
             machine_revision=m.revision,
             target_user=c.os_user,
@@ -150,7 +151,7 @@ def import_clusters(request, actor, id, names):
                 )
                 continue
             c = Cluster(
-                name=name,
+                name=db.get(Machine, op.machine_id).name,
                 creator_id=actor.id,
                 external_name=name,
                 management_machine_id=op.machine_id,
@@ -183,6 +184,29 @@ def rebind(request, actor, id, payload):
             raise Problem(422, "invalid_selection", "本次未发现该集群")
         identity = op.result["identity"]
         directory = identity["home"].rstrip("/") + "/.dingo"
+        binding_changed = (
+            c.management_machine_id,
+            c.os_user,
+            c.external_name,
+            c.config_dir,
+            c.execution_home,
+        ) != (
+            op.machine_id,
+            op.target_user,
+            payload.name,
+            directory,
+            identity["home"],
+        )
+        if binding_changed and db.scalar(
+            select(ManagedResource.id)
+            .where(ManagedResource.cluster_id == c.id)
+            .limit(1)
+        ):
+            raise Problem(
+                409,
+                "resource_binding_conflict",
+                "此集群已有托管资源或历史记录，不能更换管理入口；请发现并将新目标登记为独立集群",
+            )
         conflict = db.scalar(
             select(Cluster).where(
                 Cluster.id != id,

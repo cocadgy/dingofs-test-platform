@@ -14,7 +14,7 @@ def test_fixed_commands_and_quotes():
         ClusterCommand("status", "root;id", "main")
     s = build_command(ClusterCommand("status", "root", "main"), "test", "abc", False)
     assert (
-        "sudo -n -i -u root" in s and "dingo_cluster=main" in s and "checkout" not in s
+        "sudo -n -u root -- su - root -c" in s and "dingo_cluster=main" in s and "checkout" not in s
     )
     assert "sudo" not in build_command(
         ClusterCommand("discover", "test"), "test", "abc", False

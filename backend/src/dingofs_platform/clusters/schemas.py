@@ -1,3 +1,4 @@
+from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field, SecretStr
 
 
@@ -65,6 +66,7 @@ class EditInput(RevisionInput):
 
 
 class OperationView(BaseModel):
+    parameters: dict | None = None
     id: str
     kind: str
     state: str
@@ -113,6 +115,9 @@ class ClusterList(BaseModel):
 class ClusterDetailView(BaseModel):
     creator_id: str | None = None
     node_links: dict[str, str] = Field(default_factory=dict)
+    node_match_states: dict[str, Literal["matched", "missing", "ambiguous"]] = Field(
+        default_factory=dict
+    )
     model_config = ConfigDict(extra="allow")
     id: str
     name: str
@@ -156,3 +161,10 @@ class ImportResult(BaseModel):
     created: list[ImportedCluster]
     existing: list[ImportedCluster]
     needs_confirmation: list[BindingChoice]
+
+
+class ControlInput(RevisionInput):
+    action: Literal["start", "stop", "restart"]
+    scope: Literal["all", "service", "role"]
+    target: str | None = Field(default=None, max_length=120)
+    confirmed: bool = Field(strict=True)

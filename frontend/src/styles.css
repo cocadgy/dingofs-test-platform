@@ -209,6 +209,10 @@ nav button:hover {
   color: #377969;
   white-space: nowrap;
 }
+/* Resource lifecycle states are distinct from operation progress badges. */
+.resource-state-mounted { background: #d9f2e5; color: #17613a; }
+.resource-state-unmounted { background: #e9edf2; color: #526173; }
+.resource-state-unknown, .resource-state-partial { background: #fff1d6; color: #8a5700; }
 .content {
   padding: 34px;
   max-width: 1600px;
@@ -776,3 +780,121 @@ small {
 .cluster-directory code { display:block; overflow-wrap:anywhere; margin:8px 0; }
 .cluster-raw { white-space:pre-wrap; overflow-wrap:anywhere; padding:16px; background:#f4f7fa; max-height:500px; overflow:auto; }
 @media(max-width:800px){.cluster-summary{grid-template-columns:repeat(2,minmax(0,1fr));}}
+
+/* YAML tokens retain their original text and indentation. */
+.yaml-code { color:#22632c; line-height:1.65; tab-size:2; }
+.yaml-code code { font-family:ui-monospace,SFMono-Regular,Consolas,monospace; }
+.yaml-code .key { color:#075ca8; font-weight:600; }
+.yaml-code .string { color:#22632c; }
+.yaml-code .number, .yaml-code .datetime { color:#a34a00; }
+.yaml-code .boolean, .yaml-code .null { color:#7c3aad; font-weight:600; }
+.yaml-code .comment { color:#65717d; font-style:italic; }
+.yaml-code .punctuation { color:#566372; }
+.yaml-code .tag, .yaml-code .important { color:#7c3aad; }
+
+/* Remote logs remain plain text; SSH uses its own locally bundled terminal. */
+.button { display:inline-flex; align-items:center; justify-content:center; padding:10px 15px; border:1px solid #cedddb; border-radius:8px; background:#fff; color:#254743; text-decoration:none; font-size:14px; white-space:nowrap; }
+.button:hover { background:#eef7f4; }
+.remote-context { margin-bottom:18px; padding:18px 20px; }
+.remote-context dl { display:grid; grid-template-columns:1fr 1fr 2fr; gap:16px; margin:0; }
+.remote-context dl > div { display:block; padding:0; border:0; }
+.remote-context dd { margin:7px 0 0; overflow-wrap:anywhere; }
+.remote-log-layout { display:grid; grid-template-columns:minmax(220px,280px) minmax(0,1fr); gap:18px; align-items:start; }
+.remote-files,.remote-log-main { min-width:0; padding:20px; }
+.remote-files { max-height:75vh; overflow:auto; }
+.remote-files h2,.remote-log-main h2 { font-size:17px; overflow-wrap:anywhere; }
+.remote-file { display:block; width:100%; padding:14px 12px; margin:8px 0; text-align:left; overflow-wrap:anywhere; }
+.remote-file strong,.remote-file small { display:block; }
+.remote-file small { margin-top:7px; color:#637b80; font-size:11px; }
+.remote-file.selected { background:#e6f6f0; border-color:#309b82; }
+.remote-log-toolbar { display:flex; align-items:end; flex-wrap:wrap; gap:10px; }
+.remote-log-toolbar label { margin:0; min-width:120px; }
+.remote-log-toolbar label:last-child { flex:1; min-width:190px; }
+.remote-status { font-size:13px; }
+.remote-status form { max-width:550px; padding:12px; background:#f2f7f8; border:1px solid #cfdddf; border-radius:8px; }
+.remote-status form button { margin:8px 8px 0 0; }
+.remote-log-output { min-height:340px; height:55vh; max-height:850px; padding:18px; margin:14px 0; overflow:auto; background:#101e2b; color:#dce7ed; border-radius:10px; font:13px/1.6 ui-monospace,SFMono-Regular,Menlo,monospace; white-space:pre-wrap; overflow-wrap:anywhere; tab-size:4; }
+.remote-notice { padding:10px 13px; border:1px solid #ecd69d; border-radius:8px; background:#fff7e2; color:#73571d; font-size:13px; }
+.remote-access-hint { display:block; max-width:240px; white-space:normal; font-size:11px; color:#6e8086; margin-top:7px; }
+.remote-downloads { flex-wrap:wrap; }
+.remote-terminal-launch { display:flex; gap:14px; align-items:end; margin-bottom:10px; }
+.remote-terminal-launch label { margin:0; min-width:290px; }
+.remote-terminal { height:62vh; min-height:340px; width:100%; padding:12px; background:#101e2b; border-radius:8px; overflow:hidden; }
+.remote-terminal .xterm { height:100%; }
+.remote-terminal .xterm-helper-textarea { min-height:0; padding:0; width:0; }
+.terminal-placeholder { padding:100px 24px; text-align:center; color:#9eafb9; border-radius:8px; background:#101e2b; margin-top:16px; }
+.terminal-clipboard { margin:12px 0; flex-wrap:wrap; }
+@media(max-width:1100px){.remote-log-layout{grid-template-columns:1fr;}.remote-files{max-height:280px;}.remote-context dl{grid-template-columns:1fr;}.remote-terminal-launch{flex-wrap:wrap;}}
+.remote-terminal-panel { padding:24px; }
+
+/* Keep the fallback selection copyable without moving or scrolling the UI. */
+.clipboard-copy-buffer { position:fixed; left:-9999px; top:0; width:1px; height:1px; opacity:0; pointer-events:none; }
+.cluster-directory [role="status"] { display:inline-block; margin-left:8px; }
+
+/* Service log directory uses a full-width sortable detail table. */
+.remote-log-directory { grid-template-columns:minmax(0,1fr); }
+.remote-log-directory > .remote-files { max-height:none; overflow:visible; }
+.log-file-table-scroll { overflow:auto; max-height:65vh; border:1px solid #dce5ea; border-radius:8px; }
+.log-file-table { width:100%; min-width:650px; border-collapse:collapse; }
+.log-file-table th { position:sticky; top:0; z-index:1; padding:0; background:#f4f7fa; text-align:left; }
+.log-file-table th button { display:flex; gap:8px; align-items:center; width:100%; border:0; border-radius:0; padding:12px 14px; background:transparent; text-align:left; font-weight:600; }
+.log-file-table td { padding:11px 14px; border-top:1px solid #e6ebef; white-space:nowrap; }
+.log-file-table td:first-child { min-width:220px; white-space:normal; overflow-wrap:anywhere; }
+.log-file-table tbody tr { cursor:default; }
+.log-file-table tbody tr:hover { background:#f2f7fc; }
+.log-file-table tbody tr.selected { background:#e5f0ff; }
+.log-file-table tbody tr:focus-visible { outline:2px solid #377dcc; outline-offset:-2px; }
+.log-file-table th:last-child button { justify-content:flex-end; }
+.log-file-table td:last-child { text-align:right; font-variant-numeric:tabular-nums; }
+
+/* Primary entry to everyday cluster resource operations. */
+.cluster-resource-entry { position: relative; margin: 0 0 24px; }
+.cluster-resource-card {
+  display: flex; align-items: center; gap: 18px; padding: 20px 24px;
+  border: 1px solid #a5b4fc; border-radius: 14px;
+  background: linear-gradient(110deg, #eef2ff, #f0f9ff);
+  color: #1e3a8a; text-decoration: none;
+  box-shadow: 0 3px 12px rgb(49 46 129 / 7%);
+  transition: box-shadow 150ms, border-color 150ms;
+}
+.cluster-resource-card:hover, .cluster-resource-card:focus-visible {
+  border-color: #4f46e5; box-shadow: 0 5px 18px rgb(49 46 129 / 16%);
+  text-decoration: none;
+}
+.cluster-resource-card:focus-visible { outline: 3px solid #818cf8; outline-offset: 3px; }
+.cluster-resource-icon {
+  display: grid; place-items: center; flex: 0 0 52px; height: 52px;
+  border-radius: 12px; background: #4338ca; color: white;
+}
+.cluster-resource-icon svg { width: 30px; height: 30px; }
+.cluster-resource-copy { display: grid; gap: 5px; }
+.cluster-resource-copy strong { font-size: 21px; color: #312e81; }
+.cluster-resource-copy > span { font-size: 14px; color: #475569; }
+.cluster-resource-go { margin-left: auto; white-space: nowrap; font-weight: 600; }
+.cluster-resource-go > span { margin-left: 10px; font-size: 22px; }
+.cluster-resource-tooltip {
+  display: none; position: absolute; top: 100%; left: 24px; z-index: 20;
+  max-width: calc(100% - 48px); padding: 16px 20px;
+  border-radius: 10px; background: #1e293b; color: #f8fafc;
+  box-shadow: 0 8px 24px rgb(15 23 42 / 20%); font-size: 14px;
+}
+.cluster-resource-tooltip strong { color: white; }
+.cluster-resource-tooltip span { display: block; margin-top: 8px; line-height: 1.6; }
+.cluster-resource-entry:hover .cluster-resource-tooltip,
+.cluster-resource-entry:focus-within .cluster-resource-tooltip { display: block; }
+@media (max-width: 600px) {
+  .cluster-resource-card { padding: 16px; gap: 12px; }
+  .cluster-resource-go { font-size: 0; }
+  .cluster-resource-go > span { font-size: 24px; margin-left: 0; }
+  .cluster-resource-copy > span { font-size: 12px; }
+}
+.log-directory-search { margin-top: 1rem; }
+.log-directory-search form { display: flex; gap: .75rem; align-items: end; flex-wrap: wrap; }
+.log-directory-search form label:first-child { flex: 1 1 20rem; }
+.log-directory-search form input[type="text"] { width: 100%; }
+.log-search-group { border-top: 1px solid var(--border, #ddd); margin-top: 1rem; }
+.log-search-hit { margin: .75rem 0; }
+.log-search-hit pre { white-space: pre-wrap; overflow-wrap: anywhere; margin: .3rem 0; }
+.log-search-hit mark { background: #ffe493; color: #202020; }
+.log-search-results pre { white-space: pre-wrap; overflow-wrap: anywhere; border-bottom: 1px solid #ddd; padding: .6rem 0; margin: 0; }
+.log-loading { display:flex; align-items:center; justify-content:center; gap:12px; min-height:72px; color:#38566a; font-weight:600; }

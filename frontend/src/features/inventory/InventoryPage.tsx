@@ -25,11 +25,25 @@ type Field = {
   source?: string;
   optional?: boolean;
   description?: string;
+  maxLength?: number;
 };
 const fields: Record<string, Field[]> = {
   machines: [
-    { key: "name", label: "名称" },
+    {
+      key: "name",
+      label: "名称",
+      maxLength: 120,
+      description: "支持中文、英文和数字，最多 120 个字符；仅用于平台展示。",
+    },
     { key: "address", label: "主机地址" },
+    {
+      key: "aliases",
+      label: "主机别名",
+      type: "aliases",
+      optional: true,
+      description:
+        "用逗号或换行分隔，例如 dingo126、dingo126.novalocal。别名用于关联服务主机，不会改变 SSH 连接地址。",
+    },
     { key: "ssh_port", label: "SSH 端口", type: "number" },
     { key: "ssh_user", label: "SSH 用户" },
     {
@@ -247,7 +261,14 @@ export function InventoryPage({
     setSelected(row);
     setValues(
       row
-        ? Object.fromEntries(fields[kind].map((f) => [f.key, row[f.key] ?? ""]))
+        ? Object.fromEntries(
+            fields[kind].map((f) => [
+              f.key,
+              f.type === "aliases"
+                ? (row[f.key] || []).join(", ")
+                : (row[f.key] ?? ""),
+            ]),
+          )
         : { ssh_port: 22, machine_ids: [] },
     );
     setEditing(true);
@@ -264,6 +285,15 @@ export function InventoryPage({
         if (f.key === "physical_id" && !value) value = null;
         else if (f.type === "number") value = Number(value);
         else if (f.type === "multiple") value = value || [];
+        else if (f.type === "aliases")
+          value = [
+            ...new Set(
+              String(value || "")
+                .split(/[,，\n]+/)
+                .map((v) => v.trim())
+                .filter(Boolean),
+            ),
+          ];
         else value = value ?? "";
         body[f.key] = value;
       }
@@ -466,8 +496,22 @@ export function InventoryPage({
                           </option>
                         ))}
                       </select>
+                    ) : f.type === "aliases" ? (
+                      <textarea
+                        aria-label={f.label}
+                        rows={2}
+                        value={values[f.key] ?? ""}
+                        onChange={(e) =>
+                          setValues({ ...values, [f.key]: e.target.value })
+                        }
+                      />
                     ) : (
                       <input
+                        aria-label={f.label}
+                        aria-describedby={
+                          f.description ? `${kind}-${f.key}-help` : undefined
+                        }
+                        maxLength={f.maxLength}
                         required={!f.optional}
                         type={f.type || "text"}
                         autoComplete={
@@ -563,6 +607,24 @@ export function InventoryPage({
                     </div>
                   ))}
               </dl>
+              {kind === "machines" &&
+                Object.keys(selected.alias_conflicts || {}).length > 0 && (
+                  <p role="alert" className="remote-notice">
+                    别名存在匹配冲突：
+                    {Object.entries(
+                      selected.alias_conflicts as Record<
+                        string,
+                        { name: string; address: string }[]
+                      >,
+                    )
+                      .map(
+                        ([alias, rows]) =>
+                          `${alias}（${rows.map((row) => `${row.name} · ${row.address}`).join("、")}）`,
+                      )
+                      .join("；")}
+                    。请调整别名，存在冲突的服务主机不能唯一关联机器。
+                  </p>
+                )}
               {kind === "machines" && (
                 <p>
                   SSH 密码：{selected.has_ssh_password ? "已配置" : "未配置"}

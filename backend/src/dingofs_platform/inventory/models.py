@@ -23,6 +23,7 @@ class Machine(Asset, Base):
     __tablename__ = "machines"
     creator_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
     address: Mapped[str] = mapped_column(String(255))
+    aliases: Mapped[list[str]] = mapped_column(JSON, default=list, server_default="[]")
     ssh_port: Mapped[int] = mapped_column(default=22)
     ssh_user: Mapped[str] = mapped_column(String(80))
     credential_ref: Mapped[str] = mapped_column(String(160), default="")
@@ -51,6 +52,16 @@ class Machine(Asset, Base):
     tags: Mapped[list] = mapped_column(JSON, default=list)
     maintenance: Mapped[bool] = mapped_column(Boolean, default=False)
     __table_args__ = (UniqueConstraint("address", "ssh_port"),)
+
+
+class MachineHostIdentifier(Base):
+    """Canonical addresses and aliases; uniqueness is per machine, not global."""
+
+    __tablename__ = "machine_host_identifiers"
+    machine_id: Mapped[str] = mapped_column(
+        ForeignKey("machines.id", ondelete="CASCADE"), primary_key=True
+    )
+    identifier: Mapped[str] = mapped_column(String(255), primary_key=True, index=True)
 
 
 class LegacyManagementContext(Asset, Base):

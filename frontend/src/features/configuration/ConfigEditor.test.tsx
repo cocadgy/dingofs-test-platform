@@ -1,4 +1,4 @@
-import { render, screen, fireEvent, waitFor } from "@testing-library/react";
+import { act, render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { it, expect, vi, afterEach } from "vitest";
 import { ConfigEditor } from "./ConfigEditor";
 afterEach(() => vi.unstubAllGlobals());
@@ -64,4 +64,29 @@ it("shows remote draft without overwriting local conflict text", async () => {
   fireEvent.click(screen.getByText("查看远端版本"));
   await screen.findByLabelText("远端草稿");
   expect(input).toHaveValue("filesystem: local");
+});
+
+it("keeps YAML typed while a save is in flight", async () => {
+  let resolveSave!: (response: Response) => void;
+  const original = {
+    revision: 1,
+    yaml_text: "filesystem: old",
+    validation: { syntax_valid: true, tool_validated: false },
+  };
+  vi.stubGlobal("fetch", vi.fn((url: string, init?: RequestInit) => {
+    if (init?.method === "PUT")
+      return new Promise<Response>((resolve) => { resolveSave = resolve; });
+    return Promise.resolve(new Response(JSON.stringify(url.endsWith("/versions") ? { items: [] } : original),
+      { status: 200, headers: { "Content-Type": "application/json" } }));
+  }));
+  render(<ConfigEditor kind="environment" id="e" admin onDirty={() => {}} />);
+  const input = await screen.findByLabelText("高级 YAML");
+  fireEvent.change(input, { target: { value: "filesystem: submitted" } });
+  fireEvent.click(screen.getByText("保存草稿"));
+  fireEvent.change(input, { target: { value: "filesystem: newer" } });
+  await act(async () => resolveSave(new Response(JSON.stringify({ ...original, revision: 2, yaml_text: "filesystem: submitted" }),
+    { status: 200, headers: { "Content-Type": "application/json" } })));
+  expect(input).toHaveValue("filesystem: newer");
+  expect(screen.getByText("发布配置版本")).toBeDisabled();
+  expect(screen.getByText(/有未保存修改/)).toBeInTheDocument();
 });

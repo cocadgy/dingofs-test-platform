@@ -80,11 +80,26 @@ export function OperationAuthDialog({
       if (live.current) setBusy(false);
     }
   }
-  if (operation.state === "succeeded") return null;
+  const commands = operation.result?.executed_commands;
+  const commandView = Array.isArray(commands) && commands.length > 0 ? (
+    <details open><summary>实际执行命令</summary>
+      <p>执行机器：{operation.machine_name} · 用户：{operation.target_user}</p>
+      {commands.map((entry, index) => <pre className="cluster-raw" key={index}>{String(entry.command || "")}</pre>)}
+    </details>
+  ) : null;
+  if (operation.state === "succeeded") return commandView;
   return (
     <section className="cluster-operation" aria-label="操作进度">
+      {commandView}
       <p role="status">
-        {statusNames[operation.state] || operation.state} {operation.message}
+        {["start", "stop", "restart"].includes(operation.kind) &&
+        operation.state === "running"
+          ? "执行中"
+          : ["start", "stop", "restart"].includes(operation.kind) &&
+              operation.state === "pending"
+            ? "等待执行"
+            : statusNames[operation.state] || operation.state}{" "}
+        {operation.message}
       </p>
       {error && (
         <p className="error" role="alert">

@@ -1,3 +1,7 @@
+import {ConfigurationPage} from "./features/configuration/ConfigurationPage";
+import { CacheProfilesPage } from "./features/cache-profiles/CacheProfilesPage";
+import { BadouMascot } from "./components/BadouMascot";
+import { StorageProfilesPage } from "./features/storage/StorageProfilesPage";
 import { useEffect, useState } from "react";
 import { api, setCsrf } from "./api/client";
 import { InventoryPage, sections } from "./features/inventory/InventoryPage";
@@ -5,6 +9,15 @@ import { ClusterPage } from "./features/clusters/ClusterPage";
 import { MachinePage } from "./features/inventory/MachinePage";
 import { UsersPage } from "./features/users/UsersPage";
 import { ProfilePage } from "./features/users/ProfilePage";
+import { LogPage } from "./features/remote/LogPage";
+import { LogSearchResultPage } from "./features/remote/LogSearchResultPage";
+import { MountLogPage, mountLogRoute } from "./features/resources/MountLogPage";
+import { TerminalPage } from "./features/remote/TerminalPage";
+import {
+  ClusterResourcesPage,
+  resourceRoute,
+} from "./features/resources/ClusterResourcesPage";
+import { remoteRoute } from "./features/remote/routes";
 type User = {
   id: string;
   username: string;
@@ -21,13 +34,35 @@ export function App() {
   const [busy, setBusy] = useState(false);
   const [dirty, setDirty] = useState(false);
   const [kind, setKind] = useState("machines");
+  const [hash, setHash] = useState(window.location.hash);
+  const remote = remoteRoute(hash);
+  const resourceCluster = resourceRoute(hash);
+  const mountLog = mountLogRoute(hash);
+  useEffect(() => {
+    const sync = () =>
+      queueMicrotask(() => {
+        setHash(window.location.hash);
+        if (user?.email) {
+          if (window.location.hash.startsWith("#/clusters"))
+            setKind("clusters");
+          else if (/^#\/(configuration|cache-profiles|mount-profiles|storage)(\/|$)/.test(window.location.hash)) setKind("configuration");
+          else if (window.location.hash.startsWith("#/machines"))
+            setKind("machines");
+        }
+      });
+    window.addEventListener("hashchange", sync);
+    return () => window.removeEventListener("hashchange", sync);
+  }, [user?.email]);
   function session(u: User) {
     setUser(u);
+    setHash(window.location.hash);
     setKind(
       u.email
         ? window.location.hash.startsWith("#/clusters")
           ? "clusters"
-          : "machines"
+          : /^#\/(configuration|cache-profiles|mount-profiles|storage)(\/|$)/.test(window.location.hash)
+            ? "configuration"
+              : "machines"
         : "profile",
     );
     setCsrf(u.csrf_token);
@@ -67,6 +102,7 @@ export function App() {
         "",
         "#/machines/" + encodeURIComponent(detail.id),
       );
+      setHash(window.location.hash);
       setKind("machines");
     };
     window.addEventListener("platform-navigate", navigate);
@@ -102,7 +138,7 @@ export function App() {
     return (
       <main className="login">
         <div className="login-brand">
-          <span className="logo">D</span>
+          <BadouMascot size="large" />
           <p className="eyebrow">DINGOFS / TEST PLATFORM</p>
           <h1>
             让每一次测试
@@ -149,7 +185,7 @@ export function App() {
     <div className="shell">
       <aside>
         <div className="brand">
-          <span className="logo">D</span>
+          <BadouMascot />
           <div>
             DingoFS<strong>测试平台</strong>
           </div>
@@ -158,6 +194,7 @@ export function App() {
         <nav>
           {Object.entries({
             ...sections,
+            configuration: "配置管理",
             ...(user.role === "admin" ? { users: "用户管理" } : {}),
             profile: "个人设置",
           }).map(([key, label]) => (
@@ -166,7 +203,15 @@ export function App() {
               aria-current={kind === key ? "page" : undefined}
               onClick={() => {
                 if (key === kind) {
-                  if (["machines", "clusters"].includes(key))
+                  if (
+                    [
+                      "machines",
+                      "clusters",
+                      "storage",
+                      "cache-profiles",
+                      "configuration",
+                    ].includes(key)
+                  )
                     window.location.hash = "#/" + key;
                   return;
                 }
@@ -175,10 +220,17 @@ export function App() {
                   window.history.replaceState(
                     null,
                     "",
-                    ["machines", "clusters"].includes(key)
+                    [
+                      "machines",
+                      "clusters",
+                      "storage",
+                      "cache-profiles",
+                      "configuration",
+                    ].includes(key)
                       ? "#/" + key
                       : window.location.pathname + window.location.search,
                   );
+                  setHash(window.location.hash);
                   setKind(key);
                 }
               }}
@@ -207,7 +259,11 @@ export function App() {
         <div
           className={
             "content" +
-            (["machines", "clusters"].includes(kind) ? " machines-content" : "")
+            (["machines", "clusters", "storage", "cache-profiles", "configuration"].includes(
+              kind,
+            )
+              ? " machines-content"
+              : "")
           }
         >
           {kind === "users" && user.role === "admin" ? (
@@ -222,6 +278,12 @@ export function App() {
                 setError("账号状态或密码已变更，请重新登录");
               }}
             />
+          ) : kind === "configuration" ? (
+            <ConfigurationPage onDirty={setDirty} />
+          ) : kind === "cache-profiles" ? (
+            <CacheProfilesPage onDirty={setDirty} />
+          ) : kind === "storage" ? (
+            <StorageProfilesPage onDirty={setDirty} />
           ) : kind === "profile" ? (
             <ProfilePage
               email={user.email}
@@ -234,6 +296,35 @@ export function App() {
                 setKind("machines");
                 setError("密码已修改，请使用新密码登录");
               }}
+            />
+          ) : kind === "clusters" && remote ? (
+            remote.kind === "logs" && remote.searchKeyword !== undefined && remote.searchFile !== undefined ? (
+              <LogSearchResultPage key={hash} clusterId={remote.clusterId} serviceId={remote.targetId} fileName={remote.searchFile} keyword={remote.searchKeyword} caseSensitive={!!remote.searchCaseSensitive} backUrl={`#/clusters/${encodeURIComponent(remote.clusterId)}/logs/${encodeURIComponent(remote.targetId)}`} />
+            ) : remote.kind === "logs" ? (
+              <LogPage
+                key={hash}
+                clusterId={remote.clusterId}
+                serviceId={remote.targetId}
+                fileName={remote.fileName}
+              />
+            ) : (
+              <TerminalPage
+                key={hash}
+                clusterId={remote.clusterId}
+                machineId={remote.targetId}
+                admin={user.role === "admin"}
+              />
+            )
+          ) : kind === "clusters" && mountLog?.searchKeyword !== undefined && mountLog.searchFile !== undefined ? (
+            <LogSearchResultPage key={hash} clusterId={mountLog.clusterId} serviceId={`mount:${mountLog.resourceId}`} fileName={mountLog.searchFile} keyword={mountLog.searchKeyword} caseSensitive={!!mountLog.searchCaseSensitive} backUrl={`#/clusters/${encodeURIComponent(mountLog.clusterId)}/resources/mounts/${encodeURIComponent(mountLog.resourceId)}/logs`} />
+          ) : kind === "clusters" && mountLog ? (
+            <MountLogPage key={hash} clusterId={mountLog.clusterId} resourceId={mountLog.resourceId} fileName={mountLog.fileName} />
+          ) : kind === "clusters" && resourceCluster ? (
+            <ClusterResourcesPage
+              key={resourceCluster}
+              id={resourceCluster}
+              admin={user.role === "admin"}
+              userId={user.id}
             />
           ) : kind === "clusters" ? (
             <ClusterPage

@@ -6,7 +6,7 @@ import multiprocessing
 import socket
 import time
 import paramiko
-from .host_trust import key_info, decode_key
+from .host_trust import key_info
 
 
 @dataclass(frozen=True)
@@ -64,20 +64,9 @@ def run_session(
         return value
 
     try:
-        if config.trusted_host_key:
-            key = decode_key(config.trusted_host_key)
-            host = (
-                config.host if config.port == 22 else f"[{config.host}]:{config.port}"
-            )
-            client.get_host_keys().add(host, key.get_name(), key)
-        elif config.known_hosts:
-            try:
-                client.load_host_keys(config.known_hosts)
-            except FileNotFoundError:
-                pass  # First contact returns a challenge; never auto-trust.
-            except (OSError, ValueError, paramiko.SSHException):
-                raise CollectionError("known_hosts_missing") from None
-        client.set_missing_host_key_policy(RejectUnknownHost())
+        # Platform policy: trust SSH host keys automatically on every connection.
+        # Do not load historical pins or known_hosts requiring user confirmation.
+        client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
         client.connect(
             hostname=config.host,
             port=config.port,

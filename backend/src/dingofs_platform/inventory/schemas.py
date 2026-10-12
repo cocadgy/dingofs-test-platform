@@ -1,6 +1,7 @@
-import posixpath, re
+import posixpath
 from typing import Annotated
 from pydantic import BaseModel, ConfigDict, Field, field_validator, StringConstraints
+from .host_identity import normalize_host
 
 
 class Strict(BaseModel):
@@ -13,6 +14,7 @@ class AssetInput(Strict):
 
 class MachineInput(AssetInput):
     address: str = Field(min_length=1, max_length=255)
+    aliases: list[str] = Field(default_factory=list, max_length=32)
     ssh_port: int = Field(default=22, ge=1, le=65535)
     ssh_user: str = Field(min_length=1, max_length=80, pattern=r"^[a-zA-Z0-9_.-]+$")
     credential_ref: str = Field(default="", max_length=160)
@@ -28,9 +30,12 @@ class MachineInput(AssetInput):
     @field_validator("address")
     @classmethod
     def address_valid(cls, v):
-        if not re.fullmatch(r"[A-Za-z0-9_.:\-]+", v):
-            raise ValueError("invalid hostname or IP")
-        return v.lower().rstrip(".")
+        return normalize_host(v)
+
+    @field_validator("aliases")
+    @classmethod
+    def aliases_valid(cls, values):
+        return list(dict.fromkeys(normalize_host(value) for value in values))
 
 
 class ClusterInput(AssetInput):

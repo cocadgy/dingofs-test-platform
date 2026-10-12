@@ -72,8 +72,11 @@ export function ConfigEditor({
       };
       const d = await api<Draft>(base + "/draft", "PUT", payload);
       setDraft(d);
-      setText(d.yaml_text);
-      setFields({});
+      // Keep edits made after this request was sent; only replace the submitted snapshot.
+      setText((current) => current === text ? d.yaml_text : current);
+      setFields((current) =>
+        JSON.stringify(current) === JSON.stringify(fields) ? {} : current,
+      );
       setNotice("草稿已保存");
     } catch (e) {
       setError((e as Error).message);

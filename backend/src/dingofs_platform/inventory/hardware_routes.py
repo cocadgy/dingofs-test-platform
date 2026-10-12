@@ -19,6 +19,10 @@ def refresh(
     id: str, payload: RefreshInput, request: Request, user=Depends(current_user)
 ):
     token, config = begin_collection(request, id, payload.base_revision)
+    return run_collection(request, id, payload.base_revision, token, config)
+
+
+def run_collection(request, id, revision, token, config):
     try:
         try:
             transport = getattr(request.app.state, "hardware_transport", execute)
@@ -36,7 +40,7 @@ def refresh(
         except Exception:
             # Never return raw remote errors, configuration, or credentials.
             result = {"status": "failed", "error": "采集失败，请检查机器配置或重试"}
-        return finish_collection(request, id, token, payload.base_revision, result)
+        return finish_collection(request, id, token, revision, result)
     except Exception:
         abandon(request, id, token)
         raise
@@ -51,3 +55,14 @@ def confirm_host(
     id: str, payload: TrustInput, request: Request, user=Depends(current_user)
 ):
     return trust_key(request, id, payload.base_revision, payload.challenge_id)
+
+
+def collect_created_machine(request, id, revision, token, config):
+    """Response has been sent; failures must never undo machine registration."""
+    try:
+        run_collection(request, id, revision, token, config)
+    except Exception:
+        # run_collection abandons stale/revoked jobs without publishing a snapshot.
+        # Do not log exceptions containing credentials or remote output.
+        import logging
+        logging.getLogger(__name__).warning("Initial machine collection did not complete: %s", id)

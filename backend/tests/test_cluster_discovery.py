@@ -11,6 +11,7 @@ RAW = (Path(__file__).parent / "fixtures/dingo/cluster-status-main.txt").read_te
 
 def setup_machine(admin, app):
     app.state.settings.credential_encryption_key = Fernet.generate_key().decode()
+    app.state.hardware_transport = lambda *args, **kwargs: {}
     r = admin.post(
         "/api/v1/machines",
         json={
@@ -21,7 +22,7 @@ def setup_machine(admin, app):
         },
     )
     assert r.status_code == 201
-    return r.json()
+    return admin.get("/api/v1/machines/" + r.json()["id"]).json()
 
 
 def transport(config, cmd, **kwargs):

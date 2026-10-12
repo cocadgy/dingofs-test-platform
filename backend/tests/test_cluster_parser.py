@@ -79,3 +79,18 @@ def test_progress_does_not_hide_invalid_headers_or_rows():
     for raw in ["…\nunknown header\n" + RAW, RAW + "…\n"]:
         with pytest.raises(ClusterParseError):
             parse_cluster_status(raw, "main-dingofs")
+
+
+def test_coordinator_backend_status_header():
+    import re
+    raw = re.sub(r"tikv\s+addr\s*:.*", "coordinator addr : 10.220.32.40:6540,10.220.32.41:6540,10.220.32.42:6540", RAW)
+    raw = raw.replace("main-dingofs", "mdsv2-cluster").replace("Get Service Status: [OK]", "…\n\x1b[1A\x1b[J…")
+    result = parse_cluster_status(raw, "mdsv2-cluster")
+    assert result.cluster_name == "mdsv2-cluster"
+    assert result.service_count == result.running_instances == 10
+    assert result.state == "running"
+    assert result.tikv_addresses == []
+    with pytest.raises(ClusterParseError, match="target_mismatch"):
+        parse_cluster_status(raw, "another-cluster")
+    with pytest.raises(ClusterParseError, match="invalid_header"):
+        parse_cluster_status(raw.replace("coordinator addr :", "coordinator addr : duplicate\ncoordinator addr :"), "mdsv2-cluster")

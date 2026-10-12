@@ -1,3 +1,8 @@
+from dingofs_platform.mount_profiles import models as mount_profile_models  # noqa: F401
+from dingofs_platform.cache_profiles import models as cache_profile_models  # noqa: F401
+from dingofs_platform.storage import models as storage_models  # noqa: F401
+from dingofs_platform.resources import models as resource_models  # noqa: F401
+from dingofs_platform.remote import models as remote_models  # noqa: F401
 from dingofs_platform.clusters import models as cluster_models  # noqa: F401
 from alembic import context
 from sqlalchemy import create_engine

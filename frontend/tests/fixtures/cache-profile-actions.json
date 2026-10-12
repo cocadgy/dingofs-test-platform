@@ -1,0 +1,275 @@
+[
+  {
+    "action": "cache.list",
+    "label": "缓存组与成员列表",
+    "section": "cache",
+    "mutating": false,
+    "fields": []
+  },
+  {
+    "action": "cache.create",
+    "label": "创建缓存组",
+    "section": "cache",
+    "mutating": true,
+    "fields": [
+      {
+        "key": "group_name",
+        "label": "缓存组名称",
+        "type": "text",
+        "required": true,
+        "default": null,
+        "options": []
+      },
+      {
+        "key": "cache_profile_id",
+        "label": "缓存组配置",
+        "type": "text",
+        "required": false,
+        "default": "",
+        "options": []
+      },
+      {
+        "key": "cache_profile_revision",
+        "label": "缓存组配置版本",
+        "type": "number",
+        "required": false,
+        "default": 0,
+        "options": []
+      },
+      {
+        "key": "cache_options",
+        "label": "缓存参数",
+        "type": "cache_options",
+        "required": false,
+        "default": {},
+        "options": []
+      },
+      {
+        "key": "members",
+        "label": "缓存成员",
+        "type": "members",
+        "required": true,
+        "default": null,
+        "options": [],
+        "fields": [
+          {
+            "key": "machine_id",
+            "label": "目标机器",
+            "type": "text",
+            "required": true,
+            "default": null,
+            "options": []
+          },
+          {
+            "key": "target_user",
+            "label": "执行用户",
+            "type": "text",
+            "required": false,
+            "default": "dingofs",
+            "options": []
+          },
+          {
+            "key": "listen_ip",
+            "label": "监听 IP",
+            "type": "text",
+            "required": true,
+            "default": null,
+            "options": []
+          },
+          {
+            "key": "port_mode",
+            "label": "端口分配",
+            "type": "text",
+            "required": false,
+            "default": "manual",
+            "options": [
+              "auto",
+              "manual"
+            ]
+          },
+          {
+            "key": "listen_port",
+            "label": "监听端口",
+            "type": "number",
+            "required": false,
+            "default": 21000,
+            "options": []
+          },
+          {
+            "key": "cache_dir",
+            "label": "缓存基础目录",
+            "type": "text",
+            "required": true,
+            "default": null,
+            "options": []
+          },
+          {
+            "key": "cache_size_mb",
+            "label": "缓存容量（MiB）",
+            "type": "number",
+            "required": false,
+            "default": 1024,
+            "options": []
+          },
+          {
+            "key": "use_rdma",
+            "label": "使用 RDMA",
+            "type": "boolean",
+            "required": false,
+            "default": false,
+            "options": []
+          },
+          {
+            "key": "rdma_device",
+            "label": "RDMA 设备",
+            "type": "text",
+            "required": false,
+            "default": "",
+            "options": []
+          },
+          {
+            "key": "rdma_port",
+            "label": "RDMA 端口",
+            "type": "number",
+            "required": false,
+            "default": 1,
+            "options": []
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "action": "cache.plan",
+    "label": "检查缓存成员端口",
+    "section": "cache",
+    "mutating": false,
+    "fields": [
+      {
+        "key": "group_name",
+        "label": "缓存组名称",
+        "type": "text",
+        "required": true,
+        "default": null,
+        "options": []
+      },
+      {
+        "key": "cache_profile_id",
+        "label": "缓存组配置",
+        "type": "text",
+        "required": false,
+        "default": "",
+        "options": []
+      },
+      {
+        "key": "cache_profile_revision",
+        "label": "缓存组配置版本",
+        "type": "number",
+        "required": false,
+        "default": 0,
+        "options": []
+      },
+      {
+        "key": "cache_options",
+        "label": "缓存参数",
+        "type": "cache_options",
+        "required": false,
+        "default": {},
+        "options": []
+      },
+      {
+        "key": "members",
+        "label": "缓存成员",
+        "type": "members",
+        "required": true,
+        "default": null,
+        "options": [],
+        "fields": [
+          {
+            "key": "machine_id",
+            "label": "目标机器",
+            "type": "text",
+            "required": true,
+            "default": null,
+            "options": []
+          },
+          {
+            "key": "target_user",
+            "label": "执行用户",
+            "type": "text",
+            "required": false,
+            "default": "dingofs",
+            "options": []
+          },
+          {
+            "key": "listen_ip",
+            "label": "监听 IP",
+            "type": "text",
+            "required": true,
+            "default": null,
+            "options": []
+          },
+          {
+            "key": "port_mode",
+            "label": "端口分配",
+            "type": "text",
+            "required": false,
+            "default": "manual",
+            "options": [
+              "auto",
+              "manual"
+            ]
+          },
+          {
+            "key": "listen_port",
+            "label": "监听端口",
+            "type": "number",
+            "required": false,
+            "default": 21000,
+            "options": []
+          },
+          {
+            "key": "cache_dir",
+            "label": "缓存基础目录",
+            "type": "text",
+            "required": true,
+            "default": null,
+            "options": []
+          },
+          {
+            "key": "cache_size_mb",
+            "label": "缓存容量（MiB）",
+            "type": "number",
+            "required": false,
+            "default": 1024,
+            "options": []
+          },
+          {
+            "key": "use_rdma",
+            "label": "使用 RDMA",
+            "type": "boolean",
+            "required": false,
+            "default": false,
+            "options": []
+          },
+          {
+            "key": "rdma_device",
+            "label": "RDMA 设备",
+            "type": "text",
+            "required": false,
+            "default": "",
+            "options": []
+          },
+          {
+            "key": "rdma_port",
+            "label": "RDMA 端口",
+            "type": "number",
+            "required": false,
+            "default": 1,
+            "options": []
+          }
+        ]
+      }
+    ]
+  }
+]

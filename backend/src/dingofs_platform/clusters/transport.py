@@ -10,10 +10,11 @@ import shlex
 import socket
 import time
 import paramiko
-from dingofs_platform.inventory.ssh_transport import RejectUnknownHost, CollectionError
-from dingofs_platform.inventory.host_trust import decode_key, key_info
+from dingofs_platform.inventory.ssh_transport import CollectionError
+from dingofs_platform.inventory.host_trust import key_info
 from .parser import NAME
 
+CONTROL_ACTIONS = ("start", "stop", "restart")
 USER = re.compile(r"[a-zA-Z0-9_.-]{1,80}\Z")
 
 
@@ -34,16 +35,39 @@ class ClusterCommand:
     kind: str
     target_user: str
     cluster_name: str | None = None
+    scope: str | None = None
+    target: str | None = None
+    expected_home: str | None = None
+    resource_script: str | None = None
+    resource_requires_dingo: bool = True
 
     def __post_init__(self):
-        if self.kind not in ("discover", "status", "topology") or not USER.fullmatch(
-            self.target_user
-        ):
+        if self.kind not in (
+            "discover",
+            "status",
+            "topology",
+            "resource",
+            *CONTROL_ACTIONS,
+        ) or not USER.fullmatch(self.target_user):
             raise ValueError("invalid action")
+        if self.kind != "resource" and not self.resource_requires_dingo:
+            raise ValueError("runtime override only applies to resource commands")
+        if (self.kind == "resource") != bool(self.resource_script):
+            raise ValueError("invalid resource command")
         if self.kind != "discover" and not NAME.fullmatch(self.cluster_name or ""):
             raise ValueError("invalid cluster name")
         if self.kind == "discover" and self.cluster_name is not None:
             raise ValueError("unexpected cluster")
+        if self.kind in CONTROL_ACTIONS:
+            if self.scope not in ("all", "service", "role"):
+                raise ValueError("invalid scope")
+            if self.scope == "all":
+                if self.target is not None:
+                    raise ValueError("unexpected target")
+            elif not NAME.fullmatch(self.target or ""):
+                raise ValueError("invalid target")
+        elif self.scope is not None or self.target is not None:
+            raise ValueError("unexpected target")
 
 
 @dataclass(frozen=True)
@@ -61,23 +85,61 @@ class ClusterCommandResult:
     returncode: int
 
 
-def build_command(command, ssh_user, nonce, interactive):
+def operation_command(command):
     q = shlex.quote
-    query = "dingo config show" if command.kind == "topology" else "dingo cluster status -sv"
+    query = (
+        "dingo config show"
+        if command.kind == "topology"
+        else "dingo cluster status -sv"
+    )
+    if command.kind in CONTROL_ACTIONS:
+        flag = (
+            ""
+            if command.scope == "all"
+            else (" --id " if command.scope == "service" else " --role ")
+            + q(command.target)
+        )
+        query = f"dingo cluster {command.kind}{flag} --force"
     action = (
         "unset dingo_cluster; dingo cluster ls"
         if command.kind == "discover"
         else f"export dingo_cluster={q(command.cluster_name)}; {query}"
     )
-    script = f"""test "$(id -un)" = {q(command.target_user)} || exit 92
-p=$(command -v dingo) || exit 91
-printf '%s\\n' '__DTT_BEGIN_{nonce}__' "$(id -un)" "$HOME" "$p" '__DTT_OUTPUT_{nonce}__'
-printf '%s\\n' '__DTT_STDERR_{nonce}__' >&2
-{action}"""
+    if command.kind == "resource":
+        action = f"export dingo_cluster={q(command.cluster_name)}; " + command.resource_script
+    return action
+
+
+def build_command(command, ssh_user, nonce, interactive):
+    q = shlex.quote
+    home_check = (
+        f'test "$HOME" = {q(command.expected_home)} || exit 92'
+        if command.expected_home
+        else ":"
+    )
+    action = operation_command(command)
+    # sudo -i re-quotes the command through the target login shell. Literal
+    # newlines can lose their separator semantics; use explicit shell separators.
+    script = "; ".join(
+        [
+            f'test "$(id -un)" = {q(command.target_user)} || exit 92',
+            home_check,
+            "p=$(command -v dingo) || exit 91" if command.resource_requires_dingo else "p=$(command -v python3) || exit 93",
+            f"""printf '%s\\n' '__DTT_BEGIN_{nonce}__' "$(id -un)" "$HOME" "$p" '__DTT_OUTPUT_{nonce}__'""",
+            f"printf '%s\\n' '__DTT_STDERR_{nonce}__' >&2",
+            action,
+        ]
+    )
     if ssh_user == command.target_user:
         return "bash -lc " + q(script)
     opts = f"-S -p {q('__DTT_AUTH_' + nonce + '__%p__END__')}" if interactive else "-n"
-    return f"LC_ALL=C sudo {opts} -i -u {q(command.target_user)} -- sh -c " + q(script)
+    if command.target_user == "root":
+        # Match the operator's sudo su - workflow. Avoid sudo -i's extra shell
+        # re-quoting, which can also expand script variables before assignment.
+        return f"LC_ALL=C sudo {opts} -u root -- su - root -c " + q(script)
+    # Set the target HOME and let bash load its login profile directly.
+    # sudo -i adds an extra shell expansion that can empty the dingo path.
+    return f"LC_ALL=C sudo {opts} -H -u {q(command.target_user)} -- bash -lc " + q(script)
 
 
 def read_channel(channel, nonce, password, account, timeout_s, max_bytes):
@@ -149,18 +211,9 @@ def run_session(
 
     client = client_factory()
     try:
-        if config.trusted_host_key:
-            key = decode_key(config.trusted_host_key)
-            host = (
-                config.host if config.port == 22 else f"[{config.host}]:{config.port}"
-            )
-            client.get_host_keys().add(host, key.get_name(), key)
-        elif config.known_hosts:
-            try:
-                client.load_host_keys(config.known_hosts)
-            except FileNotFoundError:
-                pass
-        client.set_missing_host_key_policy(RejectUnknownHost())
+        # Platform policy: trust SSH host keys automatically on every connection.
+        # Do not load historical pins or known_hosts requiring user confirmation.
+        client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
         client.connect(
             hostname=config.host,
             port=config.port,
@@ -219,6 +272,8 @@ def run_session(
                 return ClusterCommandResult(
                     ExecutionIdentity(*fields), output, diagnostic, rc
                 )
+            if rc == 93:
+                raise ClusterExecutionError("python_missing")
             if rc == 91:
                 raise ClusterExecutionError("dingo_missing")
             if rc == 92:
@@ -296,6 +351,8 @@ def execute_cluster(
     deadline = time.monotonic() + timeout_s
     started = False
     try:
+        if cancelled():
+            raise ClusterExecutionError("cancelled")
         process.start()
         started = True
         send.close()
@@ -306,7 +363,12 @@ def execute_cluster(
                 raise ClusterExecutionError("timeout")
             if not process.is_alive():
                 raise ClusterExecutionError("worker_failed")
-        payload = json.loads(receive.recv_bytes(maxlength=max_bytes + 65536))
+        if cancelled():
+            raise ClusterExecutionError("cancelled")
+        # The SSH byte limit is enforced by read_channel. The IPC envelope
+        # JSON-encodes that text again (a control byte can become six ASCII
+        # bytes), so its bounded framing allowance must include this expansion.
+        payload = json.loads(receive.recv_bytes(maxlength=6 * max_bytes + 65536))
         if payload.get("error") == "needs_password":
             raise AuthenticationRequired(payload["account"])
         if payload.get("host_key"):

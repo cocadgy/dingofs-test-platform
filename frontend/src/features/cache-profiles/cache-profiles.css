@@ -1,0 +1,112 @@
+.cache-profile-toolbar,
+.cache-parameter-filters,
+.cache-profile-basics,
+.cache-profile-actions {
+  display: flex;
+  gap: 16px;
+  align-items: end;
+  flex-wrap: wrap;
+  margin: 18px 0;
+}
+.cache-profile-toolbar label,
+.cache-parameter-filters label,
+.cache-profile-basics label {
+  display: grid;
+  gap: 6px;
+}
+.cache-profile-list,
+.cache-profile-form {
+  background: #fff;
+  border: 1px solid #dce7e8;
+  border-radius: 12px;
+  padding: 20px;
+  margin: 20px 0;
+}
+.cache-profile-list {
+  overflow-x: auto;
+}
+.cache-profile-list table,
+.cache-parameter-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+.cache-profile-list th,
+.cache-profile-list td,
+.cache-parameter-table th,
+.cache-parameter-table td {
+  text-align: left;
+  padding: 12px;
+  border-bottom: 1px solid #e4eded;
+  vertical-align: top;
+}
+.cache-profile-list td button {
+  margin: 0 6px 4px 0;
+}
+.cache-profile-basics {
+  border: 0;
+  padding: 0;
+}
+.cache-profile-basics label:not(.cache-inline) {
+  flex: 1;
+  min-width: 220px;
+}
+.cache-parameter-scroll {
+  overflow: auto;
+  max-height: 520px;
+  border: 1px solid #dce7e8;
+  border-radius: 8px;
+}
+.cache-parameter-table {
+  min-width: 760px;
+}
+.cache-parameter-table thead {
+  position: sticky;
+  top: 0;
+  background: #f1f7f7;
+  z-index: 1;
+}
+.cache-parameter-table td:first-child {
+  width: 28%;
+}
+.cache-parameter-table td:nth-child(2) {
+  width: 44%;
+}
+.cache-parameter-table td:last-child {
+  min-width: 190px;
+}
+.cache-parameter-table td code,
+.cache-parameter-table td small {
+  display: block;
+  overflow-wrap: anywhere;
+}
+.cache-parameter-table p {
+  margin: 0 0 6px;
+}
+.cache-parameter-table input:not([type="checkbox"]),
+.cache-parameter-table select {
+  width: 100%;
+  box-sizing: border-box;
+}
+.cache-parameter-table small {
+  color: #62797d;
+}
+.cache-parameter-editor .cache-inline,
+.cache-profile-basics .cache-inline {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 8px;
+}
+.cache-inline input[type="checkbox"] {
+  width: auto;
+  margin: 0;
+}
+
+.cache-profile-selection summary {
+  cursor: pointer;
+  color: #087e72;
+  padding: 10px 0;
+}
+.cache-profile-selection .cache-profile-toolbar select {
+  min-width: 240px;
+}

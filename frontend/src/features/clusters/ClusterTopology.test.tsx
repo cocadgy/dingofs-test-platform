@@ -11,7 +11,9 @@ test("loads topology from the selected cluster and retains it on refresh failure
     result: { stdout: "global:\n  user: jenkins\n" },
   });
   render(<ClusterTopology id="cluster1" revision={3} />);
-  expect(await screen.findByText(/user: jenkins/)).toBeInTheDocument();
+  expect(
+    await screen.findByLabelText("topology.yaml 内容"),
+  ).toBeInTheDocument();
   expect(api).toHaveBeenCalledWith("/clusters/cluster1/topology", "POST", {
     base_revision: 3,
   });
@@ -21,7 +23,9 @@ test("loads topology from the selected cluster and retains it on refresh failure
   await waitFor(() =>
     expect(screen.getByRole("alert")).toHaveTextContent("读取失败"),
   );
-  expect(screen.getByText(/user: jenkins/)).toBeInTheDocument();
+  expect(screen.getByLabelText("topology.yaml 内容")).toHaveTextContent(
+    "user: jenkins",
+  );
 });
 
 test("other users view the saved topology without running a remote command", async () => {
@@ -31,7 +35,9 @@ test("other users view the saved topology without running a remote command", asy
     collected_at: null,
   });
   render(<ClusterTopology id="other" revision={1} canOperate={false} />);
-  expect(await screen.findByText("saved-topology: true")).toBeInTheDocument();
+  expect(
+    await screen.findByLabelText("topology.yaml 内容"),
+  ).toBeInTheDocument();
   expect(api).toHaveBeenCalledWith("/clusters/other/topology");
   expect(
     screen.getByRole("button", { name: "刷新 topology.yaml" }),

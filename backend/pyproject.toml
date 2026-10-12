@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 name = "dingofs-test-platform"
 version = "0.1.0"
 requires-python = ">=3.12"
-dependencies = ["fastapi", "uvicorn", "sqlalchemy", "alembic", "psycopg[binary]", "pydantic-settings", "argon2-cffi", "ruamel.yaml", "paramiko==5.0.0", "cryptography==50.0.1"]
+dependencies = ["fastapi", "uvicorn", "websockets>=15,<17", "sqlalchemy", "alembic", "psycopg[binary]", "pydantic-settings", "argon2-cffi", "ruamel.yaml", "paramiko==5.0.0", "cryptography==50.0.1"]
 [project.optional-dependencies]
 test = ["pytest", "httpx"]
 [tool.pytest.ini_options]

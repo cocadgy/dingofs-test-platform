@@ -1,6 +1,9 @@
 from dingofs_platform.clusters import models as cluster_models  # noqa: F401
 from uuid import uuid4
 from fastapi import FastAPI
+from contextlib import asynccontextmanager
+from .remote.manager import RemoteManager
+from .remote.routes import router as remote
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from sqlalchemy import create_engine, text
@@ -15,11 +18,25 @@ from .inventory.hardware_routes import router as hardware
 from .inventory.overview import router as overview
 from .inventory.routes import router as inventory
 from .clusters.routes import router as clusters
+from .resources.routes import router as resources
+from .mount_profiles.routes import router as mount_profiles
+from .cache_profiles.routes import router as cache_profiles
+from .storage.routes import router as storage
 
 
 def create_app(settings=None):
     settings = settings or Settings()
-    app = FastAPI(title="DingoFS Test Platform", version="0.1.0")
+
+    @asynccontextmanager
+    async def lifespan(app):
+        app.state.remote_manager.startup()
+        try:
+            yield
+        finally:
+            app.state.remote_manager.shutdown()
+
+    app = FastAPI(title="DingoFS Test Platform", version="0.1.0", lifespan=lifespan)
+    app.state.remote_manager = RemoteManager(app)
     app.state.settings = settings
     app.state.engine = create_engine(
         settings.database_url, pool_pre_ping=True, connect_args={"connect_timeout": 3}
@@ -81,5 +98,10 @@ def create_app(settings=None):
     app.include_router(hardware)
     app.include_router(overview)
     app.include_router(clusters)
+    app.include_router(resources)
+    app.include_router(remote)
+    app.include_router(storage)
+    app.include_router(cache_profiles)
+    app.include_router(mount_profiles)
     app.include_router(inventory)
     return app

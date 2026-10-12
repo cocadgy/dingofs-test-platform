@@ -14,9 +14,11 @@ export async function api<T = any>(
   path: string,
   method = "GET",
   body?: unknown,
+  options: { keepalive?: boolean } = {},
 ): Promise<T> {
   const response = await fetch("/api/v1" + path, {
     method,
+    ...options,
     credentials: "same-origin",
     headers: { "Content-Type": "application/json", "X-CSRF-Token": csrf },
     ...(body === undefined ? {} : { body: JSON.stringify(body) }),

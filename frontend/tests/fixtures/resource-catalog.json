@@ -1,0 +1,886 @@
+[
+  {
+    "action": "fs.list",
+    "label": "文件系统列表",
+    "section": "filesystem",
+    "mutating": false,
+    "fields": []
+  },
+  {
+    "action": "fs.get",
+    "label": "文件系统详情",
+    "section": "filesystem",
+    "mutating": false,
+    "fields": [
+      {
+        "key": "fs_name",
+        "label": "文件系统名称",
+        "type": "text",
+        "required": true,
+        "default": null,
+        "options": []
+      }
+    ]
+  },
+  {
+    "action": "fs.create",
+    "label": "创建文件系统",
+    "section": "filesystem",
+    "mutating": true,
+    "fields": [
+      {
+        "key": "fs_name",
+        "label": "文件系统名称",
+        "type": "text",
+        "required": true,
+        "default": null,
+        "options": []
+      },
+      {
+        "key": "storage_type",
+        "label": "存储类型",
+        "type": "select",
+        "required": true,
+        "default": null,
+        "options": [
+          "s3",
+          "rados"
+        ]
+      },
+      {
+        "key": "partition_type",
+        "label": "分区类型",
+        "type": "select",
+        "required": false,
+        "default": "hash",
+        "options": [
+          "hash",
+          "monolithic"
+        ]
+      },
+      {
+        "key": "s3_ak",
+        "label": "S3 Access Key",
+        "type": "password",
+        "required": false,
+        "default": "",
+        "options": []
+      },
+      {
+        "key": "s3_sk",
+        "label": "S3 Secret Key",
+        "type": "password",
+        "required": false,
+        "default": "",
+        "options": []
+      },
+      {
+        "key": "s3_endpoint",
+        "label": "S3 Endpoint",
+        "type": "text",
+        "required": false,
+        "default": "",
+        "options": []
+      },
+      {
+        "key": "s3_bucketname",
+        "label": "S3 Bucket",
+        "type": "text",
+        "required": false,
+        "default": "",
+        "options": []
+      },
+      {
+        "key": "rados_username",
+        "label": "Rados 用户",
+        "type": "text",
+        "required": false,
+        "default": "",
+        "options": []
+      },
+      {
+        "key": "rados_key",
+        "label": "Rados 密钥",
+        "type": "password",
+        "required": false,
+        "default": "",
+        "options": []
+      },
+      {
+        "key": "rados_mon",
+        "label": "Rados Monitor",
+        "type": "text",
+        "required": false,
+        "default": "",
+        "options": []
+      },
+      {
+        "key": "rados_poolname",
+        "label": "Rados Pool",
+        "type": "text",
+        "required": false,
+        "default": "",
+        "options": []
+      },
+      {
+        "key": "rados_clustername",
+        "label": "Rados Cluster",
+        "type": "text",
+        "required": false,
+        "default": "",
+        "options": []
+      }
+    ]
+  },
+  {
+    "action": "fs.delete",
+    "label": "删除文件系统",
+    "section": "filesystem",
+    "mutating": true,
+    "fields": [
+      {
+        "key": "fs_name",
+        "label": "文件系统名称",
+        "type": "text",
+        "required": true,
+        "default": null,
+        "options": []
+      }
+    ]
+  },
+  {
+    "action": "quota.fs.get",
+    "label": "查询文件系统配额",
+    "section": "filesystem",
+    "mutating": false,
+    "fields": [
+      {
+        "key": "fs_name",
+        "label": "文件系统名称",
+        "type": "text",
+        "required": true,
+        "default": null,
+        "options": []
+      }
+    ]
+  },
+  {
+    "action": "quota.fs.set",
+    "label": "设置文件系统配额",
+    "section": "filesystem",
+    "mutating": true,
+    "fields": [
+      {
+        "key": "fs_name",
+        "label": "文件系统名称",
+        "type": "text",
+        "required": true,
+        "default": null,
+        "options": []
+      },
+      {
+        "key": "capacity",
+        "label": "容量配额（GiB，0 表示不限）",
+        "type": "number",
+        "required": true,
+        "default": null,
+        "options": []
+      },
+      {
+        "key": "inodes",
+        "label": "inode 配额（0 表示不限）",
+        "type": "number",
+        "required": true,
+        "default": null,
+        "options": []
+      }
+    ]
+  },
+  {
+    "action": "quota.fs.delete",
+    "label": "清除文件系统配额",
+    "section": "filesystem",
+    "mutating": true,
+    "fields": [
+      {
+        "key": "fs_name",
+        "label": "文件系统名称",
+        "type": "text",
+        "required": true,
+        "default": null,
+        "options": []
+      }
+    ]
+  },
+  {
+    "action": "quota.dir.get",
+    "label": "查询目录配额",
+    "section": "filesystem",
+    "mutating": false,
+    "fields": [
+      {
+        "key": "fs_name",
+        "label": "文件系统名称",
+        "type": "text",
+        "required": true,
+        "default": null,
+        "options": []
+      },
+      {
+        "key": "path",
+        "label": "文件系统内目录路径",
+        "type": "text",
+        "required": false,
+        "default": "/",
+        "options": []
+      }
+    ]
+  },
+  {
+    "action": "quota.dir.set",
+    "label": "设置目录配额",
+    "section": "filesystem",
+    "mutating": true,
+    "fields": [
+      {
+        "key": "fs_name",
+        "label": "文件系统名称",
+        "type": "text",
+        "required": true,
+        "default": null,
+        "options": []
+      },
+      {
+        "key": "path",
+        "label": "文件系统内目录路径",
+        "type": "text",
+        "required": false,
+        "default": "/",
+        "options": []
+      },
+      {
+        "key": "capacity",
+        "label": "容量配额（GiB，0 表示不限）",
+        "type": "number",
+        "required": true,
+        "default": null,
+        "options": []
+      },
+      {
+        "key": "inodes",
+        "label": "inode 配额（0 表示不限）",
+        "type": "number",
+        "required": true,
+        "default": null,
+        "options": []
+      }
+    ]
+  },
+  {
+    "action": "quota.dir.delete",
+    "label": "删除目录配额",
+    "section": "filesystem",
+    "mutating": true,
+    "fields": [
+      {
+        "key": "fs_name",
+        "label": "文件系统名称",
+        "type": "text",
+        "required": true,
+        "default": null,
+        "options": []
+      },
+      {
+        "key": "path",
+        "label": "文件系统内目录路径",
+        "type": "text",
+        "required": false,
+        "default": "/",
+        "options": []
+      }
+    ]
+  },
+  {
+    "action": "trash.get",
+    "label": "查询回收站配置",
+    "section": "filesystem",
+    "mutating": false,
+    "fields": [
+      {
+        "key": "fs_name",
+        "label": "文件系统名称",
+        "type": "text",
+        "required": true,
+        "default": null,
+        "options": []
+      }
+    ]
+  },
+  {
+    "action": "trash.configure",
+    "label": "设置回收站保留天数",
+    "section": "filesystem",
+    "mutating": true,
+    "fields": [
+      {
+        "key": "fs_name",
+        "label": "文件系统名称",
+        "type": "text",
+        "required": true,
+        "default": null,
+        "options": []
+      },
+      {
+        "key": "trash_days",
+        "label": "保留天数",
+        "type": "number",
+        "required": true,
+        "default": null,
+        "options": []
+      },
+      {
+        "key": "mds_client_path",
+        "label": "MDS 客户端路径",
+        "type": "text",
+        "required": false,
+        "default": "dingo-mds-client",
+        "options": []
+      }
+    ]
+  },
+  {
+    "action": "trash.restore",
+    "label": "恢复回收站",
+    "section": "filesystem",
+    "mutating": true,
+    "fields": [
+      {
+        "key": "fs_id",
+        "label": "文件系统 ID",
+        "type": "number",
+        "required": true,
+        "default": null,
+        "options": []
+      },
+      {
+        "key": "hours",
+        "label": "恢复最近小时数",
+        "type": "number",
+        "required": false,
+        "default": 24,
+        "options": []
+      },
+      {
+        "key": "put_back",
+        "label": "恢复到原路径",
+        "type": "boolean",
+        "required": false,
+        "default": true,
+        "options": []
+      },
+      {
+        "key": "restore_threads",
+        "label": "恢复线程数",
+        "type": "number",
+        "required": false,
+        "default": 4,
+        "options": []
+      },
+      {
+        "key": "mds_client_path",
+        "label": "MDS 客户端路径",
+        "type": "text",
+        "required": false,
+        "default": "dingo-mds-client",
+        "options": []
+      }
+    ]
+  },
+  {
+    "action": "dirstat.info",
+    "label": "目录统计信息",
+    "section": "filesystem",
+    "mutating": false,
+    "fields": [
+      {
+        "key": "fs_id",
+        "label": "文件系统 ID",
+        "type": "number",
+        "required": true,
+        "default": null,
+        "options": []
+      },
+      {
+        "key": "path",
+        "label": "文件系统内目录路径",
+        "type": "text",
+        "required": false,
+        "default": "/",
+        "options": []
+      },
+      {
+        "key": "recursive",
+        "label": "递归",
+        "type": "boolean",
+        "required": false,
+        "default": false,
+        "options": []
+      },
+      {
+        "key": "strict",
+        "label": "严格模式",
+        "type": "boolean",
+        "required": false,
+        "default": false,
+        "options": []
+      },
+      {
+        "key": "raw",
+        "label": "原始数据",
+        "type": "boolean",
+        "required": false,
+        "default": false,
+        "options": []
+      },
+      {
+        "key": "mds_client_path",
+        "label": "MDS 客户端路径",
+        "type": "text",
+        "required": false,
+        "default": "dingo-mds-client",
+        "options": []
+      }
+    ]
+  },
+  {
+    "action": "dirstat.summary",
+    "label": "目录统计汇总",
+    "section": "filesystem",
+    "mutating": false,
+    "fields": [
+      {
+        "key": "fs_id",
+        "label": "文件系统 ID",
+        "type": "number",
+        "required": true,
+        "default": null,
+        "options": []
+      },
+      {
+        "key": "path",
+        "label": "文件系统内目录路径",
+        "type": "text",
+        "required": false,
+        "default": "/",
+        "options": []
+      },
+      {
+        "key": "depth",
+        "label": "深度",
+        "type": "number",
+        "required": false,
+        "default": 1,
+        "options": []
+      },
+      {
+        "key": "entries",
+        "label": "条目数",
+        "type": "number",
+        "required": false,
+        "default": 100,
+        "options": []
+      },
+      {
+        "key": "strict",
+        "label": "严格模式",
+        "type": "boolean",
+        "required": false,
+        "default": false,
+        "options": []
+      },
+      {
+        "key": "mds_client_path",
+        "label": "MDS 客户端路径",
+        "type": "text",
+        "required": false,
+        "default": "dingo-mds-client",
+        "options": []
+      }
+    ]
+  },
+  {
+    "action": "dirstat.enable",
+    "label": "启用或关闭目录统计",
+    "section": "filesystem",
+    "mutating": true,
+    "fields": [
+      {
+        "key": "fs_name",
+        "label": "文件系统名称",
+        "type": "text",
+        "required": true,
+        "default": null,
+        "options": []
+      },
+      {
+        "key": "enable",
+        "label": "启用",
+        "type": "boolean",
+        "required": false,
+        "default": true,
+        "options": []
+      },
+      {
+        "key": "mds_client_path",
+        "label": "MDS 客户端路径",
+        "type": "text",
+        "required": false,
+        "default": "dingo-mds-client",
+        "options": []
+      }
+    ]
+  },
+  {
+    "action": "dirstat.sync",
+    "label": "同步目录统计",
+    "section": "filesystem",
+    "mutating": true,
+    "fields": [
+      {
+        "key": "fs_id",
+        "label": "文件系统 ID",
+        "type": "number",
+        "required": true,
+        "default": null,
+        "options": []
+      },
+      {
+        "key": "path",
+        "label": "文件系统内目录路径",
+        "type": "text",
+        "required": false,
+        "default": "/",
+        "options": []
+      },
+      {
+        "key": "recursive",
+        "label": "递归",
+        "type": "boolean",
+        "required": false,
+        "default": false,
+        "options": []
+      },
+      {
+        "key": "repair",
+        "label": "修复",
+        "type": "boolean",
+        "required": false,
+        "default": false,
+        "options": []
+      },
+      {
+        "key": "mds_client_path",
+        "label": "MDS 客户端路径",
+        "type": "text",
+        "required": false,
+        "default": "dingo-mds-client",
+        "options": []
+      }
+    ]
+  },
+  {
+    "action": "cache.list",
+    "label": "缓存组与成员列表",
+    "section": "cache",
+    "mutating": false,
+    "fields": []
+  },
+  {
+    "action": "cache.create",
+    "label": "创建缓存组",
+    "section": "cache",
+    "mutating": true,
+    "fields": [
+      {
+        "key": "group_name",
+        "label": "缓存组名称",
+        "type": "text",
+        "required": true,
+        "default": null,
+        "options": []
+      },
+      {
+        "key": "members",
+        "label": "缓存成员",
+        "type": "members",
+        "required": true,
+        "default": null,
+        "options": [],
+        "fields": [
+          {
+            "key": "machine_id",
+            "label": "目标机器",
+            "type": "text",
+            "required": true,
+            "default": null,
+            "options": []
+          },
+          {
+            "key": "target_user",
+            "label": "执行用户",
+            "type": "text",
+            "required": false,
+            "default": "dingofs",
+            "options": []
+          },
+          {
+            "key": "listen_ip",
+            "label": "监听 IP",
+            "type": "text",
+            "required": true,
+            "default": null,
+            "options": []
+          },
+          {
+            "key": "listen_port",
+            "label": "监听端口",
+            "type": "number",
+            "required": false,
+            "default": 21000,
+            "options": []
+          },
+          {
+            "key": "cache_dir",
+            "label": "缓存基础目录",
+            "type": "text",
+            "required": true,
+            "default": null,
+            "options": []
+          },
+          {
+            "key": "cache_size_mb",
+            "label": "缓存容量（MiB）",
+            "type": "number",
+            "required": false,
+            "default": 1024,
+            "options": []
+          },
+          {
+            "key": "use_rdma",
+            "label": "使用 RDMA",
+            "type": "boolean",
+            "required": false,
+            "default": false,
+            "options": []
+          },
+          {
+            "key": "rdma_device",
+            "label": "RDMA 设备",
+            "type": "text",
+            "required": false,
+            "default": "",
+            "options": []
+          },
+          {
+            "key": "rdma_port",
+            "label": "RDMA 端口",
+            "type": "number",
+            "required": false,
+            "default": 1,
+            "options": []
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "action": "cache.stop",
+    "label": "停止缓存组",
+    "section": "cache",
+    "mutating": true,
+    "fields": [
+      {
+        "key": "resource_id",
+        "label": "资源 ID",
+        "type": "text",
+        "required": true,
+        "default": null,
+        "options": []
+      }
+    ]
+  },
+  {
+    "action": "cache.delete",
+    "label": "删除缓存组成员登记",
+    "section": "cache",
+    "mutating": true,
+    "fields": [
+      {
+        "key": "member_id",
+        "label": "缓存组成员",
+        "type": "text",
+        "required": true,
+        "default": null,
+        "options": []
+      }
+    ]
+  },
+  {
+    "action": "mount.create",
+    "label": "挂载文件系统",
+    "section": "mount",
+    "mutating": true,
+    "fields": [
+      {
+        "key": "machine_id",
+        "label": "目标机器",
+        "type": "text",
+        "required": true,
+        "default": null,
+        "options": []
+      },
+      {
+        "key": "target_user",
+        "label": "执行用户",
+        "type": "text",
+        "required": false,
+        "default": "dingofs",
+        "options": []
+      },
+      {
+        "key": "fs_name",
+        "label": "文件系统名称",
+        "type": "text",
+        "required": true,
+        "default": null,
+        "options": []
+      },
+      {
+        "key": "mount_path",
+        "label": "挂载路径",
+        "type": "text",
+        "required": true,
+        "default": null,
+        "options": []
+      },
+      {
+        "key": "subdir",
+        "label": "挂载子目录",
+        "type": "text",
+        "required": false,
+        "default": "",
+        "options": []
+      },
+      {
+        "key": "cache_group",
+        "label": "缓存组名称",
+        "type": "text",
+        "required": false,
+        "default": "",
+        "options": []
+      },
+      {
+        "key": "use_rdma",
+        "label": "使用 RDMA",
+        "type": "boolean",
+        "required": false,
+        "default": false,
+        "options": []
+      },
+      {
+        "key": "rdma_device",
+        "label": "RDMA 设备",
+        "type": "text",
+        "required": false,
+        "default": "",
+        "options": []
+      },
+      {
+        "key": "rdma_port",
+        "label": "RDMA 端口",
+        "type": "number",
+        "required": false,
+        "default": 1,
+        "options": []
+      }
+    ]
+  },
+  {
+    "action": "mount.unmount",
+    "label": "卸载文件系统",
+    "section": "mount",
+    "mutating": true,
+    "fields": [
+      {
+        "key": "resource_id",
+        "label": "资源 ID",
+        "type": "text",
+        "required": true,
+        "default": null,
+        "options": []
+      }
+    ]
+  },
+  {
+    "action": "mount.logs",
+    "label": "客户端日志",
+    "section": "mount",
+    "mutating": false,
+    "fields": [
+      {
+        "key": "resource_id",
+        "label": "资源 ID",
+        "type": "text",
+        "required": true,
+        "default": null,
+        "options": []
+      },
+      {
+        "key": "filename",
+        "label": "日志文件名（留空列出文件）",
+        "type": "text",
+        "required": false,
+        "default": "",
+        "options": []
+      },
+      {
+        "key": "lines",
+        "label": "最近行数",
+        "type": "number",
+        "required": false,
+        "default": 500,
+        "options": []
+      }
+    ]
+  },
+  {
+    "action": "mount.status",
+    "label": "检查挂载状态",
+    "section": "mount",
+    "mutating": false,
+    "fields": [
+      {
+        "key": "resource_id",
+        "label": "资源 ID",
+        "type": "text",
+        "required": true,
+        "default": null,
+        "options": []
+      }
+    ]
+  },
+  {
+    "action": "cache.delete_batch",
+    "label": "通配符批量删除缓存成员",
+    "section": "cache",
+    "mutating": true,
+    "fields": [
+      {
+        "key": "member_ids",
+        "label": "待删除成员",
+        "type": "names",
+        "required": true
+      }
+    ]
+  }
+]

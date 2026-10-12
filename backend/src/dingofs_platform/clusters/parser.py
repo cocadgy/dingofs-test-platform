@@ -29,6 +29,8 @@ def parse_cluster_names(raw):
         name = line.strip()
         if not name:
             continue
+        # Some dingo versions prefix the selected cluster with '* '.
+        name = re.sub(r"^\*[ \t]+", "", name, count=1)
         if not NAME.fullmatch(name):
             raise ClusterParseError("invalid_listing")
         if name not in names:
@@ -67,7 +69,7 @@ def parse_cluster_status(raw, expected_name):
             continue
         if not table:
             match = re.match(
-                r"^(cluster\s+name|cluster\s+kind|mds\s+addr|tikv\s+addr)\s*:\s*(.*)$",
+                r"^(cluster\s+name|cluster\s+kind|mds\s+addr|tikv\s+addr|coordinator\s+addr)\s*:\s*(.*)$",
                 line,
             )
             if not match:

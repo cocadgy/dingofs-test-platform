@@ -32,6 +32,7 @@ def serialize(db, kind, row):
             "name",
             "archived",
             "address",
+            "aliases",
             "ssh_port",
             "ssh_user",
             "credential_ref",
@@ -47,10 +48,16 @@ def serialize(db, kind, row):
             "collection_expires_at",
         )
         data = {name: getattr(row, name) for name in fields}
-        data["has_ssh_password"] = bool(row.ssh_password_ciphertext)
-        from .host_trust import public_trust
+        from .host_identity import alias_conflicts
 
-        data["ssh_host_trust"] = public_trust(row)
+        data["aliases"] = row.aliases or []
+        data["alias_conflicts"] = alias_conflicts(db, row)
+        data["has_ssh_password"] = bool(row.ssh_password_ciphertext)
+        # Automatic trust supersedes historical pins and pending challenges.
+        data["ssh_host_trust"] = {"trusted": None, "pending": None}
+        if row.collection_status == "needs_trust":
+            data["collection_status"] = "failed"
+            data["collection_error"] = "已启用 SSH 自动信任，请重新更新机器信息"
         if (
             row.collection_status == "collecting"
             and row.collection_expires_at

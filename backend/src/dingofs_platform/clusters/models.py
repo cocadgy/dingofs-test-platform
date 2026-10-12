@@ -8,6 +8,7 @@ class ClusterOperation(Record, Base):
     __tablename__ = "cluster_operations"
     actor_id: Mapped[str] = mapped_column(String(36))
     session_id: Mapped[str] = mapped_column(String(36))
+    parameters: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     kind: Mapped[str] = mapped_column(String(16))
     machine_id: Mapped[str] = mapped_column(ForeignKey("machines.id"))
     machine_revision: Mapped[int] = mapped_column(Integer)

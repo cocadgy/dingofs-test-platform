@@ -18,6 +18,8 @@ from dingofs_platform.inventory.service import lock_inventory, audit
 from .models import ClusterOperation
 from .transport import (
     execute_cluster,
+    operation_command,
+    CONTROL_ACTIONS,
     ClusterCommand,
     AuthenticationRequired,
     ClusterExecutionError,
@@ -46,7 +48,7 @@ MESSAGES = {
     "invalid_listing": "无法识别集群列表",
     "invalid_header": "无法识别集群状态头",
     "invalid_row": "服务表格解析不完整",
-    "query_failed": "dingo 查询失败",
+    "query_failed": "dingo 命令执行失败",
     "host_key_unknown": "请由机器创建者或管理员核验并信任 SSH 指纹",
     "host_key_changed": "机器 SSH 指纹发生变化，请由机器创建者或管理员核验",
     "stale": "资源配置或登录状态已变化，请重新操作",
@@ -75,7 +77,6 @@ def valid_actor(db, op):
         and session.expires_at > now()
         and actor
         and not actor.disabled
-
     )
 
 
@@ -120,6 +121,7 @@ def view(db, op):
     return dict(
         id=op.id,
         kind=op.kind,
+        parameters=op.parameters,
         state=op.state,
         machine_id=op.machine_id,
         machine_name=machine.name,
@@ -176,6 +178,7 @@ def start_operation(
     target_user,
     cluster_id=None,
     cluster_revision=None,
+    parameters=None,
 ):
     settings = request.app.state.settings
     with get_db(request) as db, db.begin():
@@ -200,6 +203,23 @@ def start_operation(
             require_manage(actual, c)
             if c.revision != cluster_revision:
                 raise Problem(409, "revision_conflict", "集群配置已更新")
+        if cluster_id:
+            from dingofs_platform.resources.models import ResourceOperation
+            from dingofs_platform.resources.views import (
+                expire as expire_resource, ACTIVE as RESOURCE_ACTIVE,
+            )
+
+            for resource_op in db.scalars(
+                select(ResourceOperation).where(
+                    ResourceOperation.cluster_id == cluster_id,
+                    ResourceOperation.state.in_(RESOURCE_ACTIVE),
+                )
+            ):
+                expire_resource(db, resource_op)
+                if resource_op.state in RESOURCE_ACTIVE:
+                    raise Problem(409, "resource_busy", "此集群有进行中的资源操作")
+        if kind in CONTROL_ACTIONS:
+            validate_control(c, parameters)
         ops = list(
             db.scalars(
                 select(ClusterOperation).where(
@@ -211,6 +231,19 @@ def start_operation(
         for op in ops:
             expire(op)
         for op in ops:
+            if (
+                op.state in (*ACTIVE, "needs_password")
+                and cluster_id
+                and op.cluster_id == cluster_id
+                and (kind in CONTROL_ACTIONS or op.kind in CONTROL_ACTIONS)
+            ):
+                if (
+                    op.actor_id == actor.id
+                    and op.kind == kind
+                    and op.parameters == parameters
+                ):
+                    return view(db, op), False
+                raise Problem(409, "operation_busy", "集群有进行中的操作，请完成后再试")
             if (
                 op.state in (*ACTIVE, "needs_password")
                 and cluster_id
@@ -230,12 +263,15 @@ def start_operation(
         ttl = (
             settings.cluster_discovery_timeout
             if kind == "discover"
+            else settings.cluster_control_timeout
+            if kind in CONTROL_ACTIONS
             else settings.cluster_status_timeout
         )
         op = ClusterOperation(
             actor_id=actor.id,
             session_id=session.id,
             kind=kind,
+            parameters=parameters,
             machine_id=machine_id,
             machine_revision=machine_revision,
             target_user=target_user,
@@ -262,6 +298,10 @@ def run_operation(request, operation_id, *, password=None, claimed=False):
     with get_db(request) as db, db.begin():
         lock_inventory(db)
         op = db.get(ClusterOperation, operation_id)
+        # A queued job cannot renew an expired lease. Password retries have
+        # already been authorized against their separate challenge deadline.
+        if op and not claimed:
+            expire(op)
         if not op or op.state != ("running" if claimed else "pending"):
             return
         if not check_target(db, op):
@@ -274,6 +314,8 @@ def run_operation(request, operation_id, *, password=None, claimed=False):
         ttl = (
             settings.cluster_discovery_timeout
             if op.kind == "discover"
+            else settings.cluster_control_timeout
+            if op.kind in CONTROL_ACTIONS
             else settings.cluster_status_timeout
         )
         op.lease_expires_at = now() + timedelta(seconds=ttl + 5)
@@ -301,7 +343,11 @@ def run_operation(request, operation_id, *, password=None, claimed=False):
             scoped_trust(m),
         )
         command = ClusterCommand(
-            op.kind, op.target_user, cluster.external_name if cluster else None
+            op.kind,
+            op.target_user,
+            cluster.external_name if cluster else None,
+            **(op.parameters or {}),
+            expected_home=expected_home,
         )
         auth_account = op.auth_account
     last = [0.0]
@@ -344,6 +390,7 @@ def run_operation(request, operation_id, *, password=None, claimed=False):
         if len(raw.encode()) + len(err.encode()) > settings.cluster_max_bytes:
             raise ClusterExecutionError("output_limit")
         result = {
+            "executed_commands": [{"command": operation_command(command), "status": "completed"}],
             "identity": asdict(output.identity),
             "stdout": raw,
             "stderr": err,
@@ -490,3 +537,15 @@ def cancel_operation(request, actor, id):
                     c.status_attempt_state = "cancelled"
                     c.status_error_code = "cancelled"
         return view(db, op)
+
+
+def validate_control(cluster, parameters):
+    if not cluster or not parameters:
+        raise Problem(422, "invalid_target", "缺少操作目标")
+    scope, target = parameters.get("scope"), parameters.get("target")
+    if scope == "all" and target is None:
+        return
+    field = {"service": "id", "role": "role"}.get(scope)
+    services = (cluster.status_snapshot or {}).get("services", [])
+    if not field or not target or target not in {row[field] for row in services}:
+        raise Problem(422, "invalid_target", "请选择当前集群中已采集的服务或角色")

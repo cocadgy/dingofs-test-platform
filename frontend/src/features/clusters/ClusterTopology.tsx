@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { YamlCode } from "./YamlCode";
 import { api } from "../../api/client";
 import { OperationAuthDialog } from "./OperationAuthDialog";
 import { type Operation } from "./types";
@@ -90,11 +91,13 @@ export function ClusterTopology({
       {operation &&
         ["failed", "interrupted", "cancelled"].includes(operation.state) &&
         content !== undefined && <p>本次读取未成功，保留上次读取内容。</p>}
-      <pre className="cluster-raw">
-        {content === undefined
-          ? "尚未读取 topology.yaml"
-          : content || "命令未返回内容"}
-      </pre>
+      {content ? (
+        <YamlCode text={content} />
+      ) : (
+        <pre className="cluster-raw">
+          {content === undefined ? "尚未读取 topology.yaml" : "命令未返回内容"}
+        </pre>
+      )}
     </section>
   );
 }

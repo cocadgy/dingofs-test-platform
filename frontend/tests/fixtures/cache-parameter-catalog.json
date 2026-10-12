@@ -1,0 +1,957 @@
+{
+  "source_version": "main-fe4384a0b",
+  "fields": [
+    {
+      "name": "buffer_pool_mb",
+      "type": "uint64",
+      "group": "运行时与 CPU",
+      "label": "每分片缓冲池（MiB）",
+      "description": "buffer pool per shard in MiB",
+      "default": "256",
+      "managed": null,
+      "member_key": null
+    },
+    {
+      "name": "cpuset",
+      "type": "string",
+      "group": "运行时与 CPU",
+      "label": "CPU 核绑定范围",
+      "description": "cores the shards run on, e.g. 0-31",
+      "default": null,
+      "managed": null,
+      "member_key": null
+    },
+    {
+      "name": "idle_poll_us",
+      "type": "uint32",
+      "group": "运行时与 CPU",
+      "label": "idle_poll_us",
+      "description": "microseconds a reactor spins on an empty queue before it sleeps; ignored under --poll_mode, which never sleeps",
+      "default": "200",
+      "managed": null,
+      "member_key": null
+    },
+    {
+      "name": "iodepth",
+      "type": "uint32",
+      "group": "运行时与 CPU",
+      "label": "每分片 I/O 队列深度",
+      "description": "submission queue entries per shard's ring",
+      "default": "1024",
+      "managed": null,
+      "member_key": null
+    },
+    {
+      "name": "offload_cpu_min_bytes",
+      "type": "uint32",
+      "group": "运行时与 CPU",
+      "label": "offload_cpu_min_bytes",
+      "description": "copies below this stay on the shard",
+      "default": "32768",
+      "managed": null,
+      "member_key": null
+    },
+    {
+      "name": "offload_cpu_spin_us",
+      "type": "uint32",
+      "group": "运行时与 CPU",
+      "label": "offload_cpu_spin_us",
+      "description": "cpu workers spin this long for more work before parking; matches the reactor's idle_poll_us so a QD1 stream never pays a condvar wakeup per completion",
+      "default": "200",
+      "managed": null,
+      "member_key": null
+    },
+    {
+      "name": "offload_queue_capacity",
+      "type": "uint32",
+      "group": "运行时与 CPU",
+      "label": "offload_queue_capacity",
+      "description": "queued offload jobs beyond which submits answer busy",
+      "default": "4096",
+      "managed": null,
+      "member_key": null
+    },
+    {
+      "name": "offload_threads",
+      "type": "uint32",
+      "group": "运行时与 CPU",
+      "label": "offload_threads",
+      "description": "worker threads for offloaded blocking work",
+      "default": "32",
+      "managed": null,
+      "member_key": null
+    },
+    {
+      "name": "pin_cpu",
+      "type": "bool",
+      "group": "运行时与 CPU",
+      "label": "绑定 CPU 核",
+      "description": "pin each shard to its core",
+      "default": "false",
+      "managed": null,
+      "member_key": null
+    },
+    {
+      "name": "poll_mode",
+      "type": "bool",
+      "group": "运行时与 CPU",
+      "label": "忙轮询",
+      "description": "busy-poll the reactors",
+      "default": "false",
+      "managed": null,
+      "member_key": null
+    },
+    {
+      "name": "shards",
+      "type": "uint32",
+      "group": "运行时与 CPU",
+      "label": "分片数",
+      "description": "reactor shards, 0 means one per core",
+      "default": "8",
+      "managed": null,
+      "member_key": null
+    },
+    {
+      "name": "task_quota_us",
+      "type": "uint32",
+      "group": "运行时与 CPU",
+      "label": "task_quota_us",
+      "description": "microseconds a task may run before the reactor preempts it",
+      "default": "500",
+      "managed": null,
+      "member_key": null
+    },
+    {
+      "name": "bind_all",
+      "type": "bool",
+      "group": "节点与心跳",
+      "label": "bind_all",
+      "description": "bind 0.0.0.0 instead of listen_ip",
+      "default": "true",
+      "managed": null,
+      "member_key": null
+    },
+    {
+      "name": "cache_mds_request_retry_times",
+      "type": "uint32",
+      "group": "节点与心跳",
+      "label": "cache_mds_request_retry_times",
+      "description": "retry count for the cache mds request wrapper",
+      "default": "3",
+      "managed": null,
+      "member_key": null
+    },
+    {
+      "name": "cache_mds_rpc_retry_times",
+      "type": "int32",
+      "group": "节点与心跳",
+      "label": "cache_mds_rpc_retry_times",
+      "description": "retry count for each cache mds rpc attempt",
+      "default": "1",
+      "managed": null,
+      "member_key": null
+    },
+    {
+      "name": "cache_mds_rpc_timeout_ms",
+      "type": "int64",
+      "group": "节点与心跳",
+      "label": "cache_mds_rpc_timeout_ms",
+      "description": "timeout for cache mds rpcs in milliseconds",
+      "default": "3000",
+      "managed": null,
+      "member_key": null
+    },
+    {
+      "name": "conf",
+      "type": "string",
+      "group": "节点与心跳",
+      "label": "conf",
+      "description": "config file path",
+      "default": null,
+      "managed": "平台以参数快照启动，不使用外部配置文件覆盖",
+      "member_key": null
+    },
+    {
+      "name": "daemonize",
+      "type": "bool",
+      "group": "节点与心跳",
+      "label": "daemonize",
+      "description": "run in background",
+      "default": "false",
+      "managed": "平台使用 true 管理后台进程",
+      "member_key": null
+    },
+    {
+      "name": "group_name",
+      "type": "string",
+      "group": "节点与心跳",
+      "label": "group_name",
+      "description": "cache group to join",
+      "default": "default",
+      "managed": "使用创建表单中的缓存组名称",
+      "member_key": null
+    },
+    {
+      "name": "group_weight",
+      "type": "uint32",
+      "group": "节点与心跳",
+      "label": "一致性哈希权重",
+      "description": "node weight in consistent hash",
+      "default": "100",
+      "managed": null,
+      "member_key": null
+    },
+    {
+      "name": "heartbeat_interval_s",
+      "type": "uint32",
+      "group": "节点与心跳",
+      "label": "心跳间隔（秒）",
+      "description": "heartbeat interval in seconds",
+      "default": "3",
+      "managed": null,
+      "member_key": null
+    },
+    {
+      "name": "id",
+      "type": "string",
+      "group": "节点与心跳",
+      "label": "id",
+      "description": "cache node id [required]",
+      "default": null,
+      "managed": "平台为每个成员生成 UUID",
+      "member_key": null
+    },
+    {
+      "name": "listen_ip",
+      "type": "string",
+      "group": "节点与心跳",
+      "label": "listen_ip",
+      "description": "ip to listen on [required]",
+      "default": null,
+      "managed": "在成员表单设置监听 IP",
+      "member_key": null
+    },
+    {
+      "name": "listen_port",
+      "type": "uint32",
+      "group": "节点与心跳",
+      "label": "listen_port",
+      "description": "port to listen on",
+      "default": "9300",
+      "managed": "由端口检查分配，或在成员表单手动指定",
+      "member_key": null
+    },
+    {
+      "name": "mds_addrs",
+      "type": "string",
+      "group": "节点与心跳",
+      "label": "mds_addrs",
+      "description": "mds addresses",
+      "default": "127.0.0.1:7400",
+      "managed": "使用当前集群的 MDS 地址",
+      "member_key": null
+    },
+    {
+      "name": "brpc_idle_timeout_second",
+      "type": "int32",
+      "group": "网络与 RDMA",
+      "label": "brpc_idle_timeout_second",
+      "description": "seconds an idle connection is kept; -1 never reaps",
+      "default": "-1",
+      "managed": null,
+      "member_key": null
+    },
+    {
+      "name": "brpc_max_concurrency",
+      "type": "int32",
+      "group": "网络与 RDMA",
+      "label": "brpc_max_concurrency",
+      "description": "requests in flight brpc admits; 0 is unlimited",
+      "default": "0",
+      "managed": null,
+      "member_key": null
+    },
+    {
+      "name": "brpc_reply_on_bthread",
+      "type": "bool",
+      "group": "网络与 RDMA",
+      "label": "brpc_reply_on_bthread",
+      "description": "run brpc's done on a bthread instead of on the owning shard",
+      "default": "false",
+      "managed": null,
+      "member_key": null
+    },
+    {
+      "name": "cache_rdma_device",
+      "type": "string",
+      "group": "网络与 RDMA",
+      "label": "RDMA 设备",
+      "description": "rdma device; empty picks the first",
+      "default": null,
+      "managed": null,
+      "member_key": "rdma_device",
+      "note": "模板作为成员默认值，创建时可为每个成员单独修改。"
+    },
+    {
+      "name": "cache_rdma_port_num",
+      "type": "uint32",
+      "group": "网络与 RDMA",
+      "label": "RDMA 端口",
+      "description": "hca port to use",
+      "default": "1",
+      "managed": null,
+      "member_key": "rdma_port",
+      "note": "模板作为成员默认值，创建时可为每个成员单独修改。"
+    },
+    {
+      "name": "rdma_bulk_qps",
+      "type": "uint32",
+      "group": "网络与 RDMA",
+      "label": "rdma_bulk_qps",
+      "description": "bulk queue pairs per connection",
+      "default": "2",
+      "managed": null,
+      "member_key": null
+    },
+    {
+      "name": "rdma_bulk_send_wr",
+      "type": "uint32",
+      "group": "网络与 RDMA",
+      "label": "rdma_bulk_send_wr",
+      "description": "send queue depth of one bulk queue pair",
+      "default": "256",
+      "managed": null,
+      "member_key": null
+    },
+    {
+      "name": "rdma_cq_entries",
+      "type": "uint32",
+      "group": "网络与 RDMA",
+      "label": "rdma_cq_entries",
+      "description": "initial completion queue entries; grows on demand",
+      "default": "4096",
+      "managed": null,
+      "member_key": null
+    },
+    {
+      "name": "rdma_gid_idx",
+      "type": "int32",
+      "group": "网络与 RDMA",
+      "label": "rdma_gid_idx",
+      "description": "gid index; -1 auto-selects a RoCEv2 IPv4 gid (RoCE only)",
+      "default": "-1",
+      "managed": null,
+      "member_key": null
+    },
+    {
+      "name": "rdma_heartbeat_interval_s",
+      "type": "uint32",
+      "group": "网络与 RDMA",
+      "label": "rdma_heartbeat_interval_s",
+      "description": "seconds between heartbeats",
+      "default": "2",
+      "managed": null,
+      "member_key": null
+    },
+    {
+      "name": "rdma_idle_timeout_s",
+      "type": "uint32",
+      "group": "网络与 RDMA",
+      "label": "rdma_idle_timeout_s",
+      "description": "seconds before an idle connection is reaped",
+      "default": "10",
+      "managed": null,
+      "member_key": null
+    },
+    {
+      "name": "rdma_max_connections",
+      "type": "uint32",
+      "group": "网络与 RDMA",
+      "label": "rdma_max_connections",
+      "description": "max rdma connections per shard",
+      "default": "64",
+      "managed": null,
+      "member_key": null
+    },
+    {
+      "name": "rdma_max_inflight_rpcs",
+      "type": "uint32",
+      "group": "网络与 RDMA",
+      "label": "rdma_max_inflight_rpcs",
+      "description": "max in-flight rpcs per connection",
+      "default": "256",
+      "managed": null,
+      "member_key": null
+    },
+    {
+      "name": "rdma_max_inline_data",
+      "type": "uint32",
+      "group": "网络与 RDMA",
+      "label": "rdma_max_inline_data",
+      "description": "max bytes inlined into a wqe",
+      "default": "192",
+      "managed": null,
+      "member_key": null
+    },
+    {
+      "name": "rdma_message_bytes",
+      "type": "uint32",
+      "group": "网络与 RDMA",
+      "label": "rdma_message_bytes",
+      "description": "bytes in one message; both ends must agree",
+      "default": "4096",
+      "managed": null,
+      "member_key": null
+    },
+    {
+      "name": "use_rdma",
+      "type": "bool",
+      "group": "网络与 RDMA",
+      "label": "使用 RDMA",
+      "description": "use rdma transport",
+      "default": "false",
+      "managed": null,
+      "member_key": "use_rdma",
+      "note": "模板作为成员默认值，创建时可为每个成员单独修改。"
+    },
+    {
+      "name": "max_range_size_kb",
+      "type": "uint32",
+      "group": "数据块缓存",
+      "label": "max_range_size_kb",
+      "description": "whole-block fetch threshold (KB)",
+      "default": "128",
+      "managed": null,
+      "member_key": null
+    },
+    {
+      "name": "upload_stage_max_inflights",
+      "type": "uint32",
+      "group": "数据块缓存",
+      "label": "upload_stage_max_inflights",
+      "description": "upload stage block concurrency",
+      "default": "32",
+      "managed": null,
+      "member_key": null
+    },
+    {
+      "name": "upload_stage_max_tries",
+      "type": "uint32",
+      "group": "数据块缓存",
+      "label": "upload_stage_max_tries",
+      "description": "max tries for upload stage block",
+      "default": "3",
+      "managed": null,
+      "member_key": null
+    },
+    {
+      "name": "upload_stage_retry_delay_s",
+      "type": "uint32",
+      "group": "数据块缓存",
+      "label": "upload_stage_retry_delay_s",
+      "description": "delay before a failed retry",
+      "default": "60",
+      "managed": null,
+      "member_key": null
+    },
+    {
+      "name": "cache_cleanup_expire_interval_ms",
+      "type": "uint32",
+      "group": "磁盘缓存",
+      "label": "cache_cleanup_expire_interval_ms",
+      "description": "interval to evict expired blocks",
+      "default": "1000",
+      "managed": null,
+      "member_key": null
+    },
+    {
+      "name": "cache_dir",
+      "type": "string",
+      "group": "磁盘缓存",
+      "label": "缓存基础目录",
+      "description": "cache directories, comma-separated path[:size_mb]",
+      "default": "/home/jenkins/.dingo/cache",
+      "managed": null,
+      "member_key": "cache_dir",
+      "note": "帮助中的默认路径与采集账号有关。平台在所选基础目录下追加成员 UUID，不共享成员目录。"
+    },
+    {
+      "name": "cache_dir_uuid",
+      "type": "string",
+      "group": "磁盘缓存",
+      "label": "cache_dir_uuid",
+      "description": "uuid suffix appended to each cache directory; set internally",
+      "default": null,
+      "managed": "缓存程序内部设置",
+      "member_key": null
+    },
+    {
+      "name": "cache_eviction",
+      "type": "string",
+      "group": "磁盘缓存",
+      "label": "缓存淘汰策略",
+      "description": "eviction: lru | 2random | s3fifo | sieve | none",
+      "default": "2random",
+      "managed": null,
+      "member_key": null,
+      "choices": [
+        "lru",
+        "2random",
+        "s3fifo",
+        "sieve",
+        "none"
+      ]
+    },
+    {
+      "name": "cache_expire_s",
+      "type": "uint32",
+      "group": "磁盘缓存",
+      "label": "缓存过期时间（秒，0 为永不过期）",
+      "description": "expire time of cached blocks (0 means never)",
+      "default": "259200",
+      "managed": null,
+      "member_key": null
+    },
+    {
+      "name": "cache_size_mb",
+      "type": "uint32",
+      "group": "磁盘缓存",
+      "label": "缓存容量（MiB）",
+      "description": "cache size in mb",
+      "default": "102400",
+      "managed": null,
+      "member_key": "cache_size_mb",
+      "note": "模板作为成员默认值，创建时可为每个成员单独修改。"
+    },
+    {
+      "name": "disk_state_check_duration_ms",
+      "type": "uint32",
+      "group": "磁盘缓存",
+      "label": "disk_state_check_duration_ms",
+      "description": "probe interval",
+      "default": "3000",
+      "managed": null,
+      "member_key": null
+    },
+    {
+      "name": "disk_state_normal2unstable_error_num",
+      "type": "uint32",
+      "group": "磁盘缓存",
+      "label": "disk_state_normal2unstable_error_num",
+      "description": "errors that turn a disk unstable",
+      "default": "3",
+      "managed": null,
+      "member_key": null
+    },
+    {
+      "name": "disk_state_probe_timeout_ms",
+      "type": "uint32",
+      "group": "磁盘缓存",
+      "label": "disk_state_probe_timeout_ms",
+      "description": "probe timeout",
+      "default": "5000",
+      "managed": null,
+      "member_key": null
+    },
+    {
+      "name": "disk_state_tick_duration_s",
+      "type": "uint32",
+      "group": "磁盘缓存",
+      "label": "disk_state_tick_duration_s",
+      "description": "state window length",
+      "default": "60",
+      "managed": null,
+      "member_key": null
+    },
+    {
+      "name": "disk_state_unstable2down_s",
+      "type": "uint32",
+      "group": "磁盘缓存",
+      "label": "disk_state_unstable2down_s",
+      "description": "unstable seconds before a disk goes down",
+      "default": "1800",
+      "managed": null,
+      "member_key": null
+    },
+    {
+      "name": "disk_state_unstable2normal_succ_num",
+      "type": "uint32",
+      "group": "磁盘缓存",
+      "label": "disk_state_unstable2normal_succ_num",
+      "description": "successes that turn a disk normal",
+      "default": "10",
+      "managed": null,
+      "member_key": null
+    },
+    {
+      "name": "free_space_ratio",
+      "type": "double",
+      "group": "磁盘缓存",
+      "label": "最小空闲空间比例",
+      "description": "min free space (ratio)",
+      "default": "0.10000000000000001",
+      "managed": null,
+      "member_key": null
+    },
+    {
+      "name": "block_access_logging",
+      "type": "bool",
+      "group": "对象存储与限流",
+      "label": "block_access_logging",
+      "description": "enable block access log",
+      "default": "true",
+      "managed": null,
+      "member_key": null
+    },
+    {
+      "name": "io_bandwidth_read_mb",
+      "type": "uint32",
+      "group": "对象存储与限流",
+      "label": "io_bandwidth_read_mb",
+      "description": "read io bandwidth limit in MB(0 means no limit)",
+      "default": "0",
+      "managed": null,
+      "member_key": null
+    },
+    {
+      "name": "io_bandwidth_total_mb",
+      "type": "uint32",
+      "group": "对象存储与限流",
+      "label": "io_bandwidth_total_mb",
+      "description": "total io bandwidth limit in MB(0 means no limit)",
+      "default": "0",
+      "managed": null,
+      "member_key": null
+    },
+    {
+      "name": "io_bandwidth_write_mb",
+      "type": "uint32",
+      "group": "对象存储与限流",
+      "label": "io_bandwidth_write_mb",
+      "description": "write io bandwidth limit in MB(0 means no limit)",
+      "default": "0",
+      "managed": null,
+      "member_key": null
+    },
+    {
+      "name": "io_max_inflight_async_bytes",
+      "type": "uint32",
+      "group": "对象存储与限流",
+      "label": "io_max_inflight_async_bytes",
+      "description": "max inflight async bytes(0 means no limit)",
+      "default": "0",
+      "managed": null,
+      "member_key": null
+    },
+    {
+      "name": "iops_read_limit",
+      "type": "uint32",
+      "group": "对象存储与限流",
+      "label": "iops_read_limit",
+      "description": "read iops limit(0 means no limit)",
+      "default": "0",
+      "managed": null,
+      "member_key": null
+    },
+    {
+      "name": "iops_total_limit",
+      "type": "uint32",
+      "group": "对象存储与限流",
+      "label": "iops_total_limit",
+      "description": "total iops limit(0 means no limit)",
+      "default": "0",
+      "managed": null,
+      "member_key": null
+    },
+    {
+      "name": "iops_write_limit",
+      "type": "uint32",
+      "group": "对象存储与限流",
+      "label": "iops_write_limit",
+      "description": "write iops limit(0 means no limit)",
+      "default": "0",
+      "managed": null,
+      "member_key": null
+    },
+    {
+      "name": "rados_map_refresh_enable",
+      "type": "bool",
+      "group": "对象存储与限流",
+      "label": "rados_map_refresh_enable",
+      "description": "enable background refresh of the latest RADOS OSDMap",
+      "default": "true",
+      "managed": null,
+      "member_key": null
+    },
+    {
+      "name": "rados_map_refresh_interval_s",
+      "type": "uint32",
+      "group": "对象存储与限流",
+      "label": "rados_map_refresh_interval_s",
+      "description": "background RADOS OSDMap refresh interval in seconds",
+      "default": "60",
+      "managed": null,
+      "member_key": null
+    },
+    {
+      "name": "rados_map_refresh_jitter_pct",
+      "type": "uint32",
+      "group": "对象存储与限流",
+      "label": "rados_map_refresh_jitter_pct",
+      "description": "random jitter percentage for the RADOS OSDMap refresh interval (clamped to 50)",
+      "default": "20",
+      "managed": null,
+      "member_key": null
+    },
+    {
+      "name": "rados_op_timeout",
+      "type": "int32",
+      "group": "对象存储与限流",
+      "label": "rados_op_timeout",
+      "description": "rados operation timeout in seconds",
+      "default": "120",
+      "managed": null,
+      "member_key": null
+    },
+    {
+      "name": "s3_async_thread_num",
+      "type": "int32",
+      "group": "对象存储与限流",
+      "label": "s3_async_thread_num",
+      "description": "async thread num in thread pool",
+      "default": "256",
+      "managed": null,
+      "member_key": null
+    },
+    {
+      "name": "s3_connect_timeout",
+      "type": "int32",
+      "group": "对象存储与限流",
+      "label": "s3_connect_timeout",
+      "description": "s3 connect timeout in milliseconds",
+      "default": "60000",
+      "managed": null,
+      "member_key": null
+    },
+    {
+      "name": "s3_crt_event_loop_threads",
+      "type": "int32",
+      "group": "对象存储与限流",
+      "label": "s3_crt_event_loop_threads",
+      "description": "aws crt client event loop group thread count; 0 means use all available cpu cores. Only effective when s3_use_crt_client=true.",
+      "default": "0",
+      "managed": null,
+      "member_key": null
+    },
+    {
+      "name": "s3_crt_throughput_target_gbps",
+      "type": "int32",
+      "group": "对象存储与限流",
+      "label": "s3_crt_throughput_target_gbps",
+      "description": "crt client throughput target in Gbps; crt derives its real connection count from ceil(target/0.4), maxConnections is ignored on the crt path. Defaults to 20; 0 keeps the sdk default (10.0 -> 25 connections)",
+      "default": "20",
+      "managed": null,
+      "member_key": null
+    },
+    {
+      "name": "s3_enable_telemetry",
+      "type": "bool",
+      "group": "对象存储与限流",
+      "label": "s3_enable_telemetry",
+      "description": "whether to enable telemetry",
+      "default": "false",
+      "managed": null,
+      "member_key": null
+    },
+    {
+      "name": "s3_loglevel",
+      "type": "int32",
+      "group": "对象存储与限流",
+      "label": "s3_loglevel",
+      "description": "aws sdk log level",
+      "default": "4",
+      "managed": null,
+      "member_key": null
+    },
+    {
+      "name": "s3_max_connections",
+      "type": "int32",
+      "group": "对象存储与限流",
+      "label": "s3_max_connections",
+      "description": "max connections to s3",
+      "default": "32",
+      "managed": null,
+      "member_key": null
+    },
+    {
+      "name": "s3_region",
+      "type": "string",
+      "group": "对象存储与限流",
+      "label": "s3_region",
+      "description": "aws s3 region",
+      "default": "us-east-1",
+      "managed": null,
+      "member_key": null
+    },
+    {
+      "name": "s3_request_timeout",
+      "type": "int32",
+      "group": "对象存储与限流",
+      "label": "s3_request_timeout",
+      "description": "s3 request timeout in milliseconds",
+      "default": "10000",
+      "managed": null,
+      "member_key": null
+    },
+    {
+      "name": "s3_sdk_max_retries",
+      "type": "int32",
+      "group": "对象存储与限流",
+      "label": "s3_sdk_max_retries",
+      "description": "aws sdk internal max retries, 0 means disable sdk internal retry (retry is handled by the upper storage client)",
+      "default": "0",
+      "managed": null,
+      "member_key": null
+    },
+    {
+      "name": "s3_use_crt_client",
+      "type": "bool",
+      "group": "对象存储与限流",
+      "label": "s3_use_crt_client",
+      "description": "whether to use crt client",
+      "default": "true",
+      "managed": null,
+      "member_key": null
+    },
+    {
+      "name": "s3_use_thread_pool",
+      "type": "bool",
+      "group": "对象存储与限流",
+      "label": "s3_use_thread_pool",
+      "description": "whether to use thread pool",
+      "default": "true",
+      "managed": null,
+      "member_key": null
+    },
+    {
+      "name": "s3_use_virtual_address",
+      "type": "bool",
+      "group": "对象存储与限流",
+      "label": "s3_use_virtual_address",
+      "description": "whether to use virtual address",
+      "default": "false",
+      "managed": null,
+      "member_key": null
+    },
+    {
+      "name": "s3_verify_ssl",
+      "type": "bool",
+      "group": "对象存储与限流",
+      "label": "s3_verify_ssl",
+      "description": "whether to verify ssl",
+      "default": "false",
+      "managed": null,
+      "member_key": null
+    },
+    {
+      "name": "storage_download_max_tries",
+      "type": "uint32",
+      "group": "对象存储与限流",
+      "label": "storage_download_max_tries",
+      "description": "retrieval tries per block",
+      "default": "10",
+      "managed": null,
+      "member_key": null
+    },
+    {
+      "name": "storage_download_notfound_max_tries",
+      "type": "uint32",
+      "group": "对象存储与限流",
+      "label": "storage_download_notfound_max_tries",
+      "description": "retrieval tries when storage says not found",
+      "default": "8",
+      "managed": null,
+      "member_key": null
+    },
+    {
+      "name": "storage_download_notfound_retry_backoff_base_ms",
+      "type": "uint32",
+      "group": "对象存储与限流",
+      "label": "storage_download_notfound_retry_backoff_base_ms",
+      "description": "first retry delay after a not-found retrieve (ms)",
+      "default": "500",
+      "managed": null,
+      "member_key": null
+    },
+    {
+      "name": "storage_download_retry_backoff_base_ms",
+      "type": "uint32",
+      "group": "对象存储与限流",
+      "label": "storage_download_retry_backoff_base_ms",
+      "description": "first retrieve retry delay, doubling up to the cap (ms)",
+      "default": "300",
+      "managed": null,
+      "member_key": null
+    },
+    {
+      "name": "storage_upload_max_tries",
+      "type": "uint32",
+      "group": "对象存储与限流",
+      "label": "storage_upload_max_tries",
+      "description": "upload tries per block",
+      "default": "10",
+      "managed": null,
+      "member_key": null
+    },
+    {
+      "name": "storage_upload_retry_backoff_base_ms",
+      "type": "uint32",
+      "group": "对象存储与限流",
+      "label": "storage_upload_retry_backoff_base_ms",
+      "description": "first upload retry delay, doubling up to the cap (ms)",
+      "default": "1000",
+      "managed": null,
+      "member_key": null
+    },
+    {
+      "name": "use_fake_block_access",
+      "type": "bool",
+      "group": "对象存储与限流",
+      "label": "use_fake_block_access",
+      "description": "use fake block access",
+      "default": "false",
+      "managed": null,
+      "member_key": null
+    },
+    {
+      "name": "log_dir",
+      "type": "string",
+      "group": "日志",
+      "label": "log_dir",
+      "description": "If specified, logfiles are written into this directory instead of the default logging directory.",
+      "default": null,
+      "managed": "平台为每个成员生成日志目录",
+      "member_key": null
+    },
+    {
+      "name": "log_level",
+      "type": "string",
+      "group": "日志",
+      "label": "日志级别",
+      "description": "log level",
+      "default": "INFO",
+      "managed": null,
+      "member_key": null
+    },
+    {
+      "name": "log_v",
+      "type": "int32",
+      "group": "日志",
+      "label": "详细日志级别",
+      "description": "log level",
+      "default": "0",
+      "managed": null,
+      "member_key": null
+    }
+  ]
+}
