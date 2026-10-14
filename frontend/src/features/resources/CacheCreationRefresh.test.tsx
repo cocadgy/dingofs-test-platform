@@ -82,16 +82,16 @@ test("successful creation refreshes remote list once without resubmitting creati
   );
 });
 test.each(["failed", "cancelled"])(
-  "does not automatically query after %s creation",
+  "refreshes after %s creation to show completed batch members",
   async (state) => {
     const { result } = setup();
     await waitFor(() => expect(result.current.snapshot).toBeDefined());
     act(() =>
       result.current.accept({ id: "create", action: "cache.create", state }),
     );
-    expect(
+    await waitFor(() => expect(
       vi.mocked(api).mock.calls.filter((c) => c[1] === "POST"),
-    ).toHaveLength(0);
+    ).toHaveLength(1));
   },
 );
 test("read-only viewers never trigger a remote query", async () => {

@@ -1,9 +1,12 @@
+import {BatchActions, useBatchSelection} from "./BatchSelection";
 import { CacheMemberManagementButtons } from "./CacheMemberManagementButtons";
 import type { ResourceAction, SavedResource } from "./types";
 import { useState } from "react";
 import type { CacheMemberOption } from "./cacheMemberOptions";
 
-export function CacheMemberInventory({ members, disabled = false, onDelete, onDeleteUngrouped, actions = [], onManage, resources = [] }: {
+export function CacheMemberInventory({ members, disabled = false, onDelete, onDeleteUngrouped, actions = [], onManage, resources = [], onBatchAction, canStop }: {
+  onBatchAction?: (action:string, ids:string[])=>void;
+  canStop?: (id:string)=>boolean;
   members: CacheMemberOption[];
   resources?: SavedResource[];
   actions?: ResourceAction[];
@@ -20,6 +23,12 @@ export function CacheMemberInventory({ members, disabled = false, onDelete, onDe
     [member.id, member.groupName || "未分组", member.address, member.stateLabel]
       .some(value => value.toLowerCase().includes(needle)),
   );
+  const selection = useBatchSelection(members.map(m=>m.id), disabled);
+  const choices = [
+    {key:"cache.stop",label:"批量平滑停止",eligible:(id:string)=>Boolean(canStop?.(id))},
+    {key:"cache.force_stop",label:"批量强制停止",eligible:(id:string)=>Boolean(canStop?.(id))},
+    {key:"cache.delete_batch",label:"批量删除成员",eligible:(id:string)=>members.some(m=>m.id===id && m.selectable)},
+  ].filter(choice=>actions.some(a=>a.action===(choice.key==="cache.force_stop"?"cache.stop":choice.key)));
   const capacities = new Map<string, unknown>();
   for (const resource of resources) {
     if (resource.kind !== "cache" || ["deleted", "planned", "failed"].includes(resource.state)) continue;
@@ -47,9 +56,12 @@ export function CacheMemberInventory({ members, disabled = false, onDelete, onDe
         onClick={onDeleteUngrouped}>删除所有未分组成员</button>
     </div>
     <p className="muted">按完整成员列表删除，不受搜索筛选影响；在线成员跳过，每批最多 100 个。</p>
+    {onBatchAction && <BatchActions picked={selection.picked} choices={choices} disabled={disabled}
+      onAction={onBatchAction} onClear={selection.clear}/>}
     <div className="resource-table-scroll"><table className="resource-inventory-table" aria-label="缓存成员列表">
-      <thead><tr><th>成员 UUID</th><th>所属缓存组</th><th>机器 / 地址</th><th>缓存容量</th><th>权重</th><th>状态</th><th>成员操作</th></tr></thead>
+      <thead><tr>{onBatchAction && <th><input type="checkbox" aria-label="全选当前成员" disabled={disabled || !rows.length} checked={selection.checked(rows.map(m=>m.id))} onChange={()=>selection.toggle(rows.map(m=>m.id))}/></th>}<th>成员 UUID</th><th>所属缓存组</th><th>机器 / 地址</th><th>缓存容量</th><th>权重</th><th>状态</th><th>成员操作</th></tr></thead>
       <tbody>{rows.map(member => <tr key={member.id}>
+        {onBatchAction && <td><input type="checkbox" aria-label={"选择成员 "+member.id} disabled={disabled} checked={selection.checked([member.id])} onChange={()=>selection.toggle([member.id])}/></td>}
         <td><code>{member.id}</code></td><td>{member.groupName || "未分组"}</td><td>{member.address}</td><td>{capacity(member)}</td><td>{member.weight ?? "未获取"}</td><td>{member.stateLabel}</td>
         <td>{!member.groupName ? <button type="button" aria-label={`删除成员 ${member.id}`}
           disabled={disabled || !member.selectable || !onDelete}

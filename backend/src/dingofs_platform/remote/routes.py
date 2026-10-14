@@ -17,6 +17,7 @@ from dingofs_platform.audit.models import AuditEvent
 from dingofs_platform.db import get_db
 from dingofs_platform.errors import Problem
 from dingofs_platform.inventory.models import Machine
+from dingofs_platform.inventory.permissions import require_manage
 from dingofs_platform.inventory.service import lock_inventory
 from .access import now, login, cluster, targets, log_target, terminal_target, valid
 from .manager import ACTIVE, STREAM
@@ -105,7 +106,9 @@ def create(request: Request, payload: RemoteInput, user=Depends(current_user)):
         actor = actor_in_transaction(db, request)
         lock_inventory(db)
         actor, session = login(db, request.cookies.get("session", ""))
-        c = cluster(db, payload.cluster_id)
+        if payload.kind != "terminal" and not payload.cluster_id:
+            raise Problem(422, "cluster_required", "请选择集群")
+        c = cluster(db, payload.cluster_id) if payload.cluster_id else None
         root = None
         parameters = {}
         if payload.kind == "terminal":
@@ -115,7 +118,15 @@ def create(request: Request, payload: RemoteInput, user=Depends(current_user)):
                 )
             if payload.service_id or payload.file_id or payload.cursor:
                 raise Problem(422, "invalid_request", "终端不接受日志文件参数")
-            m = terminal_target(db, c, actor, payload.machine_id)
+            if not payload.machine_id:
+                raise Problem(422, "machine_required", "请选择机器")
+            if c is None:
+                m = db.get(Machine, payload.machine_id)
+                if not m or m.archived:
+                    raise Problem(404, "not_found", "机器不存在或已归档")
+                require_manage(actor, m)
+            else:
+                m = terminal_target(db, c, actor, payload.machine_id)
             target_user = m.ssh_user
             parameters = {"cols": payload.cols, "rows": payload.rows}
         else:
@@ -126,7 +137,10 @@ def create(request: Request, payload: RemoteInput, user=Depends(current_user)):
             if payload.kind == "search":
                 if payload.file_id or payload.cursor:
                     raise Problem(422, "invalid_request", "目录搜索不接受文件参数")
-                parameters.update(keyword=payload.keyword, case_sensitive=payload.case_sensitive)
+                parameters.update(keyword=payload.keyword, case_sensitive=payload.case_sensitive,
+                                  scan_mode=payload.scan_mode, per_file_mb=payload.per_file_mb,
+                                  max_files=payload.max_files, max_total_mb=payload.max_total_mb,
+                                  max_hits=payload.max_hits)
             elif payload.kind != "files":
                 try:
                     listing_id, index = (payload.file_id or "").split(":")
@@ -159,9 +173,9 @@ def create(request: Request, payload: RemoteInput, user=Depends(current_user)):
             actor_id=actor.id,
             login_session_id=session.id,
             kind=payload.kind,
-            cluster_id=c.id,
+            cluster_id=c.id if c else None,
             machine_id=m.id,
-            cluster_revision=c.revision,
+            cluster_revision=c.revision if c else None,
             machine_revision=m.revision,
             target_user=target_user,
             service_id=payload.service_id,
@@ -185,7 +199,7 @@ def create(request: Request, payload: RemoteInput, user=Depends(current_user)):
                 entity="remote_sessions/" + row.id,
                 detail={
                     "kind": row.kind,
-                    "cluster_id": c.id,
+                    "cluster_id": c.id if c else None,
                     "machine_id": m.id,
                     "service_id": row.service_id,
                     "target_user": target_user,

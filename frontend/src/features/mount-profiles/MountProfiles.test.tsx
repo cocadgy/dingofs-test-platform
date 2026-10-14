@@ -1,3 +1,4 @@
+import { useState } from "react";
 import {cleanup,fireEvent,render,screen,waitFor} from "@testing-library/react";
 import {afterEach,expect,test,vi} from "vitest";
 import {MountProfilesPage} from "./MountProfilesPage";
@@ -20,4 +21,32 @@ test("selecting a mount profile copies parameters and revision",()=>{
   fireEvent.change(screen.getByRole("combobox",{name:"选择挂载配置"}),{target:{value:"p"}});
   expect(change).toHaveBeenCalledWith({mount_profile_id:"p",mount_profile_revision:2,mount_options:{fuse_max_threads:"16"}});
   expect(profile.parameters.fuse_max_threads).toBe("16");
+});
+
+test("saving current mount options creates and selects a reusable profile",async()=>{
+  const change=vi.fn();
+  const created={...profile,id:"new",name:"my-mount",revision:1,parameters:{fuse_max_threads:"32"}};
+  vi.mocked(api).mockResolvedValue(created);
+  function Selection() {
+    const [values,setValues]=useState({mount_options:{fuse_max_threads:"32"}});
+    return <MountProfileSelection profiles={[profile]} catalog={catalog} values={values} disabled={false} onChange={patch=>{change(patch);setValues(previous=>({...previous,...patch}));}}/>;
+  }
+  render(<Selection/>);
+  fireEvent.click(screen.getByText("调整本次挂载参数"));
+  fireEvent.change(screen.getByRole("textbox",{name:"新配置名称"}),{target:{value:"my-mount"}});
+  fireEvent.click(screen.getByRole("button",{name:"保存到挂载配置"}));
+  await waitFor(()=>expect(api).toHaveBeenCalledWith("/mount-profiles","POST",{
+    name:"my-mount",description:"",enabled:true,parameters:{fuse_max_threads:"32"},
+  }));
+  await waitFor(()=>expect(change).toHaveBeenCalledWith({mount_profile_id:"new",mount_profile_revision:1}));
+  expect(screen.getByRole("combobox",{name:"选择挂载配置"})).toHaveValue("new");
+});
+
+test("saving rejects duplicate names before creating a profile",()=>{
+  render(<MountProfileSelection profiles={[profile]} catalog={catalog} values={{}} disabled={false} onChange={vi.fn()}/>);
+  fireEvent.click(screen.getByText("调整本次挂载参数"));
+  fireEvent.change(screen.getByRole("textbox",{name:"新配置名称"}),{target:{value:"mount-base"}});
+  fireEvent.click(screen.getByRole("button",{name:"保存到挂载配置"}));
+  expect(screen.getByRole("alert")).toHaveTextContent("名称已存在");
+  expect(api).not.toHaveBeenCalled();
 });

@@ -34,6 +34,11 @@ class RemoteRequest:
     name: str | None = None
     keyword: str | None = None
     case_sensitive: bool = False
+    scan_mode: str = "prefix"
+    per_file_mb: int = 1
+    max_files: int = 200
+    max_total_mb: int = 16
+    max_hits: int = 200
     lines: int = 500
     cursor: dict | None = None
     cols: int = 100
@@ -80,6 +85,12 @@ class RemoteRequest:
                 raise ValueError("unexpected file")
             if self.kind == "search" and (not isinstance(self.keyword, str) or not self.keyword.strip() or len(self.keyword) > 200):
                 raise ValueError("invalid keyword")
+            if self.kind == "search" and (self.scan_mode not in ("prefix", "full") or any(
+                type(value) is not int or not low <= value <= high
+                for value, low, high in ((self.per_file_mb, 1, 64), (self.max_files, 1, 1000),
+                                          (self.max_total_mb, 0, 1024), (self.max_hits, 0, 500))
+            )):
+                raise ValueError("invalid search limits")
         if self.cursor is not None and (
             not isinstance(self.cursor, dict)
             or set(self.cursor) != {"device", "inode", "offset"}

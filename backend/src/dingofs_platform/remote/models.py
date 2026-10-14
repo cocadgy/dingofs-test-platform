@@ -11,9 +11,9 @@ class RemoteSession(Record, Base):
     actor_id: Mapped[str] = mapped_column(String(36), index=True)
     login_session_id: Mapped[str] = mapped_column(String(36))
     kind: Mapped[str] = mapped_column(String(24))
-    cluster_id: Mapped[str] = mapped_column(ForeignKey("clusters.id"))
+    cluster_id: Mapped[str | None] = mapped_column(ForeignKey("clusters.id"))
     machine_id: Mapped[str] = mapped_column(ForeignKey("machines.id"), index=True)
-    cluster_revision: Mapped[int]
+    cluster_revision: Mapped[int | None]
     machine_revision: Mapped[int]
     target_user: Mapped[str] = mapped_column(String(80))
     service_id: Mapped[str | None] = mapped_column(String(160))

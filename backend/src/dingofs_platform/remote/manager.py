@@ -211,7 +211,7 @@ class RemoteManager:
                     settings.remote_lifetime_seconds
                     if kind in STREAM
                     else settings.remote_download_timeout
-                    if kind == "download"
+                    if kind in ("download", "search")
                     else settings.remote_read_timeout
                 )
             factory = getattr(self.app.state, "remote_job_factory", RemoteJob)

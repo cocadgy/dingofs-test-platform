@@ -1,3 +1,4 @@
+import {MachineTools} from "../tool-packages/MachineTools";
 import { useEffect, useState } from "react";
 import { api } from "../../api/client";
 import {
@@ -6,6 +7,7 @@ import {
   statusNames,
 } from "./MachineHardware";
 import { ConfigEditor } from "../configuration/ConfigEditor";
+import { MachineUsage } from "./MachineUsage";
 export const sections: Record<string, string> = {
   machines: "机器资源",
   clusters: "集群管理",
@@ -630,6 +632,13 @@ export function InventoryPage({
                   SSH 密码：{selected.has_ssh_password ? "已配置" : "未配置"}
                 </p>
               )}
+              {kind === "machines" && canEdit && !selected.archived && selected.has_ssh_password && (
+                <p><a className="button" href={`#/machines/${encodeURIComponent(selected.id)}/terminal`}
+                  target="_blank" rel="noopener noreferrer">打开 SSH 终端</a></p>
+              )}
+              {kind === "machines" && canEdit && !selected.archived && !selected.has_ssh_password && (
+                <p className="muted">配置 SSH 密码后可打开网页终端。</p>
+              )}
               {canEdit && (
                 <div className="actions">
                   <button onClick={() => edit(selected)}>编辑资源</button>
@@ -638,6 +647,8 @@ export function InventoryPage({
                   </button>
                 </div>
               )}
+              {kind === "machines" && detailOnly && <MachineTools key={selected.id} machineId={selected.id} canManage={canEdit && !selected.archived && !selected.maintenance} />}
+              {kind === "machines" && detailOnly && <MachineUsage machineId={selected.id} />}
               {kind === "machines" && (
                 <MachineHardware
                   machine={selected}

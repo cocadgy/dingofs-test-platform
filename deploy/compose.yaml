@@ -30,6 +30,10 @@ services:
       dockerfile: deploy/api.Dockerfile
     environment:
       PLATFORM_DATABASE_URL: postgresql+psycopg://platform:${POSTGRES_PASSWORD}@db:5432/platform
+      PLATFORM_TOOL_BUNDLE_ROOT: /app/tool-bundles
+      PLATFORM_TOOL_DEPLOY_TIMEOUT: ${PLATFORM_TOOL_DEPLOY_TIMEOUT:-1800}
+      PLATFORM_DASHBOARD_MONITOR_ENABLED: "true"
+      PLATFORM_PERFORMANCE_WORKER_ENABLED: "true"
       PLATFORM_COOKIE_SECURE: ${PLATFORM_COOKIE_SECURE:-true}
       PLATFORM_CREDENTIAL_ENCRYPTION_KEY: ${PLATFORM_CREDENTIAL_ENCRYPTION_KEY:-}
       PLATFORM_SSH_KNOWN_HOSTS: /app/deploy/ssh/known_hosts
@@ -51,6 +55,7 @@ services:
       PLATFORM_REMOTE_FOLLOW_LIMIT: ${PLATFORM_REMOTE_FOLLOW_LIMIT:-4}
     volumes:
       - ./ssh:/app/deploy/ssh:ro
+      - ../tool-bundles:/app/tool-bundles:ro
     command: [uvicorn, dingofs_platform.app:create_app, --factory, --host, 0.0.0.0, --port, '8000', --proxy-headers, --forwarded-allow-ips, '*']
     depends_on:
       migrate:

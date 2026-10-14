@@ -9,6 +9,7 @@ import {
 import { afterEach, expect, test, vi } from "vitest";
 import { useState } from "react";
 import { CacheProfilesPage } from "./CacheProfilesPage";
+import { CacheProfileSelection } from "./CacheProfileSelection";
 import { CacheParameterEditor } from "./CacheParameterEditor";
 import { ResourceSectionForm } from "../resources/ResourceSectionForm";
 import type { Execute } from "../resources/useResourceWorkspace";
@@ -214,4 +215,38 @@ test("creation applies profile, allows temporary changes and new members inherit
     }),
   );
   expect(profile.parameters.shards).toBe("4");
+});
+
+test("saves current cache options as a new profile without changing members", async () => {
+  const onRefresh = vi.fn(), onChange = vi.fn();
+  const originalMembers = [{cache_size_mb:4096,cache_dir:"/mnt/cache"}];
+  function Selection() {
+    const [values,setValues] = useState<Record<string,unknown>>({cache_options:{shards:"2"},members:originalMembers});
+    const [profiles,setProfiles] = useState([profile]);
+    return <CacheProfileSelection profiles={profiles} catalog={catalog}
+      values={values} disabled={false} onRefresh={(rows,nextCatalog)=>{onRefresh(rows,nextCatalog);setProfiles(rows);}}
+      onChange={patch=>{onChange(patch);setValues(previous=>({...previous,...patch}));}}/>;
+  }
+  const created={...profile,id:"new",name:"新缓存配置",revision:1,parameters:{shards:"2"}};
+  vi.mocked(api).mockResolvedValue(created);
+  render(<Selection/>);
+  fireEvent.click(screen.getByText(/查看 \/ 修改本次启动参数/));
+  fireEvent.change(screen.getByRole("textbox",{name:"新配置名称"}),{target:{value:"新缓存配置"}});
+  fireEvent.click(screen.getByRole("button",{name:"保存到缓存组配置"}));
+  await waitFor(()=>expect(api).toHaveBeenCalledWith("/cache-profiles","POST",{
+    name:"新缓存配置",description:"",enabled:true,parameters:{shards:"2"},
+  }));
+  await waitFor(()=>expect(screen.getByRole("combobox",{name:"缓存组配置"})).toHaveValue("new"));
+  expect(onChange).toHaveBeenCalledWith({cache_profile_id:"new",cache_profile_revision:1});
+  expect(onChange.mock.calls.every(([patch])=>!Object.hasOwn(patch,"members"))).toBe(true);
+  expect(originalMembers).toEqual([{cache_size_mb:4096,cache_dir:"/mnt/cache"}]);
+});
+
+test("cache profile save rejects duplicate names locally", () => {
+  render(<CacheProfileSelection profiles={[profile]} catalog={catalog} values={{}} disabled={false} onRefresh={vi.fn()} onChange={vi.fn()}/>);
+  fireEvent.click(screen.getByText(/查看 \/ 修改本次启动参数/));
+  fireEvent.change(screen.getByRole("textbox",{name:"新配置名称"}),{target:{value:"标准缓存"}});
+  fireEvent.click(screen.getByRole("button",{name:"保存到缓存组配置"}));
+  expect(screen.getByRole("alert")).toHaveTextContent("名称已存在");
+  expect(api).not.toHaveBeenCalled();
 });

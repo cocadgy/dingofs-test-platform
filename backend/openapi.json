@@ -827,6 +827,44 @@
         }
       }
     },
+    "/api/v1/dashboard": {
+      "get": {
+        "tags": [
+          "dashboard"
+        ],
+        "summary": "Dashboard",
+        "operationId": "dashboard_api_v1_dashboard_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/dashboard/refresh": {
+      "post": {
+        "tags": [
+          "dashboard"
+        ],
+        "summary": "Refresh",
+        "operationId": "refresh_api_v1_dashboard_refresh_post",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/cluster-discoveries": {
       "post": {
         "tags": [
@@ -1027,7 +1065,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/ImportInput"
+                "$ref": "#/components/schemas/dingofs_platform__clusters__schemas__ImportInput"
               }
             }
           }
@@ -2452,6 +2490,498 @@
         }
       }
     },
+    "/api/v1/tool-source": {
+      "get": {
+        "tags": [
+          "tool-packages"
+        ],
+        "summary": "Source",
+        "operationId": "source_api_v1_tool_source_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "tool-packages"
+        ],
+        "summary": "Save",
+        "operationId": "save_api_v1_tool_source_put",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SourceInput"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/tool-packages": {
+      "get": {
+        "tags": [
+          "tool-packages"
+        ],
+        "summary": "Packages",
+        "operationId": "packages_api_v1_tool_packages_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "tool-packages"
+        ],
+        "summary": "Publish",
+        "operationId": "publish_api_v1_tool_packages_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/dingofs_platform__tool_packages__routes__ImportInput"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/machines/{id}/tool-jobs": {
+      "get": {
+        "tags": [
+          "tool-packages"
+        ],
+        "summary": "Jobs",
+        "operationId": "jobs_api_v1_machines__id__tool_jobs_get",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "tool-packages"
+        ],
+        "summary": "Start",
+        "operationId": "start_api_v1_machines__id__tool_jobs_post",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/JobInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "202": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/performance/options": {
+      "get": {
+        "tags": [
+          "performance"
+        ],
+        "summary": "Options",
+        "operationId": "options_api_v1_performance_options_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/performance/preview": {
+      "post": {
+        "tags": [
+          "performance"
+        ],
+        "summary": "Preview",
+        "operationId": "preview_api_v1_performance_preview_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RunInput"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/performance/runs": {
+      "get": {
+        "tags": [
+          "performance"
+        ],
+        "summary": "Listing",
+        "operationId": "listing_api_v1_performance_runs_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "performance"
+        ],
+        "summary": "Create",
+        "operationId": "create_api_v1_performance_runs_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RunInput"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/performance/runs/{id}/rerun": {
+      "post": {
+        "tags": [
+          "performance"
+        ],
+        "summary": "Rerun",
+        "operationId": "rerun_api_v1_performance_runs__id__rerun_post",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Id"
+            }
+          }
+        ],
+        "responses": {
+          "202": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/performance/runs/{id}": {
+      "get": {
+        "tags": [
+          "performance"
+        ],
+        "summary": "Detail",
+        "operationId": "detail_api_v1_performance_runs__id__get",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/performance/runs/{id}/cancel": {
+      "post": {
+        "tags": [
+          "performance"
+        ],
+        "summary": "Cancel",
+        "operationId": "cancel_api_v1_performance_runs__id__cancel_post",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/performance/runs/{id}/reports/{tool}/{filename}": {
+      "get": {
+        "tags": [
+          "performance"
+        ],
+        "summary": "Artifact",
+        "operationId": "artifact_api_v1_performance_runs__id__reports__tool___filename__get",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Id"
+            }
+          },
+          {
+            "name": "tool",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Tool"
+            }
+          },
+          {
+            "name": "filename",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Filename"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/{kind}": {
       "get": {
         "summary": "Listing",
@@ -3466,25 +3996,6 @@
         "type": "object",
         "title": "HTTPValidationError"
       },
-      "ImportInput": {
-        "properties": {
-          "names": {
-            "items": {
-              "type": "string"
-            },
-            "type": "array",
-            "maxItems": 1000,
-            "minItems": 1,
-            "title": "Names"
-          }
-        },
-        "additionalProperties": false,
-        "type": "object",
-        "required": [
-          "names"
-        ],
-        "title": "ImportInput"
-      },
       "ImportResult": {
         "properties": {
           "created": {
@@ -3534,6 +4045,53 @@
           "name"
         ],
         "title": "ImportedCluster"
+      },
+      "JobInput": {
+        "properties": {
+          "action": {
+            "type": "string",
+            "enum": [
+              "check",
+              "install",
+              "auto_install"
+            ],
+            "title": "Action"
+          },
+          "package_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Package Id"
+          },
+          "tool": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "dtt",
+                  "dingo",
+                  "dingo-client",
+                  "dingo-cache"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tool"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "action"
+        ],
+        "title": "JobInput"
       },
       "Login": {
         "properties": {
@@ -3930,6 +4488,201 @@
         ],
         "title": "OperationView"
       },
+      "ParameterMatrix": {
+        "properties": {
+          "tool": {
+            "type": "string",
+            "enum": [
+              "fio",
+              "elbencho"
+            ],
+            "title": "Tool"
+          },
+          "direct": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "items": {
+                  "type": "boolean"
+                },
+                "type": "array"
+              }
+            ],
+            "title": "Direct",
+            "default": true
+          },
+          "concurrency": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "items": {
+                  "type": "integer"
+                },
+                "type": "array"
+              }
+            ],
+            "title": "Concurrency",
+            "default": 4
+          },
+          "file_size": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "File Size"
+          },
+          "file_count": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "items": {
+                  "type": "integer"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "File Count"
+          },
+          "total_size": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Total Size"
+          },
+          "block_size": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Block Size"
+          },
+          "rw": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "read",
+                  "write",
+                  "randread",
+                  "randwrite",
+                  "rw",
+                  "randrw"
+                ]
+              },
+              {
+                "items": {
+                  "type": "string",
+                  "enum": [
+                    "read",
+                    "write",
+                    "randread",
+                    "randwrite",
+                    "rw",
+                    "randrw"
+                  ]
+                },
+                "type": "array"
+              }
+            ],
+            "title": "Rw",
+            "default": "write"
+          },
+          "rounds": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "items": {
+                  "type": "integer"
+                },
+                "type": "array"
+              }
+            ],
+            "title": "Rounds",
+            "default": 1
+          },
+          "iodepth": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "items": {
+                  "type": "integer"
+                },
+                "type": "array"
+              }
+            ],
+            "title": "Iodepth",
+            "default": 1
+          },
+          "read_percent": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "items": {
+                  "type": "integer"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Read Percent"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "tool"
+        ],
+        "title": "ParameterMatrix",
+        "description": "Scalar values remain supported; lists define independent candidate axes."
+      },
       "ProfileInput": {
         "properties": {
           "name": {
@@ -4107,6 +4860,7 @@
             "type": "string",
             "enum": [
               "files",
+              "search",
               "read",
               "download",
               "log-follow",
@@ -4115,8 +4869,15 @@
             "title": "Kind"
           },
           "cluster_id": {
-            "type": "string",
-            "maxLength": 36,
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 36
+              },
+              {
+                "type": "null"
+              }
+            ],
             "title": "Cluster Id"
           },
           "service_id": {
@@ -4154,6 +4915,61 @@
               }
             ],
             "title": "File Id"
+          },
+          "keyword": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 200,
+                "minLength": 1
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Keyword"
+          },
+          "case_sensitive": {
+            "type": "boolean",
+            "title": "Case Sensitive",
+            "default": false
+          },
+          "scan_mode": {
+            "type": "string",
+            "enum": [
+              "prefix",
+              "full"
+            ],
+            "title": "Scan Mode",
+            "default": "prefix"
+          },
+          "per_file_mb": {
+            "type": "integer",
+            "maximum": 64.0,
+            "minimum": 1.0,
+            "title": "Per File Mb",
+            "default": 1
+          },
+          "max_files": {
+            "type": "integer",
+            "maximum": 1000.0,
+            "minimum": 1.0,
+            "title": "Max Files",
+            "default": 200
+          },
+          "max_total_mb": {
+            "type": "integer",
+            "maximum": 1024.0,
+            "minimum": 0.0,
+            "title": "Max Total Mb",
+            "default": 16
+          },
+          "max_hits": {
+            "type": "integer",
+            "maximum": 500.0,
+            "minimum": 0.0,
+            "title": "Max Hits",
+            "default": 200
           },
           "lines": {
             "type": "integer",
@@ -4198,8 +5014,7 @@
         "additionalProperties": false,
         "type": "object",
         "required": [
-          "kind",
-          "cluster_id"
+          "kind"
         ],
         "title": "RemoteInput"
       },
@@ -4242,7 +5057,14 @@
             "title": "Target User"
           },
           "cluster_id": {
-            "type": "string",
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
             "title": "Cluster Id"
           },
           "service_id": {
@@ -4377,6 +5199,67 @@
         ],
         "title": "RevisionInput"
       },
+      "RunInput": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "maxLength": 120,
+            "minLength": 1,
+            "title": "Name"
+          },
+          "machine_id": {
+            "type": "string",
+            "maxLength": 36,
+            "minLength": 1,
+            "title": "Machine Id"
+          },
+          "target_kind": {
+            "type": "string",
+            "enum": [
+              "directory",
+              "mount"
+            ],
+            "title": "Target Kind",
+            "default": "directory"
+          },
+          "target_path": {
+            "type": "string",
+            "maxLength": 1024,
+            "minLength": 2,
+            "title": "Target Path"
+          },
+          "tests": {
+            "items": {
+              "$ref": "#/components/schemas/ParameterMatrix"
+            },
+            "type": "array",
+            "maxItems": 2,
+            "minItems": 1,
+            "title": "Tests"
+          },
+          "cleanup_data": {
+            "type": "boolean",
+            "title": "Cleanup Data",
+            "default": false
+          },
+          "timeout_minutes": {
+            "type": "integer",
+            "maximum": 1440.0,
+            "minimum": 1.0,
+            "title": "Timeout Minutes",
+            "default": 120
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "name",
+          "machine_id",
+          "target_path",
+          "tests"
+        ],
+        "title": "RunInput"
+      },
       "ServiceRow": {
         "properties": {
           "id": {
@@ -4475,6 +5358,43 @@
           "raft_dir"
         ],
         "title": "ServiceRow"
+      },
+      "SourceInput": {
+        "properties": {
+          "machine_id": {
+            "type": "string",
+            "title": "Machine Id"
+          },
+          "directory": {
+            "type": "string",
+            "maxLength": 512,
+            "title": "Directory",
+            "default": "/mnt/disk5/daigy/dingofs-testsuite-tool"
+          },
+          "image": {
+            "type": "string",
+            "maxLength": 512,
+            "pattern": "^[a-zA-Z0-9][a-zA-Z0-9._/:@-]*$",
+            "title": "Image",
+            "default": "harbor.zetyun.cn/dingofs/dingofs-testsuite-tools:latest"
+          },
+          "allow_cached": {
+            "type": "boolean",
+            "title": "Allow Cached",
+            "default": false
+          },
+          "revision": {
+            "type": "integer",
+            "title": "Revision",
+            "default": 0
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "machine_id"
+        ],
+        "title": "SourceInput"
       },
       "StorageProfileInput": {
         "properties": {
@@ -4890,6 +5810,25 @@
         ],
         "title": "ProfileUpdate"
       },
+      "dingofs_platform__clusters__schemas__ImportInput": {
+        "properties": {
+          "names": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "maxItems": 1000,
+            "minItems": 1,
+            "title": "Names"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "names"
+        ],
+        "title": "ImportInput"
+      },
       "dingofs_platform__mount_profiles__schemas__ProfileUpdate": {
         "properties": {
           "name": {
@@ -4929,6 +5868,22 @@
           "revision"
         ],
         "title": "ProfileUpdate"
+      },
+      "dingofs_platform__tool_packages__routes__ImportInput": {
+        "properties": {
+          "directory": {
+            "type": "string",
+            "maxLength": 512,
+            "minLength": 1,
+            "title": "Directory"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "directory"
+        ],
+        "title": "ImportInput"
       }
     }
   }

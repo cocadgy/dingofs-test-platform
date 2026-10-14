@@ -603,7 +603,7 @@ def test_stop_members_spans_records_and_single_member_does_not_stop_sibling(admi
     with app.state.session_factory() as db:
         first=db.get(ManagedResource,resources[0]['id'])
         assert first.state == 'partial'
-        assert first.data['members'][1].get('process_state') is None
+        assert first.data['members'][1].get('process_state') == sibling.get('process_state')
         assert db.get(ManagedResource,resources[1]['id']).state == 'stopped'
     assert len(result['result']['steps']) == 2
     before=len(runner)
@@ -700,3 +700,57 @@ def test_changed_external_registration_aborts_before_any_process_stop(admin,app,
     result=admin.get('/api/v1/resource-operations/'+response.json()['id']).json()
     assert result['state']=='failed' and result['message']=='member changed'
     assert calls==['cache.list','cache.verify_members']
+
+
+def test_rdma_inventory_uses_machine_hardware_pairs():
+    from types import SimpleNamespace
+    from dingofs_platform.resources.service import machine_rdma_ports
+    machine = SimpleNamespace(hardware_info={"rdma": [{"device": "mlx5_0", "port": 1}]}, last_attempt_info=None, collection_status="success")
+    assert machine_rdma_ports(machine) == [{"device": "mlx5_0", "port": 1, "interfaces": []}]
+    machine.hardware_info = {"rdma": []}
+    assert machine_rdma_ports(machine) == []
+    machine.hardware_info = {}
+    assert machine_rdma_ports(machine) is None
+
+
+def test_read_only_cluster_collection_does_not_block_resource_operation(admin, app, runner):
+    from datetime import timedelta
+    from dingofs_platform.clusters.models import ClusterOperation
+    from dingofs_platform.resources.views import now
+
+    machine, cluster, _ = linked(admin)
+    with app.state.session_factory.begin() as db:
+        collecting = ClusterOperation(
+            actor_id=cluster['creator_id'], session_id='test-session',
+            kind='status', parameters={}, machine_id=machine['id'],
+            machine_revision=machine['revision'], target_user='test',
+            cluster_id=cluster['id'], cluster_revision=cluster['revision'],
+            state='running', lease_token='test-lease',
+            lease_expires_at=now() + timedelta(minutes=5),
+            expires_at=now() + timedelta(minutes=5), auth_attempts=0,
+        )
+        db.add(collecting)
+    assert begin(admin, cluster, 'fs.list').status_code == 202
+    with app.state.session_factory.begin() as db:
+        db.get(ClusterOperation, collecting.id).kind = 'topology'
+    assert begin(admin, cluster, 'fs.list').status_code == 202
+    with app.state.session_factory.begin() as db:
+        db.get(ClusterOperation, collecting.id).kind = 'stop'
+    blocked = begin(admin, cluster, 'fs.list')
+    assert blocked.status_code == 409
+    assert blocked.json()['code'] == 'cluster_busy'
+
+
+def test_restore_uses_root_for_only_its_remote_step(admin, runner):
+    from conftest import linked
+    machine, cluster, _ = linked(admin)
+    from dingofs_platform.resources import commands, service
+    with admin.app.state.session_factory.begin() as db:
+        from dingofs_platform.inventory.models import Cluster
+        from dingofs_platform.auth.models import User
+        c=db.get(Cluster, cluster["id"])
+        actor=db.get(User, admin.get("/api/v1/auth/me").json()["id"])
+        p=commands.validate("trash.restore", {"fs_id": 5})
+        steps,_=service.prepare(db, actor, c, "trash.restore", p)
+    assert steps[0]["target_user"] == "root"
+    assert steps[0]["tool_home"] == c.execution_home

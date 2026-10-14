@@ -8,10 +8,12 @@ export function TerminalPage({
   clusterId,
   machineId,
   admin,
+  userId,
 }: {
-  clusterId: string;
+  clusterId?: string;
   machineId: string;
   admin: boolean;
+  userId?: string;
 }) {
   const [target, setTarget] = useState<RemoteTarget>();
   const [name, setName] = useState("");
@@ -42,8 +44,27 @@ export function TerminalPage({
     },
   });
   useEffect(() => {
-    if (!admin) return;
     let live = true;
+    if (!clusterId) {
+      api<{ id: string; name: string; address: string; ssh_port: number; ssh_user: string;
+        creator_id: string | null; archived: boolean; has_ssh_password: boolean }>(
+        `/machines/${encodeURIComponent(machineId)}`,
+      ).then((machine) => {
+        if (!live) return;
+        if (machine.archived || (!admin && (!userId || machine.creator_id !== userId))) {
+          setError("无权连接此机器的网页终端。");
+        } else if (!machine.has_ssh_password) {
+          setError("此机器尚未配置 SSH 密码。");
+        } else {
+          setName(machine.name);
+          setTarget({ machine_id: machine.id, name: machine.name,
+            address: machine.address, ssh_port: machine.ssh_port,
+            ssh_user: machine.ssh_user, service_ids: [], can_read_logs: false });
+        }
+      }).catch((e) => { if (live) setError(e.message); });
+      return () => { live = false; };
+    }
+    if (!admin) return () => { live = false; };
     Promise.all([
       api<{ name: string }>(`/clusters/${encodeURIComponent(clusterId)}`),
       api<RemoteTargets>(
@@ -66,7 +87,7 @@ export function TerminalPage({
     return () => {
       live = false;
     };
-  }, [clusterId, machineId, admin]);
+  }, [clusterId, machineId, admin, userId]);
   async function connect() {
     if (
       !target ||
@@ -82,13 +103,13 @@ export function TerminalPage({
     setAttempt((value) => value + 1);
     await remote.start({
       kind: "terminal",
-      cluster_id: clusterId,
+      ...(clusterId ? { cluster_id: clusterId } : {}),
       machine_id: machineId,
       confirmed: true,
       ...dimensions.current,
     });
   }
-  if (!admin)
+  if (clusterId && !admin)
     return (
       <section className="panel">
         <h1>管理员终端</h1>
@@ -96,12 +117,15 @@ export function TerminalPage({
         <a href={`#/clusters/${encodeURIComponent(clusterId)}`}>返回集群详情</a>
       </section>
     );
+  const backHref = clusterId
+    ? `#/clusters/${encodeURIComponent(clusterId)}`
+    : `#/machines/${encodeURIComponent(machineId)}`;
   return (
     <>
       <header className="page-header">
         <div>
           <p className="eyebrow">PLATFORM / SSH TERMINAL</p>
-          <h1>{name || "集群"} · 管理员终端</h1>
+          <h1>{name || (clusterId ? "集群" : "机器")} · SSH 终端</h1>
           <p>
             {target
               ? `${target.name} · ${target.address}:${target.ssh_port ?? 22} · SSH 用户 ${target.ssh_user}`
@@ -110,9 +134,9 @@ export function TerminalPage({
         </div>
         <a
           className="button"
-          href={`#/clusters/${encodeURIComponent(clusterId)}`}
+          href={backHref}
         >
-          返回集群详情
+          {clusterId ? "返回集群详情" : "返回机器详情"}
         </a>
       </header>
       <section className="panel remote-terminal-panel">

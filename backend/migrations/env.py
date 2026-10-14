@@ -1,3 +1,5 @@
+from dingofs_platform.performance import models as performance_models  # noqa: F401
+from dingofs_platform.tool_packages import models as tool_models  # noqa: F401
 from dingofs_platform.mount_profiles import models as mount_profile_models  # noqa: F401
 from dingofs_platform.cache_profiles import models as cache_profile_models  # noqa: F401
 from dingofs_platform.storage import models as storage_models  # noqa: F401

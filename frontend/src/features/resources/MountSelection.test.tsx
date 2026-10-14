@@ -66,3 +66,35 @@ test("mount submit is blocked when a refreshed cache list drops the selected gro
   fireEvent.click(submit);
   expect(execute).toHaveBeenCalledTimes(1);
 });
+
+test("unmount choices contain only mounted filesystem records", () => {
+  const resources = [
+    { id: "mounted", kind: "mount" as const, name: "/mnt/a", state: "mounted", data: { fs_name: "fs-a" }, created_at: "" },
+    { id: "unmounted", kind: "mount" as const, name: "/mnt/b", state: "unmounted", data: { fs_name: "fs-b" }, created_at: "" },
+    { id: "unknown", kind: "mount" as const, name: "/mnt/c", state: "unknown", data: { fs_name: "fs-c" }, created_at: "" },
+  ];
+  const action = { action: "mount.unmount", label: "卸载文件系统", section: "mount" as const, mutating: true,
+    fields: [{ key: "resource_id", label: "资源 ID", type: "text" as const, required: true }] };
+  render(<ResourceFields action={action} values={{ resource_id: "" }} machines={[]} resources={resources} disabled={false} onChange={vi.fn()} />);
+  const selection = screen.getByRole("combobox", { name: "选择挂载点" });
+  expect(selection).toHaveTextContent("/mnt/a");
+  expect(selection).not.toHaveTextContent("/mnt/b");
+  expect(selection).not.toHaveTextContent("/mnt/c");
+});
+
+test("unmount submit becomes unavailable if the selected record is no longer mounted", () => {
+  const action = { action: "mount.unmount", label: "卸载文件系统", section: "mount" as const, mutating: true,
+    fields: [{ key: "resource_id", label: "资源 ID", type: "text" as const, required: true }] };
+  const record = { id: "mount-1", kind: "mount" as const, name: "/mnt/a", state: "mounted", data: { fs_name: "fs-a" }, created_at: "" };
+  const snapshot = { catalog: [action], machines: [], resources: [record], operations: [] } as ResourceSnapshot;
+  const props = { section: sections.find(item => item.key === "mount")!, group: "挂载操作", onGroupChange: vi.fn(),
+    disabled: false, execute: vi.fn(async () => {}) };
+  const { rerender } = render(<ResourceSectionForm {...props} snapshot={snapshot} />);
+  fireEvent.change(screen.getByRole("combobox", { name: "选择挂载点" }), { target: { value: "mount-1" } });
+  const submit = screen.getByRole("button", { name: "执行卸载文件系统" });
+  expect(submit).toBeEnabled();
+  rerender(<ResourceSectionForm {...props} snapshot={{ ...snapshot, resources: [{ ...record, state: "unmounted" }] }} />);
+  expect(submit).toBeDisabled();
+  expect(screen.getByRole("combobox", { name: "选择挂载点" })).toHaveValue("");
+  expect(screen.getByRole("alert")).toHaveTextContent("不再是已挂载状态");
+});

@@ -26,10 +26,33 @@ export function CacheProfileSelection({
 }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const [notice, setNotice] = useState("");
+  const [newName, setNewName] = useState("");
   const selected = profiles.find((p) => p.id === values.cache_profile_id);
+  async function saveCurrent() {
+    const name = newName.trim();
+    if (!name || busy || disabled) return;
+    setError(""); setNotice("");
+    if (profiles.some(profile => profile.name === name)) {
+      setError("配置名称已存在，请使用其他名称。");
+      return;
+    }
+    setBusy(true);
+    try {
+      const parameters = { ...((values.cache_options as CacheOptions) || {}) };
+      const row = await api<CacheProfile>("/cache-profiles", "POST", {
+        name, description: "", enabled: true, parameters,
+      });
+      onRefresh([...profiles.filter(profile => profile.id !== row.id), row], catalog);
+      onChange({ cache_profile_id: row.id, cache_profile_revision: row.revision });
+      setNewName("");
+      setNotice(`已保存并选中缓存组配置“${row.name}”。`);
+    } catch (e) { setError((e as Error).message); }
+    finally { setBusy(false); }
+  }
   async function refresh() {
     setBusy(true);
-    setError("");
+    setError(""); setNotice("");
     try {
       const [rows, data] = await Promise.all([
         api<CacheProfile[]>("/cache-profiles"),
@@ -65,6 +88,7 @@ export function CacheProfileSelection({
                     ...memberDefaults(options),
                   }
                 : {};
+              setNotice("");
               onChange({
                 cache_profile_id: p?.id || "",
                 cache_profile_revision: p?.revision || 0,
@@ -122,8 +146,13 @@ export function CacheProfileSelection({
           values={(values.cache_options as CacheOptions) || {}}
           creation
           disabled={disabled || busy}
-          onChange={(cache_options) => onChange({ cache_options })}
+          onChange={(cache_options) => { onChange({ cache_options }); setNotice(""); }}
         />
+        <div className="cache-profile-toolbar">
+          <label>新配置名称<input value={newName} maxLength={120} onChange={e => setNewName(e.target.value)} placeholder="输入名称以保存当前参数" /></label>
+          <button type="button" disabled={!newName.trim()} onClick={() => void saveCurrent()}>保存到缓存组配置</button>
+        </div>
+        {notice && <p role="status">{notice}</p>}
       </details>
     </fieldset>
   );

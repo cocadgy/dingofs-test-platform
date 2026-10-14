@@ -54,3 +54,28 @@ test("member can open the machine registration page", () => {
     screen.getByRole("heading", { name: "登记机器资源", level: 1 }),
   ).toBeInTheDocument();
 });
+
+test("machine owner can open a direct SSH terminal in a new tab", async () => {
+  vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({
+    id: "m", name: "node", creator_id: "alice", revision: 1, archived: false,
+    address: "node.test", ssh_user: "test", ssh_port: 22, has_ssh_password: true,
+    collection_status: "never",
+  }))));
+  render(<InventoryPage kind="machines" admin={false} userId="alice" onDirty={vi.fn()}
+    detailOnly initialMachineId="m" />);
+  const link = await screen.findByRole("link", { name: "打开 SSH 终端" });
+  expect(link).toHaveAttribute("href", "#/machines/m/terminal");
+  expect(link).toHaveAttribute("target", "_blank");
+});
+
+test("machine viewer and archived resource cannot start SSH terminal", async () => {
+  vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({
+    id: "m", name: "node", creator_id: "bob", revision: 1, archived: false,
+    address: "node.test", ssh_user: "test", ssh_port: 22, has_ssh_password: true,
+    collection_status: "never",
+  }))));
+  render(<InventoryPage kind="machines" admin={false} userId="alice" onDirty={vi.fn()}
+    detailOnly initialMachineId="m" />);
+  await screen.findByRole("heading", { name: "node" });
+  expect(screen.queryByRole("link", { name: "打开 SSH 终端" })).toBeNull();
+});

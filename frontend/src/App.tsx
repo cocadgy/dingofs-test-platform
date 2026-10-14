@@ -1,4 +1,6 @@
+import { PerformancePage } from "./features/performance/PerformancePage";
 import {ConfigurationPage} from "./features/configuration/ConfigurationPage";
+import { DashboardPage } from "./features/dashboard/DashboardPage";
 import { CacheProfilesPage } from "./features/cache-profiles/CacheProfilesPage";
 import { BadouMascot } from "./components/BadouMascot";
 import { StorageProfilesPage } from "./features/storage/StorageProfilesPage";
@@ -11,6 +13,7 @@ import { UsersPage } from "./features/users/UsersPage";
 import { ProfilePage } from "./features/users/ProfilePage";
 import { LogPage } from "./features/remote/LogPage";
 import { LogSearchResultPage } from "./features/remote/LogSearchResultPage";
+import { searchOptionsFromHash } from "./features/remote/searchOptions";
 import { MountLogPage, mountLogRoute } from "./features/resources/MountLogPage";
 import { TerminalPage } from "./features/remote/TerminalPage";
 import {
@@ -33,9 +36,14 @@ export function App() {
   const [password, setPassword] = useState("");
   const [busy, setBusy] = useState(false);
   const [dirty, setDirty] = useState(false);
-  const [kind, setKind] = useState("machines");
+  const [kind, setKind] = useState("dashboard");
   const [hash, setHash] = useState(window.location.hash);
   const remote = remoteRoute(hash);
+  const machineTerminalMatch = hash.match(/^#\/machines\/([^/]+)\/terminal$/);
+  let machineTerminalId: string | null = null;
+  if (machineTerminalMatch) {
+    try { machineTerminalId = decodeURIComponent(machineTerminalMatch[1]); } catch { /* invalid URL */ }
+  }
   const resourceCluster = resourceRoute(hash);
   const mountLog = mountLogRoute(hash);
   useEffect(() => {
@@ -43,11 +51,13 @@ export function App() {
       queueMicrotask(() => {
         setHash(window.location.hash);
         if (user?.email) {
-          if (window.location.hash.startsWith("#/clusters"))
+          if (window.location.hash.startsWith("#/performance")) setKind("performance");
+          else if (window.location.hash.startsWith("#/clusters"))
             setKind("clusters");
           else if (/^#\/(configuration|cache-profiles|mount-profiles|storage)(\/|$)/.test(window.location.hash)) setKind("configuration");
           else if (window.location.hash.startsWith("#/machines"))
             setKind("machines");
+          else setKind("dashboard");
         }
       });
     window.addEventListener("hashchange", sync);
@@ -58,14 +68,14 @@ export function App() {
     setHash(window.location.hash);
     setKind(
       u.email
-        ? window.location.hash.startsWith("#/clusters")
+        ? window.location.hash.startsWith("#/performance") ? "performance" : window.location.hash.startsWith("#/clusters")
           ? "clusters"
           : /^#\/(configuration|cache-profiles|mount-profiles|storage)(\/|$)/.test(window.location.hash)
             ? "configuration"
-              : "machines"
+              : window.location.hash.startsWith("#/machines") ? "machines" : "dashboard"
         : "profile",
     );
-    setCsrf(u.csrf_token);
+    setCsrf(u.csrf_token, u.id);
     if (!u.email) setKind("profile");
   }
   useEffect(() => {
@@ -193,8 +203,10 @@ export function App() {
         <p className="nav-label">工作空间</p>
         <nav>
           {Object.entries({
+            dashboard: "资源总览",
             ...sections,
             configuration: "配置管理",
+            performance: "性能测试",
             ...(user.role === "admin" ? { users: "用户管理" } : {}),
             profile: "个人设置",
           }).map(([key, label]) => (
@@ -205,11 +217,13 @@ export function App() {
                 if (key === kind) {
                   if (
                     [
+                      "dashboard",
                       "machines",
                       "clusters",
                       "storage",
                       "cache-profiles",
                       "configuration",
+                      "performance",
                     ].includes(key)
                   )
                     window.location.hash = "#/" + key;
@@ -221,11 +235,13 @@ export function App() {
                     null,
                     "",
                     [
+                      "dashboard",
                       "machines",
                       "clusters",
                       "storage",
                       "cache-profiles",
                       "configuration",
+                      "performance",
                     ].includes(key)
                       ? "#/" + key
                       : window.location.pathname + window.location.search,
@@ -241,9 +257,9 @@ export function App() {
           ))}
         </nav>
         <div className="roadmap">
-          <strong>第一阶段</strong>
-          <p>资源登记与配置管理</p>
-          <small>测试执行、报告和集群运维将在后续阶段开放。</small>
+          <strong>团队测试平台</strong>
+          <p>资源、集群与性能测试</p>
+          <small>统一管理测试任务、执行日志与性能报告。</small>
         </div>
         <div className="account">
           <strong>{user.username}</strong>
@@ -259,14 +275,18 @@ export function App() {
         <div
           className={
             "content" +
-            (["machines", "clusters", "storage", "cache-profiles", "configuration"].includes(
+            (["dashboard", "machines", "clusters", "storage", "cache-profiles", "configuration", "performance"].includes(
               kind,
             )
               ? " machines-content"
               : "")
           }
         >
-          {kind === "users" && user.role === "admin" ? (
+          {kind === "performance" && user.email ? (
+            <PerformancePage />
+          ) : kind === "dashboard" && user.email ? (
+            <DashboardPage userId={user.id} />
+          ) : kind === "users" && user.role === "admin" ? (
             <UsersPage
               currentId={user.id}
               onDirty={setDirty}
@@ -299,7 +319,7 @@ export function App() {
             />
           ) : kind === "clusters" && remote ? (
             remote.kind === "logs" && remote.searchKeyword !== undefined && remote.searchFile !== undefined ? (
-              <LogSearchResultPage key={hash} clusterId={remote.clusterId} serviceId={remote.targetId} fileName={remote.searchFile} keyword={remote.searchKeyword} caseSensitive={!!remote.searchCaseSensitive} backUrl={`#/clusters/${encodeURIComponent(remote.clusterId)}/logs/${encodeURIComponent(remote.targetId)}`} />
+              <LogSearchResultPage key={hash} clusterId={remote.clusterId} serviceId={remote.targetId} fileName={remote.searchFile} keyword={remote.searchKeyword} caseSensitive={!!remote.searchCaseSensitive} searchOptions={searchOptionsFromHash(hash)} backUrl={`#/clusters/${encodeURIComponent(remote.clusterId)}/logs/${encodeURIComponent(remote.targetId)}`} />
             ) : remote.kind === "logs" ? (
               <LogPage
                 key={hash}
@@ -316,7 +336,7 @@ export function App() {
               />
             )
           ) : kind === "clusters" && mountLog?.searchKeyword !== undefined && mountLog.searchFile !== undefined ? (
-            <LogSearchResultPage key={hash} clusterId={mountLog.clusterId} serviceId={`mount:${mountLog.resourceId}`} fileName={mountLog.searchFile} keyword={mountLog.searchKeyword} caseSensitive={!!mountLog.searchCaseSensitive} backUrl={`#/clusters/${encodeURIComponent(mountLog.clusterId)}/resources/mounts/${encodeURIComponent(mountLog.resourceId)}/logs`} />
+            <LogSearchResultPage key={hash} clusterId={mountLog.clusterId} serviceId={`mount:${mountLog.resourceId}`} fileName={mountLog.searchFile} keyword={mountLog.searchKeyword} caseSensitive={!!mountLog.searchCaseSensitive} searchOptions={searchOptionsFromHash(hash)} backUrl={`#/clusters/${encodeURIComponent(mountLog.clusterId)}/resources/mounts/${encodeURIComponent(mountLog.resourceId)}/logs`} />
           ) : kind === "clusters" && mountLog ? (
             <MountLogPage key={hash} clusterId={mountLog.clusterId} resourceId={mountLog.resourceId} fileName={mountLog.fileName} />
           ) : kind === "clusters" && resourceCluster ? (
@@ -332,6 +352,8 @@ export function App() {
               admin={user.role === "admin"}
               onDirty={setDirty}
             />
+          ) : kind === "machines" && machineTerminalId ? (
+            <TerminalPage key={hash} machineId={machineTerminalId} admin={user.role === "admin"} userId={user.id} />
           ) : kind === "machines" ? (
             <MachinePage
               userId={user.id}

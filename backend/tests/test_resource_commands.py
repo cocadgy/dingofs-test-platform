@@ -22,10 +22,12 @@ def request(action, parameters, record=None):
 
 def test_catalog_contains_requested_operations_and_secret_fields():
     actions = {row["action"]: row for row in api().catalog()}
-    assert len(actions) == 31
+    assert len(actions) == 33
+    assert actions["mount.delete"]["mutating"] is True
     assert {"cache.leave", "cache.unlock", "cache.weight"} <= actions.keys()
     assert actions["cache.create"]["mutating"] is True
     assert actions["mount.logs"]["mutating"] is False
+    assert actions["mount.remount"]["mutating"] is True
     assert api().secret_keys("fs.create") == {"s3_ak", "s3_sk", "rados_key"}
     assert actions["fs.create"]["fields"]
 
@@ -574,3 +576,149 @@ def test_batch_prepares_exact_snapshot(monkeypatch):
     steps, resource = service.prepare(None, None, None, "fs.delete_batch", {"fs_names": ["test-a", "test-b"]})
     assert steps == [("fs.delete", {"fs_name": "test-a"}), ("fs.delete", {"fs_name": "test-b"})]
     assert resource is None
+
+
+def test_remount_uses_saved_resource_record_without_new_parameters():
+    values = api().validate("mount.remount", {"resource_id": "resource-1"})
+    record = {"state_dir": "/tmp/state", "log_dir": "/tmp/logs",
+              "fs_name": "data", "mount_path": "/mnt/data",
+              "mount_options": {"block_size": "4096"}}
+    req = request("mount.remount", values, record)
+    assert req["record"] == record
+    assert req["parameters"] == values
+
+
+def test_mds_client_uses_utc_hour_buckets_and_accepts_explicit_range():
+    from datetime import datetime, timezone
+    from dingofs_platform.resources.commands import recent_hour_buckets
+    now = datetime(2026, 10, 13, 2, 15, tzinfo=timezone.utc)
+    assert recent_hour_buckets(1, now) == '2026-10-13-01,2026-10-13-02'
+    req = request('trash.restore', {'fs_id': 5, 'restore_hours_utc': '2026-10-13-01,2026-10-13-02'})
+    assert '--hours=2026-10-13-01,2026-10-13-02' in req['commands'][0]
+    with pytest.raises(ValueError):
+        api().validate('trash.restore', {'fs_id': 5, 'restore_hours_utc': 'yesterday; id'})
+
+
+def test_mds_client_resolves_installed_binary_and_single_reachable_endpoint(tmp_path, monkeypatch):
+    from dingofs_platform.resources.remote_helper import prepare_mds_command
+    root = tmp_path / '.dingo/components/dingo-mds-client/main'
+    root.mkdir(parents=True)
+    binary = root / 'dingo-mds-client'
+    binary.write_text('#!/bin/sh\nexit 0\n')
+    binary.chmod(0o755)
+    monkeypatch.setattr('dingofs_platform.resources.remote_helper.shutil.which', lambda name: None)
+    seen = []
+    class Connection:
+        def __enter__(self): return self
+        def __exit__(self, *args): pass
+    def connect(address, timeout):
+        seen.append(address)
+        if address[1] == 6900: raise OSError('offline')
+        return Connection()
+    monkeypatch.setattr('dingofs_platform.resources.remote_helper.socket.create_connection', connect)
+    req = {'action': 'dirstat.info', 'mds_addr': '10.0.0.1:6900,10.0.0.2:6901',
+           'tool_home': str(tmp_path)}
+    argv = prepare_mds_command(req, ['dingo-mds-client', '--mds_addr='+req['mds_addr'], '--cmd=info'])
+    assert argv == [str(binary), '--mds_addr=10.0.0.2:6901', '--cmd=info']
+    assert seen == [('10.0.0.1', 6900), ('10.0.0.2', 6901)]
+
+
+def test_mds_cli_failure_text_fails_even_with_zero_exit():
+    import sys
+    from dingofs_platform.resources.remote_helper import CommandFailure, run_command
+    with pytest.raises(CommandFailure, match='only root can restore'):
+        run_command([sys.executable, '-c', 'print("only root can restore files from trash")'])
+    with pytest.raises(CommandFailure, match='failed'):
+        run_command([sys.executable, '-c', 'print("✗ updatefstrashdays failed: invalid address")'])
+
+
+def test_dirstat_read_uses_next_mds_when_first_path_lookup_is_empty(tmp_path, monkeypatch):
+    from dingofs_platform.resources.remote_helper import run_mds_command
+    binary = tmp_path / 'dingo-mds-client'
+    binary.write_text('#!/bin/sh\nexit 0\n')
+    binary.chmod(0o755)
+    class Connection:
+        def __enter__(self): return self
+        def __exit__(self, *args): pass
+    monkeypatch.setattr('dingofs_platform.resources.remote_helper.socket.create_connection',
+                        lambda *args, **kwargs: Connection())
+    seen = []
+    def execute(argv, **kwargs):
+        seen.append(argv)
+        return {'stdout': '' if '--mds_addr=10.0.0.1:6900' in argv else '/new :\n  files: 2\n',
+                'stderr': '', 'returncode': 0}
+    monkeypatch.setattr('dingofs_platform.resources.remote_helper.run_command', execute)
+    req = {'action': 'dirstat.info', 'mds_addr': '10.0.0.1:6900,10.0.0.2:6901',
+           'parameters': {'path': '/new'}}
+    value = run_mds_command(req, [str(binary), '--mds_addr='+req['mds_addr'],
+                                  '--cmd=info', '--fs_id=5', '--path=/new'])
+    assert value['stdout'] == '/new :\n  files: 2\n'
+    assert [next(arg for arg in call if arg.startswith('--mds_addr=')) for call in seen] == [
+        '--mds_addr=10.0.0.1:6900', '--mds_addr=10.0.0.2:6901']
+
+
+def test_dirstat_read_rejects_empty_results_from_every_mds(tmp_path, monkeypatch):
+    from dingofs_platform.resources.remote_helper import CommandFailure, run_mds_command
+    binary = tmp_path / 'dingo-mds-client'
+    binary.write_text('#!/bin/sh\nexit 0\n')
+    binary.chmod(0o755)
+    class Connection:
+        def __enter__(self): return self
+        def __exit__(self, *args): pass
+    monkeypatch.setattr('dingofs_platform.resources.remote_helper.socket.create_connection',
+                        lambda *args, **kwargs: Connection())
+    monkeypatch.setattr('dingofs_platform.resources.remote_helper.run_command',
+                        lambda *args, **kwargs: {'stdout': '', 'stderr': '', 'returncode': 0})
+    req = {'action': 'dirstat.summary', 'mds_addr': '10.0.0.1:6900,10.0.0.2:6901',
+           'parameters': {'path': '/new'}}
+    with pytest.raises(CommandFailure, match='目录路径'):
+        run_mds_command(req, [str(binary), '--mds_addr='+req['mds_addr'],
+                              '--cmd=summary', '--fs_id=5', '--path=/new'])
+
+
+def test_dirstat_sync_probes_path_and_runs_mutation_once(tmp_path, monkeypatch):
+    from dingofs_platform.resources.remote_helper import run_mds_command
+    binary = tmp_path / 'dingo-mds-client'
+    binary.write_text('#!/bin/sh\nexit 0\n')
+    binary.chmod(0o755)
+    class Connection:
+        def __enter__(self): return self
+        def __exit__(self, *args): pass
+    monkeypatch.setattr('dingofs_platform.resources.remote_helper.socket.create_connection',
+                        lambda *args, **kwargs: Connection())
+    seen = []
+    def execute(argv, **kwargs):
+        seen.append(argv)
+        if '--cmd=info' in argv:
+            return {'stdout': '' if '--mds_addr=10.0.0.1:6900' in argv else '/new :\n  files: 2\n',
+                    'stderr': '', 'returncode': 0}
+        return {'stdout': 'all dir-stats are consistent\n', 'stderr': '', 'returncode': 0}
+    monkeypatch.setattr('dingofs_platform.resources.remote_helper.run_command', execute)
+    req = {'action': 'dirstat.sync', 'mds_addr': '10.0.0.1:6900,10.0.0.2:6901',
+           'parameters': {'path': '/new'}}
+    value = run_mds_command(req, [str(binary), '--mds_addr='+req['mds_addr'],
+                                  '--cmd=syncdirstat', '--fs_id=5', '--path=/new', '--recursive', '--repair'])
+    assert value['stdout'] == 'all dir-stats are consistent\n'
+    mutations = [call for call in seen if '--cmd=syncdirstat' in call]
+    assert len(mutations) == 1
+    assert '--mds_addr=10.0.0.2:6901' in mutations[0]
+
+
+def test_dirstat_read_surfaces_cli_path_error_when_every_mds_fails(tmp_path, monkeypatch):
+    from dingofs_platform.resources.remote_helper import CommandFailure, run_mds_command
+    binary = tmp_path / 'dingo-mds-client'
+    binary.write_text('#!/bin/sh\nexit 0\n')
+    binary.chmod(0o755)
+    class Connection:
+        def __enter__(self): return self
+        def __exit__(self, *args): pass
+    monkeypatch.setattr('dingofs_platform.resources.remote_helper.socket.create_connection',
+                        lambda *args, **kwargs: Connection())
+    def execute(argv, **kwargs):
+        raise CommandFailure("command failed (exit 1): resolve path '/missing': not found dentry")
+    monkeypatch.setattr('dingofs_platform.resources.remote_helper.run_command', execute)
+    req = {'action': 'dirstat.info', 'mds_addr': '10.0.0.1:6900,10.0.0.2:6901',
+           'parameters': {'path': '/missing'}}
+    with pytest.raises(CommandFailure, match='not found dentry'):
+        run_mds_command(req, [str(binary), '--mds_addr='+req['mds_addr'],
+                              '--cmd=info', '--fs_id=5', '--path=/missing'])

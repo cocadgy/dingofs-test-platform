@@ -1,3 +1,4 @@
+import { firstRdmaPair, rdmaPairs } from "./cacheRdma";
 import type { CacheMemberOption } from "./cacheMemberOptions";
 import {
   type Parameters,
@@ -38,6 +39,7 @@ export function ResourceFields({
   const eligible = machines.filter((machine) => machine.can_manage);
   function input(field: ResourceField) {
     const value = values[field.key];
+    if (field.key === "count") return <label>{field.label}<input type="number" min={1} step={1} required disabled={disabled} value={String(value ?? 1)} onChange={e=>onChange(field.key,e.target.value === "" ? "" : Number(e.target.value))}/><small>{action.action === "mount.create" ? `数量大于 1 时生成独立路径，例如 ${String(values.mount_path || "/mnt/client").replace(/\/$/, "")}-001、-002；每个客户端自动检查并分配端口。` : "每份成员配置重复创建指定数量，不设单批数量上限；批量时使用自动端口，成员 ID 请留空。同一缓存组新增多个成员。"} 中途失败保留已完成实例，停止后续步骤。</small></label>;
     if (action.action === "cache.delete" && field.key === "member_id")
       return (
         <label>
@@ -107,6 +109,14 @@ export function ResourceFields({
                 ),
               );
             const prefix = `成员 ${index + 1}`;
+            const machine = machines.find(row => row.id === member.machine_id);
+            const pairs = rdmaPairs(machine);
+            const devices = [...new Set(pairs.map(pair => pair.device))];
+            const currentDevice = String(member.rdma_device || "");
+            const validDevice = devices.includes(currentDevice) ? currentDevice : "";
+            const ports = pairs.filter(pair => pair.device === validDevice).map(pair => pair.port);
+            const currentPort = Number(member.rdma_port);
+            const validPort = ports.includes(currentPort) ? currentPort : 0;
             return (
               <fieldset className="resource-member" key={index}>
                 <legend>{prefix}</legend>
@@ -132,6 +142,7 @@ export function ResourceFields({
                               ? {
                                   ...item,
                                   machine_id: e.target.value,
+                                  ...(item.use_rdma ? firstRdmaPair(machine) : {}),
                                   ...(portPlanning
                                     ? {
                                         listen_ip: machine?.address || "",
@@ -206,34 +217,37 @@ export function ResourceFields({
                     <input
                       type="checkbox"
                       checked={Boolean(member.use_rdma)}
-                      onChange={(e) => update("use_rdma", e.target.checked)}
+                      onChange={(e) => onChange(field.key, members.map((item, i) => i === index
+                        ? { ...item, use_rdma: e.target.checked,
+                            ...(e.target.checked ? firstRdmaPair(machine) : { rdma_device: "", rdma_port: 1 }) }
+                        : item))}
                     />
                     {prefix} 使用 RDMA
                   </label>
                   {Boolean(member.use_rdma) && (
-                    <>
-                      <label>
-                        {prefix} RDMA 设备
-                        <input
-                          required
-                          value={String(member.rdma_device || "")}
-                          onChange={(e) =>
-                            update("rdma_device", e.target.value)
-                          }
-                        />
+                    !member.machine_id ? <p role="alert" className="error">请先选择{prefix}的机器，再选择 RDMA 设备。</p>
+                    : !pairs.length ? <p role="alert" className="error">{machine?.rdma === null || machine?.rdma === undefined
+                      ? "该机器未采集 RDMA 信息，请先更新机器信息。" : "该机器没有 RDMA 设备，无法使用 RDMA。"}</p>
+                    : <>
+                      <label>{prefix} RDMA 设备
+                        <select required value={validDevice} onChange={e => {
+                          const device = e.target.value;
+                          const port = pairs.find(pair => pair.device === device)?.port || 1;
+                          onChange(field.key, members.map((item, i) => i === index
+                            ? { ...item, rdma_device: device, rdma_port: port } : item));
+                        }}>
+                          <option value="">请选择 RDMA 设备</option>
+                          {devices.map(device => <option key={device} value={device}>{device}</option>)}
+                        </select>
                       </label>
-                      <label>
-                        {prefix} RDMA 端口
-                        <input
-                          type="number"
-                          min="1"
-                          required
-                          value={String(member.rdma_port ?? 1)}
-                          onChange={(e) =>
-                            update("rdma_port", Number(e.target.value))
-                          }
-                        />
+                      <label>{prefix} RDMA 端口
+                        <select required disabled={!validDevice} value={validPort || ""}
+                          onChange={e => update("rdma_port", Number(e.target.value))}>
+                          <option value="">请选择 RDMA 端口</option>
+                          {ports.map(port => <option key={port} value={port}>{port}</option>)}
+                        </select>
                       </label>
+                      {(!validDevice || !validPort) && <p role="alert" className="error">当前 RDMA 设备或端口不属于所选机器，请重新选择。</p>}
                     </>
                   )}
                 </div>
@@ -290,33 +304,31 @@ export function ResourceFields({
           </select>
         </label>
       );
-    if (field.key === "resource_id")
-      return (
+    if (field.key === "resource_id") {
+      const choices = resources.filter(resource =>
+        resource.kind === action.section &&
+        resource.state !== "deleted" &&
+        resource.state !== "planned" &&
+        (action.action !== "mount.unmount" || resource.state === "mounted") &&
+        (action.action !== "mount.delete" || resource.state === "unmounted"),
+      );
+      const selected = String(value || "");
+      const unavailable = ["mount.unmount", "mount.delete"].includes(action.action) && !!selected &&
+        !choices.some(resource => resource.id === selected);
+      return <div>
         <label>
           {action.section === "cache" ? "选择缓存组" : "选择挂载点"}
-          <select
-            required={field.required}
-            disabled={disabled}
-            value={String(value || "")}
-            onChange={(e) => onChange(field.key, e.target.value)}
-          >
-            <option value="">请选择已保存资源</option>
-            {resources
-              .filter(
-                (resource) =>
-                  resource.kind === action.section &&
-                  resource.state !== "deleted" &&
-                  resource.state !== "planned",
-              )
-              .map((resource) => (
-                <option key={resource.id} value={resource.id}>
-                  {resource.name} ·{" "}
-                  {stateLabels[resource.state] || resource.state}
-                </option>
-              ))}
+          <select required={field.required} disabled={disabled} value={unavailable ? "" : selected}
+            onChange={e => onChange(field.key, e.target.value)}>
+            <option value="">{action.action === "mount.unmount" ? "请选择已挂载的文件系统" : "请选择已保存资源"}</option>
+            {choices.map(resource => <option key={resource.id} value={resource.id}>
+              {resource.name} · {stateLabels[resource.state] || resource.state}
+            </option>)}
           </select>
         </label>
-      );
+        {unavailable && <p role="alert" className="error">所选挂载点不再是已挂载状态，请重新选择。</p>}
+      </div>;
+    }
     if (field.type === "boolean")
       return (
         <label className="resource-checkbox">

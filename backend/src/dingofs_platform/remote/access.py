@@ -136,19 +136,20 @@ def valid(db, row):
         or session.expires_at <= now()
     ):
         return False
-    c = db.get(Cluster, row.cluster_id)
+    c = db.get(Cluster, row.cluster_id) if row.cluster_id else None
     m = db.get(Machine, row.machine_id)
     if (
-        not c
-        or c.archived
-        or not m
+        not m
         or m.archived
-        or c.revision != row.cluster_revision
         or m.revision != row.machine_revision
         or row.expires_at <= now()
     ):
         return False
     try:
+        if row.kind == "terminal" and c is None and row.cluster_id is None:
+            return can_manage(actor, m) and m.ssh_user == row.target_user
+        if not c or c.archived or c.revision != row.cluster_revision:
+            return False
         if row.kind == "terminal":
             return terminal_target(db, c, actor, m.id).ssh_user == row.target_user
         machine, root, target_user = log_target(db, c, actor, row.service_id)

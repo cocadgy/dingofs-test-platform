@@ -203,7 +203,7 @@ def start_operation(
             require_manage(actual, c)
             if c.revision != cluster_revision:
                 raise Problem(409, "revision_conflict", "集群配置已更新")
-        if cluster_id:
+        if cluster_id and kind in CONTROL_ACTIONS:
             from dingofs_platform.resources.models import ResourceOperation
             from dingofs_platform.resources.views import (
                 expire as expire_resource, ACTIVE as RESOURCE_ACTIVE,

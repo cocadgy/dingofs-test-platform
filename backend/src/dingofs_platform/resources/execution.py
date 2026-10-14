@@ -25,6 +25,7 @@ from .models import ResourceOperation, ManagedResource
 from .views import ACTIVE, now, expire, operation_view
 from .safety import redact, product_failed
 from . import commands, port_planning
+from .bulk_create import finish_mount_batch
 from .remote_helper import FS_LIST_MAX_RESPONSE
 
 
@@ -71,6 +72,7 @@ def terminal(db, op, state, code=None):
                 "cache.stop": "stopped",
                 "cache.delete": "deleted",
                 "mount.create": "mounted",
+                "mount.remount": "mounted",
                 "mount.unmount": "unmounted",
             }.get(op.action)
             if op.action == "mount.status":
@@ -84,6 +86,7 @@ def terminal(db, op, state, code=None):
         elif commands.is_mutating(op.action):
             r.state = "partial" if op.cursor else "unknown"
         r.revision += 1
+    finish_mount_batch(db, op)
     actor = db.get(User, op.actor_id)
     if actor:
         audit(
@@ -122,7 +125,7 @@ def run(request, oid, password=None, *, claimed=False):
                 terminal(db, op, "failed", "stale")
                 return
             if op.cursor >= len(op.steps):
-                failed = op.action in ("fs.delete_batch", "cache.delete_batch", "cache.stop") and any(s.get("failed") for s in (op.result or {}).get("steps", []))
+                failed = op.action in ("fs.delete_batch", "cache.delete_batch", "cache.stop", "mount.unmount", "mount.delete") and any(s.get("failed") for s in (op.result or {}).get("steps", []))
                 terminal(db, op, "failed" if failed else "succeeded", "batch_failed" if failed else None)
                 return
             work = deepcopy(op.steps[op.cursor])
@@ -193,6 +196,9 @@ def run(request, oid, password=None, *, claimed=False):
                 work["mds_addr"],
                 resource_id,
                 record=work["record"],
+                **({"tool_home": work.get("tool_home")}
+                   if work["action"].startswith(("trash.", "dirstat."))
+                   and work["action"] != "trash.get" else {}),
             )
             command = ClusterCommand(
                 "resource",
@@ -200,7 +206,8 @@ def run(request, oid, password=None, *, claimed=False):
                 target_name,
                 expected_home=work["expected_home"],
                 resource_script=script,
-                resource_requires_dingo=work["action"] != "cache.stop_external",
+                resource_requires_dingo=work["action"] != "cache.stop_external"
+                and not work["action"].startswith(("trash.", "dirstat.")),
             )
             transport = getattr(
                 request.app.state, "resource_transport", execute_cluster
@@ -310,6 +317,34 @@ def run(request, oid, password=None, *, claimed=False):
                     resource.data = data
                     resource.state = "stopped" if all(m.get("process_state") == "stopped" for m in data.get("members", [])) else "partial"
                     resource.revision += 1
+            if result and not error and op.action in ("mount.create", "mount.remount", "mount.status"):
+                port = (result.get("data") or {}).get("vfs_dummy_server_port")
+                target_resource_id = work.get("resource_id") or op.resource_id
+                if type(port) is int and 1 <= port <= 65535 and target_resource_id:
+                    resource = db.get(ManagedResource, target_resource_id)
+                    resource.data = {**resource.data, "vfs_dummy_server_port": port}
+            if op.action == "mount.create" and work.get("batch_index"):
+                result = {**(result or {"message": error, "returncode": None}),
+                          "instance": work["batch_index"], "resource_id": work["resource_id"],
+                          "mount_path": work["parameters"]["mount_path"], "failed": bool(error)}
+                child = db.get(ManagedResource, work["resource_id"])
+                child.state = "unknown" if error else "mounted"
+                child.revision += 1
+            if work.get("mount_batch"):
+                result = {**(result or {"message": error, "returncode": None}),
+                          "resource_id": work["resource_id"],
+                          "mount_path": work["record"]["mount_path"], "failed": bool(error)}
+                child = db.get(ManagedResource, work["resource_id"])
+                child.state = "unknown" if error else ("deleted" if op.action == "mount.delete" else "unmounted")
+                child.revision += 1
+            if op.action == "cache.create":
+                result = {**(result or {"message": error, "returncode": None}),
+                          "member_id": work["record"]["member_id"], "failed": bool(error)}
+                resource = db.get(ManagedResource, op.resource_id)
+                resource.data = {**resource.data, "members": [
+                    {**member, "process_state": "unknown" if error else "running"}
+                    if member["member_id"] == work["record"]["member_id"] else member
+                    for member in resource.data["members"]]}
             if result:
                 op.result = {"steps": [*(op.result or {}).get("steps", []), result]}
             known_delete_failure = (op.action in ("fs.delete_batch", "cache.delete_batch", "cache.stop") and error == "query_failed"
@@ -318,7 +353,9 @@ def run(request, oid, password=None, *, claimed=False):
             known_stop_failure = (op.action == "cache.stop" and work.get("member_id")
                                   and error == "query_failed" and result
                                   and result.get("remote_state") == "failed")
-            if error and not (known_delete_failure or known_stop_failure):
+            known_mount_failure = (work.get("mount_batch") and error == "query_failed"
+                                   and result and result.get("remote_state") == "failed")
+            if error and not (known_delete_failure or known_stop_failure or known_mount_failure):
                 terminal(
                     db,
                     op,

@@ -49,7 +49,7 @@ export type RemoteSession = {
   address: string;
   ssh_user: string;
   target_user: string;
-  cluster_id: string;
+  cluster_id: string | null;
   service_id?: string | null;
   log_dir?: string | null;
   expires_at: string;
@@ -60,8 +60,10 @@ export type RemoteSession = {
   result?: {
     files?: RemoteFile[];
     hits?: SearchHit[];
-    progress?: { scanned_files: number; scanned_bytes: number; hits: number };
+    progress?: { scanned_files: number; scanned_bytes: number; hits: number; completed_files: number; total_files: number };
     scanned_files?: number;
+    completed_files?: number;
+    total_files?: number;
     scanned_bytes?: number;
     skipped_files?: number;
     reason?: string | null;
@@ -73,12 +75,17 @@ export type RemoteSession = {
 };
 export type RemoteRequest = {
   kind: RemoteKind;
-  cluster_id: string;
+  cluster_id?: string;
   service_id?: string;
   machine_id?: string;
   file_id?: string;
   keyword?: string;
   case_sensitive?: boolean;
+  scan_mode?: "prefix" | "full";
+  per_file_mb?: number;
+  max_files?: number;
+  max_total_mb?: number;
+  max_hits?: number;
   lines?: 100 | 500 | 1000;
   cursor?: Cursor;
   cols?: number;

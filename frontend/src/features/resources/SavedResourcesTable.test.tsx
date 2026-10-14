@@ -255,3 +255,50 @@ test("unmounted client cannot be unmounted again, but logs remain available", ()
   expect(onAction).not.toHaveBeenCalled();
   expect(screen.getByRole("button", { name: "日志 data-mount" })).toBeEnabled();
 });
+
+
+test("unmounted clients can remount and mounted clients link to their actual config port", () => {
+  const unmounted = { ...mount, id: "mount2", name: "old-mount", state: "unmounted" };
+  const onAction = renderTable([
+    { ...mount, data: { ...mount.data, vfs_dummy_server_port: 10007 } },
+    unmounted,
+  ], { actions: [...actions, { action: "mount.remount", label: "重新挂载", section: "mount", mutating: true, fields: [] }] });
+  expect(screen.getByRole("link", { name: "data-mount" })).toHaveAttribute("href", "http://10.0.0.1:10007/");
+  expect(screen.queryByRole("link", { name: "old-mount" })).toBeNull();
+  fireEvent.click(screen.getByRole("button", { name: "重新挂载 data-mount" }));
+  expect(onAction).toHaveBeenLastCalledWith({ ...mount, data: { ...mount.data, vfs_dummy_server_port: 10007 } }, "mount.remount");
+  fireEvent.click(screen.getByRole("button", { name: "重新挂载 old-mount" }));
+  expect(onAction).toHaveBeenCalledWith(unmounted, "mount.remount");
+});
+
+test("batch client selection follows filter and disables incompatible actions", () => {
+  const batch=vi.fn();
+  render(<SavedResourcesTable resources={[mount,{...mount,id:"m2",name:"stopped",state:"unmounted"}]}
+    machines={machines} actions={[...actions,{action:"mount.delete",label:"删除记录",section:"mount",mutating:true,fields:[]}]}
+    disabled={false} onAction={vi.fn()} onBatchAction={batch}/>);
+  fireEvent.change(screen.getByLabelText("筛选资源状态"),{target:{value:"mounted"}});
+  fireEvent.click(screen.getByLabelText("全选当前资源"));
+  fireEvent.click(screen.getByRole("button",{name:"批量卸载"}));
+  expect(batch).toHaveBeenCalledWith("mount.unmount",["mount1"]);
+  expect(screen.getByRole("button",{name:"批量删除记录"})).toBeDisabled();
+});
+
+test("cache group and nested member checkboxes share selection",()=>{
+  const batch=vi.fn();
+  const resource={...cache,data:{queried_inventory:true,members:[
+    {member_id:"one",state:"在线",can_stop:true,selectable:false},
+    {member_id:"two",state:"离线",can_stop:false,selectable:true},
+  ]}};
+  render(<SavedResourcesTable queried resources={[resource]} machines={machines}
+    actions={[...actions,{action:"cache.delete_batch",label:"删除成员",section:"cache",mutating:true,fields:[]}]}
+    disabled={false} onAction={vi.fn()} onBatchAction={batch}/>);
+  fireEvent.click(screen.getByRole("button",{name:"成员信息"}));
+  fireEvent.click(screen.getByLabelText("选择成员 one"));
+  fireEvent.click(screen.getByRole("button",{name:"批量强制停止"}));
+  expect(batch).toHaveBeenCalledWith("cache.force_stop",["one"]);
+  fireEvent.click(screen.getByLabelText("选择成员 two"));
+  expect(screen.getByRole("button",{name:"批量平滑停止"})).toBeDisabled();
+  expect(screen.getByRole("button",{name:"批量删除成员"})).toBeDisabled();
+  fireEvent.click(screen.getByLabelText("全选成员 fast-cache"));
+  expect(screen.getByText("已选择 0 项")).toBeVisible();
+});

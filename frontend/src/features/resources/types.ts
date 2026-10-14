@@ -32,6 +32,7 @@ export type ResourceMachine = {
   address: string;
   ssh_user: string;
   can_manage: boolean;
+  rdma?: { device: string; port: number; interfaces?: string[] }[] | null;
 };
 export type SavedResource = {
   id: string;
@@ -96,6 +97,7 @@ export const pendingStates = [
 ];
 export const stateLabels: Record<string, string> = {
   pending: "等待执行",
+  not_started: "未执行",
   running: "执行中",
   needs_password: "等待用户切换认证",
   needs_trust: "需要核验 SSH 指纹",

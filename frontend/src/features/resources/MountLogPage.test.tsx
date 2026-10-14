@@ -24,10 +24,13 @@ test("mount log route is distinct from cluster service logs", () => {
 test("client logs open a dedicated page, including for unmounted records", async () => {
   mockApi();
   render(<MountLogPage clusterId={cluster} resourceId={resource} />);
-  expect(screen.getByRole("status", { name: "正在读取客户端日志…" }).querySelector(".badou--animated")).toBeTruthy();
+  const loading = screen.getByRole("status", { name: "正在读取客户端日志…" });
+  expect(loading).toHaveClass("resource-execution-indicator");
+  expect(loading.querySelector(".badou--animated")).toBeTruthy();
   expect(await screen.findByRole("heading", { name: /客户端日志/ })).toBeInTheDocument();
   const table = await screen.findByRole("table", { name: "日志文件列表" });
   await waitFor(() => expect(within(table).getByText("client.INFO")).toBeInTheDocument());
+  expect(screen.queryByRole("status", { name: "正在读取客户端日志…" })).not.toBeInTheDocument();
   expect(screen.getAllByText("/mnt/data").length).toBeGreaterThan(0);
   fireEvent.click(screen.getByRole("button", { name: "名称" }));
   expect(within(table).getByRole("columnheader", { name: /名称/ })).toHaveAttribute("aria-sort", "ascending");

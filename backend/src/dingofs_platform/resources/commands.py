@@ -2,6 +2,7 @@
 
 import json
 import shlex
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from . import schemas
@@ -21,6 +22,14 @@ def is_mutating(action):
         raise ValueError("unknown resource action")
     return INDEX[action]["mutating"]
 
+
+def recent_hour_buckets(hours, now=None):
+    """Cover the requested trailing interval with UTC hour buckets."""
+    now = (now or datetime.now(timezone.utc)).astimezone(timezone.utc)
+    first = (now - timedelta(hours=hours)).replace(minute=0, second=0, microsecond=0)
+    last = now.replace(minute=0, second=0, microsecond=0)
+    count = int((last - first).total_seconds() // 3600) + 1
+    return ",".join((first + timedelta(hours=n)).strftime("%Y-%m-%d-%H") for n in range(count))
 
 def _simple_commands(action, p, mds):
     addr = ["--mdsaddr", mds]
@@ -100,7 +109,7 @@ def _simple_commands(action, p, mds):
                 *client,
                 "--cmd=restoretrash",
                 "--fs_id=" + str(p["fs_id"]),
-                "--hours=" + str(p["hours"]),
+                "--hours=" + (p.get("restore_hours_utc") or recent_hour_buckets(p["hours"])),
                 "--put_back=" + str(p["put_back"]).lower(),
                 "--restore_threads=" + str(p["restore_threads"]),
             ]
@@ -131,7 +140,7 @@ def _simple_commands(action, p, mds):
     return []
 
 
-def build_script(action, parameters, mds_addr, resource_id, record=None):
+def build_script(action, parameters, mds_addr, resource_id, record=None, tool_home=None):
     if (
         not isinstance(mds_addr, str)
         or not mds_addr
@@ -197,6 +206,7 @@ def build_script(action, parameters, mds_addr, resource_id, record=None):
         "parameters": p,
         "mds_addr": mds_addr,
         "resource_id": str(resource_id),
+        "tool_home": tool_home,
         "record": record or {},
         "commands": _simple_commands(action, p, mds_addr),
     }

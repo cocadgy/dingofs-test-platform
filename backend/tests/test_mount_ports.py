@@ -65,3 +65,71 @@ def test_mount_start_selects_port_before_launch_and_persists_it(tmp_path, monkey
         helper.lifecycle(request)
     assert '--vfs_dummy_server_port=10007' in captured[0][0]
     assert captured[0][1]['vfs_dummy_server_port'] == 10007
+
+
+def test_remount_reuses_owned_record_and_selects_new_port(tmp_path, monkeypatch):
+    request = {
+        'action': 'mount.remount', 'resource_id': 'resource', 'mds_addr': 'mds:6900',
+        'record': {
+            'state_dir': str(tmp_path / 'state'),
+            'log_dir': str(tmp_path / 'logs'),
+            'mount_path': str(tmp_path / 'mount'),
+            'fs_name': 'fs', 'cache_group': 'group-a',
+            'mount_options': {'vfs_dummy_server_port': '10007'},
+        },
+    }
+    with helper.OwnedState(request['record']['state_dir'], 'resource:mount', create=True) as store:
+        store.save({'state': 'unmounted', 'launch_started': True,
+                    'vfs_dummy_server_port': 10007,
+                    'process': {'pid': 999999, 'start_ticks': 'old'}})
+    monkeypatch.setattr(helper, 'process_identity', lambda pid: None)
+    monkeypatch.setattr(helper, 'mount_identity', lambda path: None)
+    monkeypatch.setattr(helper, 'find_process', lambda req: None)
+    monkeypatch.setattr(helper, 'select_mount_port', lambda req: 10008)
+
+    class Stopped:
+        def poll(self):
+            return 1
+
+    launched = []
+    monkeypatch.setattr(helper, '_launch', lambda req, argv: launched.append(argv) or Stopped())
+    with pytest.raises(ValueError, match='launcher failed'):
+        helper.lifecycle(request)
+    assert '--vfs_dummy_server_port=10008' in launched[0]
+    assert '--cache_group=group-a' in launched[0]
+    with helper.OwnedState(request['record']['state_dir'], 'resource:mount') as store:
+        state = store.load()
+    assert state['vfs_dummy_server_port'] == 10008
+    assert state['launch_started'] is True
+
+
+def test_mounted_remount_launches_hot_update_without_unmount(tmp_path, monkeypatch):
+    request = {
+        'action': 'mount.remount', 'resource_id': 'resource', 'mds_addr': 'mds:6900',
+        'record': {
+            'state_dir': str(tmp_path / 'state'), 'log_dir': str(tmp_path / 'logs'),
+            'mount_path': str(tmp_path / 'mount'), 'fs_name': 'fs',
+            'mount_options': {'vfs_dummy_server_port': '10007'},
+        },
+    }
+    old = {'pid': 100, 'start_ticks': '1', 'exe': '/bin/dingo-client', 'argv': ['old']}
+    new = {**old, 'pid': 101, 'start_ticks': '2'}
+    mount = {'mount_id': '55', 'mount_path': request['record']['mount_path']}
+    with helper.OwnedState(request['record']['state_dir'], 'resource:mount', create=True) as store:
+        store.save({'state': 'mounted', 'process': old, 'mount': mount,
+                    'vfs_dummy_server_port': 10007})
+    monkeypatch.setattr(helper, 'process_identity', lambda pid: old if pid == 100 else new)
+    monkeypatch.setattr(helper, 'mount_identity', lambda path: mount)
+    monkeypatch.setattr(helper, 'find_process', lambda req, **kwargs: new)
+    monkeypatch.setattr(helper, 'select_mount_port', lambda req: pytest.fail('hot update must reuse port'))
+    launched = []
+    class Running:
+        def poll(self): return None
+    monkeypatch.setattr(helper, '_launch', lambda req, argv: launched.append(argv) or Running())
+    result = helper.lifecycle(request)
+    assert result == ('mounted', {'mount_path': request['record']['mount_path'],
+                                  'vfs_dummy_server_port': 10007, 'hot_updated': True})
+    assert len(launched) == 1
+    assert '--vfs_dummy_server_port=10007' in launched[0]
+    with helper.OwnedState(request['record']['state_dir'], 'resource:mount') as store:
+        assert store.load()['process'] == new

@@ -279,3 +279,23 @@ it("opens a direct log URL in the authenticated app rather than cluster overview
   expect(screen.queryByRole("button", { name: "发现集群" })).toBeNull();
   window.history.replaceState(null, "", "/");
 });
+
+it("machine terminal confirms the selected SSH account and submits without a cluster", async () => {
+  const requests: { path: string; body?: Record<string, unknown> }[] = [];
+  vi.stubGlobal("fetch", vi.fn(async (path: string, init?: RequestInit) => {
+    requests.push({ path, body: init?.body ? JSON.parse(String(init.body)) : undefined });
+    return response(path.includes("/machines/m1")
+      ? { id: "m1", name: "node-one", address: "192.0.2.1", ssh_port: 2222,
+          ssh_user: "operator", creator_id: "alice", archived: false, has_ssh_password: true }
+      : { ...session, id: "r2", kind: "terminal", state: "pending", cluster_id: null });
+  }));
+  vi.stubGlobal("confirm", vi.fn(() => true));
+  render(<TerminalPage machineId="m1" admin={false} userId="alice" />);
+  fireEvent.click(await screen.findByRole("button", { name: "连接终端" }));
+  await waitFor(() => expect(requests.some((r) => r.path.endsWith("/remote-sessions"))).toBe(true));
+  expect(requests.find((r) => r.path.endsWith("/remote-sessions"))?.body).toMatchObject({
+    kind: "terminal", machine_id: "m1", confirmed: true,
+  });
+  expect(requests.find((r) => r.path.endsWith("/remote-sessions"))?.body).not.toHaveProperty("cluster_id");
+  expect(window.confirm).toHaveBeenCalledWith(expect.stringContaining("operator"));
+});

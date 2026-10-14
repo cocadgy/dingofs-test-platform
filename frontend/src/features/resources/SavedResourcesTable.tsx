@@ -1,3 +1,4 @@
+import {BatchActions, useBatchSelection} from "./BatchSelection";
 import { CacheMemberManagementButtons } from "./CacheMemberManagementButtons";
 import { LazyDetails } from "./LazyDetails";
 import { Fragment, useState } from "react";
@@ -18,6 +19,8 @@ const shortcuts = {
   mount: [
     ["mount.status", "状态"],
     ["mount.unmount", "卸载"],
+    ["mount.delete", "删除记录"],
+    ["mount.remount", "重新挂载"],
     ["mount.logs", "日志"],
   ],
 };
@@ -30,7 +33,9 @@ export function SavedResourcesTable({
   onAction,
   queried = false,
   onMemberAction,
+  onBatchAction,
 }: {
+  onBatchAction?: (action: string, ids: string[]) => void;
   queried?: boolean;
   onMemberAction?: (
     resource: SavedResource,
@@ -65,6 +70,15 @@ export function SavedResourcesTable({
     const id = String(resource.data.machine_id ?? "");
     return machineNames.get(id) || id;
   };
+  const configUrl = (resource: SavedResource) => {
+    if (resource.kind !== "mount" || resource.state !== "mounted") return null;
+    const machine = machines.find((item) => item.id === resource.data.machine_id);
+    const host = machine?.address?.trim();
+    const port = Number(resource.data.vfs_dummy_server_port);
+    if (!host || !Number.isInteger(port) || port < 1 || port > 65535 ||
+        !/^[a-zA-Z0-9.:-]+$/.test(host)) return null;
+    return `http://${host.includes(":") ? `[${host}]` : host}:${port}/`;
+  };
   const states = [...new Set(resources.map((resource) => resource.state))];
   const selectedState = states.includes(state) ? state : "";
   const normalizedQuery = query.trim().toLocaleLowerCase();
@@ -84,6 +98,24 @@ export function SavedResourcesTable({
   });
   const hasCache = resources.some((resource) => resource.kind === "cache");
   const hasMount = resources.some((resource) => resource.kind === "mount");
+
+  const rowIds = (resource: SavedResource): string[] => resource.kind === "cache"
+    ? (Array.isArray(resource.data.members) ? resource.data.members.map(m => String(m.member_id)) : [])
+    : [resource.id];
+  const ids = resources.flatMap(rowIds);
+  const selection = useBatchSelection(ids, disabled);
+  const members = resources.flatMap(r => r.kind === "cache" && Array.isArray(r.data.members) ? r.data.members : []);
+  const choices = hasCache ? [
+    {key:"cache.stop",label:"批量平滑停止",eligible:(id:string)=>members.some(m=>m.member_id===id && m.can_stop && m.state!=="离线")},
+    {key:"cache.force_stop",label:"批量强制停止",eligible:(id:string)=>members.some(m=>m.member_id===id && m.can_stop && m.state!=="离线")},
+    {key:"cache.delete_batch",label:"批量删除成员",eligible:(id:string)=>members.some(m=>m.member_id===id && m.selectable)},
+  ] : [
+    {key:"mount.unmount",label:"批量卸载",eligible:(id:string)=>resources.some(r=>r.id===id && r.state==="mounted")},
+    {key:"mount.delete",label:"批量删除记录",eligible:(id:string)=>resources.some(r=>r.id===id && r.state==="unmounted")},
+  ];
+  const batchChoices = choices.filter(choice=>actions.some(a=>a.action===(choice.key==="cache.force_stop"?"cache.stop":choice.key)));
+  const selectionBox = (targets: string[], label: string) => <input type="checkbox" aria-label={label}
+    disabled={disabled || !targets.length} checked={selection.checked(targets)} onChange={()=>selection.toggle(targets)}/>;
 
   if (!resources.length)
     return (
@@ -108,6 +140,8 @@ export function SavedResourcesTable({
           显示 {filtered.length} / {resources.length} 条
         </span>
       </div>
+      {onBatchAction && <BatchActions picked={selection.picked} choices={batchChoices} disabled={disabled}
+        onAction={onBatchAction} onClear={selection.clear}/>}
       {!filtered.length ? (
         <p className="muted resource-inventory-empty">没有匹配的资源。</p>
       ) : (
@@ -118,6 +152,7 @@ export function SavedResourcesTable({
           >
             <thead>
               <tr>
+                {onBatchAction && <th>{selectionBox(filtered.flatMap(rowIds), "全选当前资源")}</th>}
                 <th scope="col">资源名称</th>
                 <th scope="col">
                   状态
@@ -156,7 +191,10 @@ export function SavedResourcesTable({
               {filtered.map((resource) => (
                 <Fragment key={resource.id}>
                   <tr>
-                    <th scope="row">{resource.name}</th>
+                    {onBatchAction && <td>{selectionBox(rowIds(resource), "选择资源 "+resource.name)}</td>}
+                    <th scope="row">{configUrl(resource)
+                      ? <a href={configUrl(resource)!} target="_blank" rel="noopener noreferrer" title="打开客户端配置页面">{resource.name}</a>
+                      : resource.name}</th>
                     <td>
                       <span className={`badge resource-state-${resource.state}`}>
                         {labelState(resource.state)}
@@ -220,6 +258,8 @@ export function SavedResourcesTable({
                               disabled={
                                 disabled ||
                                 (key === "mount.unmount" && resource.state !== "mounted") ||
+                                (key === "mount.delete" && resource.state !== "unmounted") ||
+                                (key === "mount.remount" && !["unmounted", "mounted"].includes(resource.state)) ||
                                 (queried &&
                                   ["cache.stop", "cache.force_stop"].includes(key) &&
                                   !resource.data.can_stop)
@@ -236,7 +276,7 @@ export function SavedResourcesTable({
                               }
                               aria-label={`${label} ${resource.name}`}
                               onClick={() => {
-                                if (!disabled && !(key === "mount.unmount" && resource.state !== "mounted")) onAction(resource, key);
+                                if (!disabled && !(key === "mount.unmount" && resource.state !== "mounted") && !(key === "mount.remount" && !["unmounted", "mounted"].includes(resource.state))) onAction(resource, key);
                               }}
                             >
                               {queried && resource.kind === "cache"
@@ -279,11 +319,12 @@ export function SavedResourcesTable({
                     Array.isArray(resource.data.members) && (
                       <tr className="cache-members-row">
                         <td
-                          colSpan={4 + (hasCache ? (queried ? 4 : 2) : 0) + (hasMount ? 3 : 0)}
+                          colSpan={(onBatchAction ? 1 : 0) + 4 + (hasCache ? (queried ? 4 : 2) : 0) + (hasMount ? 3 : 0)}
                         >
                           <table aria-label={`${resource.name} 成员列表`}>
                             <thead>
                               <tr>
+                                {onBatchAction && <th>{selectionBox(rowIds(resource), "全选成员 "+resource.name)}</th>}
                                 <th>成员 UUID</th>
                                 <th>机器 / 地址</th>
                                 <th>执行用户</th>
@@ -296,6 +337,7 @@ export function SavedResourcesTable({
                             <tbody>
                               {resource.data.members.map((member) => (
                                 <tr key={member.member_id}>
+                                  {onBatchAction && <td>{selectionBox([String(member.member_id)], "选择成员 "+member.member_id)}</td>}
                                   <td>
                                     <code>{member.member_id}</code>
                                   </td>

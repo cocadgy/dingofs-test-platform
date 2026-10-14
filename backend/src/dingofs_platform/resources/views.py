@@ -33,6 +33,8 @@ def expire(db, op):
         op.error_code = "interrupted"
         op.secret_ciphertext = None
         op.challenge_digest = None
+        from .bulk_create import finish_mount_batch
+        finish_mount_batch(db, op)
         if op.resource_id and is_mutating(op.action):
             resource = db.get(ManagedResource, op.resource_id)
             resource.state = "unknown"
@@ -119,5 +121,5 @@ def check_busy(db, cid):
         )
     ):
         expire_cluster(op)
-        if op.state in ACTIVE:
+        if op.state in ACTIVE and op.kind not in ("status", "topology"):
             raise Problem(409, "cluster_busy", "此集群有进行中的操作，请等待完成")

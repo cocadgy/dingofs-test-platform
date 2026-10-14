@@ -116,7 +116,7 @@ export function MountLogPage({ clusterId, resourceId, fileName }: { clusterId: s
     <div className="remote-log-layout remote-log-directory"><section className="panel remote-files">
       <div className="section-title"><h2>{fileName === undefined ? "日志文件" : "文件访问"}</h2><button disabled={busy} onClick={() => setRefresh(value => value + 1)}>{fileName === undefined ? "刷新列表" : "重新读取"}</button></div>
       <p className="muted">{fileName === undefined ? "单击选中，双击或按 Enter 在新标签页查看。点击列名切换排序。" : `文件名：${fileName}`}</p>
-      {busy && <LogLoading label="正在读取客户端日志…" />}
+      {busy && <LogLoading label="正在读取客户端日志…" popup />}
       {fileName === undefined && <LogFileTable files={files} disabled={busy} onOpen={row => window.open(mountLogUrl(clusterId, resourceId, row.name), "_blank", "noopener,noreferrer")} />}
       {fileName === undefined && !busy && !error && files.length === 0 && <p className="empty">目录中没有可读取的普通日志文件</p>}
       {truncated && fileName === undefined && <p role="status">文件列表已截断。</p>}

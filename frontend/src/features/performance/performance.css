@@ -1,0 +1,554 @@
+.performance-page fieldset {
+  border: 0;
+  padding: 0;
+  margin: 0;
+  min-width: 0;
+}
+.performance-page .panel {
+  margin: 20px 0;
+}
+.performance-page .performance-tools {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  flex-wrap: nowrap;
+  margin: 22px 0;
+}
+.performance-page .performance-tools label {
+  display: flex;
+  gap: 8px;
+  margin: 0;
+  white-space: nowrap;
+  flex-direction: row;
+  align-items: center;
+  font-weight: 600;
+}
+.performance-page .performance-tools select {
+  width: auto;
+  min-width: 140px;
+}
+.performance-page .performance-tools button {
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+.performance-tool-form {
+  padding: 16px;
+  border: 1px solid #d8e4e3;
+  border-radius: 8px;
+  margin-bottom: 16px;
+}
+.performance-preview {
+  background: #f3f8f7;
+  padding: 16px;
+  margin-top: 16px;
+  border-radius: 8px;
+}
+.performance-page pre {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.performance-log {
+  max-height: 420px;
+  overflow: auto;
+  background: #12262b;
+  color: #e3eeee;
+  padding: 16px;
+  border-radius: 8px;
+  font-size: 12px;
+}
+.performance-page progress {
+  width: 100%;
+}
+.performance-state {
+  display: inline-block;
+  padding: 4px 10px;
+  border-radius: 16px;
+  background: #eef0f2;
+  color: #495a60;
+}
+.performance-state.success {
+  background: #e1f4e8;
+  color: #166534;
+}
+.performance-state.failed,
+.performance-state.unknown {
+  background: #fee9e7;
+  color: #9f322c;
+}
+.performance-state.running,
+.performance-state.queued {
+  background: #e1eefb;
+  color: #1e5290;
+}
+.performance-report {
+  border-top: 1px solid #dce4e7;
+  margin-top: 20px;
+  padding-top: 12px;
+}
+.performance-metrics {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 14px;
+}
+.performance-metrics > div {
+  padding: 14px;
+  background: #f4f8f8;
+  border-radius: 8px;
+}
+.performance-metrics strong {
+  display: block;
+  font-size: 22px;
+  margin-top: 8px;
+}
+.performance-metrics small {
+  font-size: 12px;
+  font-weight: 400;
+}
+.performance-page iframe {
+  width: 100%;
+  height: 850px;
+  border: 1px solid #dce4e7;
+  margin-top: 16px;
+  border-radius: 8px;
+}
+@media (max-width: 700px) {
+  .performance-page .form-grid,
+  .performance-metrics {
+    grid-template-columns: 1fr;
+  }
+}
+.performance-enum {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px 20px;
+  margin-bottom: 16px;
+  border: 1px solid #dbe4ed;
+  padding: 12px;
+  border-radius: 8px;
+}
+.performance-enum label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.performance-enum input {
+  width: auto;
+}
+.performance-presets {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  margin-top: 6px;
+}
+.performance-presets button {
+  padding: 3px 9px;
+  font-size: 12px;
+  min-height: 26px;
+}
+.performance-presets button[aria-pressed="true"] {
+  background: #e7f0ff;
+  color: #174c9c;
+  border-color: #7ba3df;
+}
+.performance-candidates label {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.performance-parameters {
+  white-space: nowrap;
+  font-size: 13px;
+  line-height: 1.7;
+}
+.performance-scene-scroll {
+  max-height: 560px;
+  overflow: auto;
+  margin: 12px 0;
+}
+.performance-scene-scroll th {
+  position: sticky;
+  top: 0;
+  background: #f3f6fa;
+  z-index: 1;
+}
+.performance-state.pending,
+.performance-state.skipped {
+  background: #edf0f4;
+  color: #556273;
+}
+.performance-custom-add {
+  display: flex;
+  gap: 8px;
+  margin-top: 8px;
+  align-items: center;
+}
+.performance-custom-add input {
+  min-width: 0;
+  flex: 1;
+}
+.performance-custom-add button {
+  white-space: nowrap;
+  padding: 6px 10px;
+}
+.performance-custom-option {
+  display: inline-flex;
+  gap: 2px;
+}
+.performance-data-table {
+  width: 100%;
+  border-collapse: separate;
+  border-spacing: 0;
+  font-size: 13px;
+}
+.performance-data-table th {
+  padding: 13px 16px;
+  background: #f4f7fb;
+  color: #52637a;
+  font-weight: 600;
+  white-space: nowrap;
+  border-bottom: 1px solid #dce4ef;
+}
+.performance-data-table td {
+  padding: 14px 16px;
+  vertical-align: middle;
+  border-bottom: 1px solid #e8edf4;
+}
+.performance-data-table tbody tr:nth-child(even) {
+  background: #fafbfd;
+}
+.performance-data-table tbody tr:hover {
+  background: #f0f6ff;
+}
+.performance-data-table tbody tr.selected {
+  background: #eaf3ff;
+}
+.performance-data-table td small {
+  display: block;
+  margin-top: 5px;
+}
+.performance-task-name {
+  min-width: 180px;
+  max-width: 280px;
+  overflow-wrap: anywhere;
+  font-weight: 600;
+}
+.performance-target-path {
+  color: #778396;
+  max-width: 220px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.performance-table-filters,
+.performance-row-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.performance-table-filters input {
+  min-width: 180px;
+}
+.performance-row-actions {
+  white-space: nowrap;
+}
+.performance-row-actions button {
+  padding: 5px 12px;
+  min-height: 30px;
+}
+.performance-table-progress {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 110px;
+}
+.performance-table-progress progress {
+  width: 72px;
+  height: 7px;
+}
+.performance-empty {
+  text-align: center;
+  padding: 30px;
+  color: #778396;
+}
+@media (max-width: 800px) {
+  .performance-table-filters {
+    flex-wrap: wrap;
+  }
+}
+.performance-parameter-label {
+  margin-bottom: 6px;
+}
+.performance-tag-field {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  min-height: 44px;
+  padding: 7px 10px;
+  border: 1px solid #cbd5e1;
+  border-radius: 7px;
+  background: #fff;
+}
+.performance-tag-field:focus-within {
+  border-color: #6b9bd2;
+  box-shadow: 0 0 0 2px #dbeafe;
+}
+.performance-selected-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 0;
+  margin: 0;
+  list-style: none;
+}
+.performance-selected-tags li {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 5px 3px 9px;
+  border: 1px solid #c5daf3;
+  border-radius: 5px;
+  background: #edf5ff;
+  color: #24558c;
+  font-size: 13px;
+}
+.performance-selected-tags button {
+  border: 0;
+  background: transparent;
+  color: inherit;
+  padding: 0 4px;
+  min-height: 24px;
+  line-height: 24px;
+  font-size: 17px;
+}
+.performance-selected-tags button:hover {
+  background: #d5e7fb;
+}
+.performance-page .performance-cleanup-option {
+  display: flex;
+  flex-direction: row;
+  justify-content: flex-start;
+  width: fit-content;
+  text-align: left;
+  align-items: center;
+  gap: 8px;
+  margin-top: 16px;
+}
+.performance-page .performance-cleanup-option input {
+  width: auto;
+  margin: 0;
+  flex: 0 0 auto;
+}
+.performance-mix-ratio {
+  grid-column: 1 / -1;
+  padding: 16px;
+  background: #f4f8fe;
+  border: 1px solid #d6e4f5;
+  border-radius: 8px;
+}
+.performance-mix-ratio h4 {
+  margin: 0 0 8px;
+}
+.performance-mix-ratio .performance-candidates {
+  max-width: 480px;
+}
+.performance-ratio-summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 12px;
+}
+.performance-ratio-summary span {
+  padding: 5px 10px;
+  border-radius: 5px;
+  background: #e4eefb;
+  color: #24558c;
+  font-weight: 600;
+}
+
+.performance-page .performance-tool-form {
+  padding: 0;
+  overflow: hidden;
+  border: 1px solid #dbe4ef;
+  border-radius: 12px;
+  background: #fff;
+  box-shadow: 0 3px 12px #213a4208;
+}
+.performance-tool-header {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 16px 20px;
+  background: #f2f6fc;
+  border-bottom: 1px solid #dbe4ef;
+}
+.performance-tool-header h3 {
+  margin: 0;
+  font-size: 20px;
+}
+.performance-combination-count {
+  padding: 5px 10px;
+  border-radius: 20px;
+  background: #e3edfc;
+  color: #24558c;
+  font-size: 12px;
+}
+.performance-tool-header button {
+  margin-left: auto;
+}
+.performance-tool-form > p {
+  margin: 14px 20px;
+  font-size: 12px;
+}
+.performance-config-section {
+  padding: 20px;
+  border-top: 1px solid #edf0f5;
+}
+.performance-config-section > h4 {
+  margin: 0 0 16px;
+  font-size: 15px;
+  color: #264663;
+}
+.performance-page .performance-config-section .performance-enum {
+  margin: 0 0 16px;
+  gap: 10px;
+}
+.performance-config-section .performance-enum legend {
+  margin-bottom: 10px;
+  font-size: 13px;
+  color: #607086;
+}
+.performance-page .performance-config-section .performance-enum label {
+  flex-direction: row;
+  padding: 8px 12px;
+  border: 1px solid #dce4ef;
+  border-radius: 7px;
+  background: #fafbfd;
+  cursor: pointer;
+}
+.performance-config-section .performance-enum label:has(input:checked) {
+  background: #eaf2ff;
+  border-color: #85abe0;
+  color: #24558c;
+}
+.performance-config-section .form-grid {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 20px;
+}
+.performance-config-section .performance-candidates {
+  min-width: 0;
+}
+.performance-config-section .performance-mix-ratio {
+  margin-top: 12px;
+}
+.performance-rounds {
+  max-width: 420px;
+}
+@media (max-width: 1100px) {
+  .performance-config-section .form-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+@media (max-width: 700px) {
+  .performance-config-section .form-grid {
+    grid-template-columns: 1fr;
+  }
+  .performance-tool-header {
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+  .performance-config-section {
+    padding: 14px;
+  }
+}
+
+.performance-custom-add .performance-unit-select {
+  width: 78px;
+  flex: 0 0 78px;
+  padding: 8px 4px;
+}
+
+.performance-report-tools, .performance-report-index { display:flex; flex-wrap:wrap; gap:10px; margin:16px 0; }
+.performance-report-tools button[aria-pressed="true"] { background:#24558c; color:white; }
+.performance-report-index a { padding:7px 12px; background:#eef4fc; border-radius:6px; }
+.performance-comparison-section { margin:28px 0; scroll-margin-top:24px; }
+.performance-comparison-section h3 { padding-left:12px; border-left:4px solid #5588c2; }
+.performance-comparison-section .table-scroll { max-height:600px; overflow:auto; }
+.performance-comparison-section th { position:sticky; top:0; z-index:1; }
+
+.performance-chart { display:flex; padding:12px 0; }
+.performance-chart-axis { height:240px; display:flex; flex-direction:column; justify-content:space-between; min-width:72px; text-align:right; padding-right:12px; font-size:12px; color:#6b7b91; }
+.performance-chart-scroll { overflow-x:auto; flex:1; min-width:0; }
+.performance-chart-columns { display:flex; min-width:100%; width:max-content; background:repeating-linear-gradient(to top,transparent 0,transparent 59px,#e5ebf3 59px,#e5ebf3 60px); background-size:100% 240px; background-repeat:no-repeat; }
+.performance-page .performance-chart-column { display:flex; flex:0 0 44px; width:44px; min-width:44px; flex-direction:column; align-items:center; padding:0 0 8px; margin:0; border:0; border-radius:0; background:transparent; color:#43566c; }
+.performance-chart-column strong { margin-top:8px; font-size:12px; max-width:44px; overflow-wrap:anywhere; }
+.performance-chart-column small { font-size:11px; max-width:44px; overflow-wrap:anywhere; }
+.performance-chart-track { height:240px; width:100%; display:flex; align-items:flex-end; position:relative; border-bottom:1px solid #9fb1c6; }
+.performance-chart-bar { width:100%; background:#e4a34d; border-radius:0; }
+.performance-chart-column.success .performance-chart-bar { background:#568bcf; }
+.performance-chart-column:hover .performance-chart-bar,.performance-chart-column[aria-pressed="true"] .performance-chart-bar { filter:brightness(.8); }
+.performance-chart-no-data { position:absolute; bottom:4px; font-size:11px; white-space:nowrap; }
+.performance-chart-detail { margin-top:12px; padding:16px; border:1px solid #cfdef0; border-radius:8px; background:#f4f8fe; }
+
+.performance-chart-value-group { display:flex; flex-direction:column; flex:1 0 auto; margin-right:16px; border-bottom:2px solid #cddced; }
+.performance-chart-group-bars { display:flex; justify-content:center; gap:0; }
+.performance-chart-category { text-align:center; padding:10px; font-size:13px; font-weight:600; color:#25466b; background:#f0f5fc; }
+.performance-chart-value-group:nth-child(even) .performance-chart-category { background:#e5eef9; }
+
+.performance-chart-legend { display:flex; flex-wrap:wrap; gap:16px; margin:12px 0; font-size:13px; }
+.performance-chart-legend span { display:flex; align-items:center; gap:6px; }
+.performance-chart-legend i { width:12px; height:12px; border-radius:3px; }
+.performance-chart-category { max-width:360px; align-self:center; width:100%; box-sizing:border-box; }
+.performance-chart-category small { display:block; font-weight:400; font-size:11px; margin-top:6px; white-space:normal; }
+
+.performance-chart-number { display:block; width:44px; box-sizing:border-box; padding:6px 2px 0; text-align:center; font-size:11px; font-variant-numeric:tabular-nums; line-height:20px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+
+/* Keep native-option checkboxes beside their descriptions, not full-width fields. */
+.mdtest-option-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  margin-top: 14px;
+}
+.mdtest-option-card {
+  min-width: 0;
+  padding: 14px;
+  border: 1px solid #dce3ed;
+  border-radius: 8px;
+  background: #fff;
+  text-align: left;
+}
+.performance-page label.mdtest-option-toggle {
+  display: flex;
+  flex-direction: row;
+  align-items: flex-start;
+  justify-content: flex-start;
+  gap: 10px;
+  margin: 0;
+  cursor: pointer;
+  text-align: left;
+}
+.performance-page .mdtest-option-toggle input[type="checkbox"] {
+  flex: 0 0 16px;
+  width: 16px;
+  height: 16px;
+  margin: 3px 0 0;
+  padding: 0;
+}
+.mdtest-option-heading {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 5px;
+  min-width: 0;
+  overflow-wrap: anywhere;
+  line-height: 1.5;
+}
+.mdtest-option-heading code { font-weight: 600; color: #274c77; }
+.mdtest-option-default { display: block; margin: 8px 0 0 26px; }
+.mdtest-option-card > .performance-candidates,
+.mdtest-option-card > select,
+.mdtest-option-card > input { margin-top: 12px; }
+@media (max-width: 760px) {
+  .mdtest-option-grid { grid-template-columns: minmax(0, 1fr); }
+}

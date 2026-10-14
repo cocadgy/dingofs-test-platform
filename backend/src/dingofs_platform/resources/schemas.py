@@ -136,7 +136,8 @@ ACTIONS = [
         True,
         [
             FSID,
-            field("hours", "恢复最近小时数", "integer", default=24),
+            field("hours", "恢复最近小时数（最多 168）", "integer", default=24),
+            field("restore_hours_utc", "指定 UTC 小时桶（可选，逗号分隔）", default=""),
             field("put_back", "恢复到原路径", "boolean", default=True),
             field("restore_threads", "恢复线程数", "integer", default=4),
             CLIENT,
@@ -201,6 +202,7 @@ ACTIONS = [
         True,
         [
             field("group_name", "缓存组名称", required=True),
+            field("count", "每份成员配置创建数量", "integer", default=1),
             field("cache_profile_id", "缓存组配置", default=""),
             field("cache_profile_revision", "缓存组配置版本", "integer", default=0),
             field("cache_options", "缓存参数", "cache_options", default={}),
@@ -219,6 +221,7 @@ ACTIONS = [
         + [
             FS,
             field("mount_path", "挂载路径", required=True),
+            field("count", "挂载数量", "integer", default=1),
             field("subdir", "挂载子目录", default=""),
             field("cache_group", "缓存组名称", default=""),
             field("mount_profile_id", "挂载配置", default=""),
@@ -228,6 +231,8 @@ ACTIONS = [
         + RDMA,
     ),
     action("mount.unmount", "卸载文件系统", "mount", True, [RESOURCE]),
+    action("mount.delete", "删除已卸载客户端记录", "mount", True, [RESOURCE]),
+    action("mount.remount", "重新挂载文件系统", "mount", True, [RESOURCE]),
     action(
         "mount.logs",
         "客户端日志",
@@ -287,6 +292,19 @@ def _string(key, value):
         and not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.:-]{0,159}", value)
     ):
         raise ValueError(f"{key}: invalid name")
+    if key == "restore_hours_utc" and value:
+        buckets = value.split(",")
+        if not 1 <= len(buckets) <= 169 or any(
+            not re.fullmatch(r"[0-9]{4}-[0-9]{2}-[0-9]{2}-[0-9]{2}", bucket)
+            for bucket in buckets
+        ) or len(buckets) != len(set(buckets)):
+            raise ValueError("restore_hours_utc: invalid UTC hour buckets")
+        from datetime import datetime
+        try:
+            for bucket in buckets:
+                datetime.strptime(bucket, "%Y-%m-%d-%H")
+        except ValueError:
+            raise ValueError("restore_hours_utc: invalid UTC hour buckets") from None
     if key == "target_user" and not re.fullmatch(r"[a-z_][a-z0-9_-]{0,31}", value):
         raise ValueError("target_user: invalid account")
     if key in {"path", "mount_path", "cache_dir", "subdir"} and value:
@@ -373,6 +391,11 @@ def _fields(specs, parameters):
         if value is None or (f["required"] and value == ""):
             raise ValueError(f"{key}: required")
         if f["type"] == "integer":
+            if key == "count":
+                if type(value) is not int or value < 1:
+                    raise ValueError("count: 数量必须为正整数")
+                result[key] = value
+                continue
             if (
                 key == "lines"
                 and isinstance(value, str)
@@ -385,7 +408,7 @@ def _fields(specs, parameters):
                 "rdma_port": (1, 255),
                 "cache_size_mb": (1, 2**32 - 1),
                 "lines": (1, 1000),
-                "hours": (1, 876000),
+                "hours": (1, 168),
                 "restore_threads": (1, 128),
                 "depth": (0, 100),
                 "entries": (1, 10000),
@@ -405,14 +428,14 @@ def _fields(specs, parameters):
             if type(value) is not bool:
                 raise ValueError(f"{key}: requires a boolean")
         elif f["type"] == "names":
-            if not isinstance(value, list) or not 1 <= len(value) <= 100:
-                raise ValueError(f"{key}: provide between 1 and 100 names")
+            if not isinstance(value, list) or not value or (key == "fs_names" and len(value) > 100):
+                raise ValueError(f"{key}: provide a nonempty list of names" + (" (maximum 100)" if key == "fs_names" else ""))
             value = [_string("member_id" if key == "member_ids" else "fs_name", name) for name in value]
             if not all(value) or len(value) != len(set(value)):
                 raise ValueError(f"{key}: empty or duplicate name")
         elif f["type"] == "members":
-            if not isinstance(value, list) or not 1 <= len(value) <= 32:
-                raise ValueError("members: provide between 1 and 32 members")
+            if not isinstance(value, list) or not value:
+                raise ValueError("members: provide at least one member")
             value = [_fields(MEMBER_FIELDS, member) for member in value]
             ids = [v["member_id"] for v in value if v.get("member_id")]
             if len(ids) != len(set(ids)):
@@ -444,6 +467,8 @@ def validate(action_name, parameters):
         result = _fields([field("member_ids", "待停止成员", "names", required=True), field("force", "强制停止", "boolean", default=False)], parameters)
         if not result["force"]: result.pop("force")
         return result
+    if action_name in ("mount.unmount", "mount.delete") and isinstance(parameters, dict) and "resource_ids" in parameters:
+        return _fields([field("resource_ids", "客户端名单", "names", required=True)], parameters)
     specs = INDEX[action_name]["fields"]
     if action_name == "cache.delete" and isinstance(parameters, dict) and "resource_id" in parameters:
         # Existing saved operations still describe a managed group lifecycle.
@@ -460,6 +485,14 @@ def validate(action_name, parameters):
             return result
         specs = [f for f in specs if f["key"] not in PROFILE_KEYS]
     result = _fields(specs, parameters)
+    if action_name in ("cache.create", "cache.plan"):
+        from .bulk_create import validate_cache_count
+        validate_cache_count(result["members"], result.get("count", 1))
+    if action_name == "mount.create" and result.get("count", 1) > 1:
+        # Validate the longest generated pathname without expanding the batch.
+        _string("mount_path", result["mount_path"].rstrip("/") + f'-{result["count"]:03d}')
+    if result.get("count") == 1:
+        result.pop("count", None)
     if action_name == "mount.create" and bool(result.get("mount_profile_id")) != bool(result.get("mount_profile_revision")):
         raise ValueError("mount profile and revision required together")
     if action_name in ("cache.create", "cache.plan"):

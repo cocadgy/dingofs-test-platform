@@ -22,6 +22,19 @@ from dingofs_platform.storage import service as storage_profiles
 from .views import check_busy, now, operation_view, resource_view
 from . import commands
 from . import port_planning, external_cache
+from .bulk_create import expand_cache_members, mount_instances
+
+
+def machine_rdma_ports(machine):
+    """Expose the latest usable collected device/port pairs; None means unknown."""
+    latest = machine.last_attempt_info if machine.collection_status == "partial" else None
+    info = latest if isinstance(latest, dict) and "rdma" in latest else machine.hardware_info
+    if not isinstance(info, dict) or not isinstance(info.get("rdma"), list):
+        return None
+    return [dict(device=row["device"], port=row["port"], interfaces=row.get("interfaces", []))
+            for row in info["rdma"] if isinstance(row, dict)
+            and isinstance(row.get("device"), str) and row["device"]
+            and type(row.get("port")) is int and 1 <= row["port"] <= 255]
 
 
 def cluster(db, cid):
@@ -43,11 +56,12 @@ def machine(db, actor, mid):
 
 def step(db, actor, c, action, params, *, record=None, mid=None, user=None):
     m = machine(db, actor, mid or c.management_machine_id)
-    user = user or c.os_user
+    user = "root" if action == "trash.restore" else (user or c.os_user)
     return dict(
         machine_id=m.id,
         machine_revision=m.revision,
         target_user=user,
+        tool_home=c.execution_home,
         expected_home=c.execution_home
         if m.id == c.management_machine_id and user == c.os_user
         else None,
@@ -58,6 +72,22 @@ def step(db, actor, c, action, params, *, record=None, mid=None, user=None):
 
 
 def prepare(db, actor, c, action, p):
+    if action in ("mount.unmount", "mount.delete") and ("resource_ids" in p or action == "mount.delete"):
+        work = []
+        for rid in p.get("resource_ids", [p.get("resource_id")]):
+            resource = db.get(ManagedResource, rid)
+            if not resource or resource.cluster_id != c.id or resource.kind != "mount" or resource.state == "deleted":
+                raise Problem(422, "invalid_resource", "请选择当前集群的客户端")
+            if action == "mount.delete" and resource.state != "unmounted":
+                raise Problem(409, "invalid_resource_state", "只允许删除已卸载的客户端记录，请先卸载")
+            child, _ = prepare(db, actor, c, "mount.unmount", {"resource_id": rid})
+            for item in child:
+                # Delete verifies remote absence; it never unmounts a stale mounted target.
+                item["action"] = action
+                item["resource_id"] = rid
+                item["mount_batch"] = True
+                work.append(item)
+        return work, None
     if action in ("cache.leave", "cache.unlock", "cache.weight"):
         return [step(db, actor, c, action, p)], None
     if action == "cache.stop" and "member_ids" in p:
@@ -106,6 +136,16 @@ def prepare(db, actor, c, action, p):
         return [step(db, actor, c, action, p)], None
     if action == "cache.create" and "plan_id" in p:
         return port_planning.consume(db, actor, c, p["plan_id"])
+    if action == "mount.create" and p.get("count", 1) > 1:
+        work = []
+        for index, child in enumerate(mount_instances(p)):
+            child = commands.validate("mount.create", child)
+            steps, resource = prepare(db, actor, c, action, child)
+            for item in steps:
+                item["resource_id"] = resource.id
+                item["batch_index"] = index + 1
+            work.extend(steps)
+        return work, None
     resource = None
     if action in ("cache.create", "cache.plan", "mount.create"):
         rid = str(uuid4())
@@ -113,7 +153,7 @@ def prepare(db, actor, c, action, p):
         if action in ("cache.create", "cache.plan"):
             members = []
             seen = set()
-            for data in p["members"]:
+            for data in expand_cache_members(p["members"], p.get("count", 1)):
                 identity = (data["machine_id"], data["listen_port"])
                 if data.get("port_mode", "manual") == "manual" and identity in seen:
                     raise Problem(
@@ -130,6 +170,7 @@ def prepare(db, actor, c, action, p):
                     data,
                     group_name=p["group_name"],
                     member_id=member_id,
+                    process_state="not_started",
                     cache_expire_s=p.get("cache_expire_s", 259200),
                     cache_options={k:v for k,v in p.get("cache_options", {}).items() if k not in MEMBER_KEYS},
                     cache_dir=data["cache_dir"].rstrip("/") + "/" + member_id,
@@ -187,7 +228,7 @@ def prepare(db, actor, c, action, p):
                     ManagedResource.cluster_id == c.id,
                     ManagedResource.kind == "mount",
                     ManagedResource.name == name,
-                    ManagedResource.state.notin_(("deleted", "unmounted")),
+                    ManagedResource.state.notin_(("deleted", "unmounted", "not_started")),
                 )
             )
             for existing in rows:
@@ -217,6 +258,8 @@ def prepare(db, actor, c, action, p):
             or resource.state in ("deleted", "planned")
         ):
             raise Problem(422, "invalid_resource", "请选择当前集群由平台管理的资源")
+        if action == "mount.remount" and resource.state not in ("unmounted", "mounted"):
+            raise Problem(409, "invalid_resource_state", "请先确认客户端处于已挂载或已卸载状态后再重新挂载")
         rows = resource.data["members"] if kind == "cache" else [resource.data]
         return [
             step(
@@ -253,7 +296,7 @@ def create(request, cid, payload):
             "choose a dedicated data directory": "请使用专用数据子目录，不能直接使用 /tmp、/mnt 等根目录",
             "required when RDMA is enabled": "开启 RDMA 时必须填写设备名称",
             "invalid string": "文本格式或长度不符合要求",
-            "provide between 1 and 32 members": "成员数量必须为 1–32 个",
+            "provide at least one member": "请至少添加一份缓存成员配置",
             "duplicate listen endpoint": "成员的监听地址和端口不能重复",
         }
         if key in fields:
@@ -322,6 +365,7 @@ def create(request, cid, payload):
                     "cache_options": options,
                     "cache_profile_id": p.get("cache_profile_id", ""),
                     "cache_profile_revision": p.get("cache_profile_revision", 0),
+                    "count": p.get("count", 1),
                 })
             except (ValueError, TypeError, KeyError) as exc:
                 raise Problem(422, "invalid_parameters", "缓存配置应用失败，请检查成员目录、容量及 RDMA 设置：" + str(exc)) from None
@@ -335,6 +379,10 @@ def create(request, cid, payload):
         steps, resource = prepare(db, actor, c, payload.action, public)
         if resource and source and payload.action in ("cache.create", "cache.plan", "mount.create"):
             resource.data = {**resource.data, **source}
+        if source and payload.action == "mount.create" and public.get("count", 1) > 1:
+            for work in steps:
+                child = db.get(ManagedResource, work["resource_id"])
+                child.data = {**child.data, **source}
         # The public specification never includes S3/RADOS secrets.
         for work in steps:
             work["mds_addr"] = ",".join(addresses)
@@ -414,6 +462,7 @@ def inventory(request, cid):
                     address=m.address,
                     ssh_user=m.ssh_user,
                     can_manage=can_manage(actor, m),
+                    rdma=machine_rdma_ports(m),
                 )
                 for m in db.scalars(
                     select(Machine)

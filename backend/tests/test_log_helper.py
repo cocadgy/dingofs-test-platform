@@ -209,3 +209,60 @@ def test_search_rejects_invalid_keyword(tmp_path):
     with LogRoot(str(tmp_path)) as root:
         with pytest.raises(LogError):
             root.search('')
+
+
+def test_search_full_file_finds_match_after_default_prefix(tmp_path):
+    from dingofs_platform.remote.log_helper import LogRoot
+    (tmp_path / 'late.log').write_bytes(b'ordinary line\n' * 90000 + b'TARGET near end\n')
+    with LogRoot(str(tmp_path)) as root:
+        prefix = root.search('TARGET')
+        full = root.search('TARGET', scan_mode='full', max_total_mb=4)
+    assert prefix['hits'] == []
+    assert prefix['truncated'] is True
+    assert [(hit['name'], hit['text']) for hit in full['hits']] == [('late.log', 'TARGET near end')]
+    assert full['truncated'] is False
+
+
+def test_search_configurable_limits_are_enforced(tmp_path):
+    import pytest
+    from dingofs_platform.remote.log_helper import LogRoot, LogError
+    (tmp_path / 'events.log').write_text('x\n' * 100 + 'TARGET\n')
+    with LogRoot(str(tmp_path)) as root:
+        result = root.search('x', max_hits=3)
+        assert len(result['hits']) == 3
+        assert result['reason'] == 'match_limit'
+        with pytest.raises(LogError):
+            root.search('x', max_files=1001)
+
+
+def test_search_unlimited_total_bytes_and_results(tmp_path):
+    from dingofs_platform.remote.log_helper import LogRoot
+    (tmp_path / 'events.log').write_bytes((b'MATCH ' + b'x' * 1100 + b'\n') * 3000)
+    with LogRoot(str(tmp_path)) as root:
+        result = root.search('MATCH', scan_mode='full', max_total_mb=0, max_hits=0)
+    assert result['scanned_bytes'] > 1048576
+    assert len(result['hits']) > 500
+    assert result['reason'] == 'result_bytes_limit'
+
+
+def test_search_excerpt_contains_match_late_on_last_line(tmp_path):
+    from dingofs_platform.remote.log_helper import LogRoot
+    (tmp_path / 'long.log').write_text('a' * 4000 + 'TARGET')
+    with LogRoot(str(tmp_path)) as root:
+        result = root.search('TARGET')
+    assert 'TARGET' in result['hits'][0]['text']
+
+
+def test_search_progress_advances_once_per_completed_file(tmp_path):
+    from dingofs_platform.remote.log_helper import LogRoot
+    (tmp_path / 'a.log').write_text('MATCH\n')
+    (tmp_path / 'b.log').write_text('MATCH\n')
+    events = []
+    with LogRoot(str(tmp_path)) as root:
+        result = root.search('MATCH', progress=events.append)
+    counts = [(event['completed_files'], event['total_files']) for event in events]
+    assert counts[0] == (0, 2)
+    assert counts[-1] == (2, 2)
+    assert (1, 2) in counts
+    assert result['scanned_files'] == 2
+    assert (result['completed_files'], result['total_files']) == (2, 2)

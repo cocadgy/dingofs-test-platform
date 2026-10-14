@@ -1,3 +1,4 @@
+import { cacheRdmaReady } from "./cacheRdma";
 import { mountLogUrl } from "./MountLogPage";
 import {MountProfileSelection} from "../mount-profiles/MountProfileSelection";
 import { CacheMemberInventory } from "./CacheMemberInventory";
@@ -102,6 +103,8 @@ export function ResourceSectionForm({
   const chosenCacheProfile = cacheProfiles.find(
     (p) => p.id === values.cache_profile_id,
   );
+  const rdmaReady = action?.action !== "cache.create" ||
+    cacheRdmaReady((values.members as Parameters[]) || [], snapshot.machines);
   const cacheReady =
     action?.action !== "cache.create" ||
     !values.cache_profile_id ||
@@ -141,6 +144,9 @@ export function ResourceSectionForm({
     snapshot.resources,
     snapshot.cache_member_targets,
   ]);
+  const unmountSelectionReady = action?.action !== "mount.unmount" ||
+    snapshot.resources.some(resource => resource.id === values.resource_id &&
+      resource.kind === "mount" && resource.state === "mounted");
   const mountCacheGroupReady =
     action?.action !== "mount.create" ||
     !values.cache_group ||
@@ -402,6 +408,40 @@ export function ResourceSectionForm({
     void execute({...next, label: `删除未分组成员 ${batch.length} 个，跳过 ${all.length - eligible.length} 个在线或状态不允许删除的成员；保留缓存数据${eligible.length > 100 ? `；剩余 ${eligible.length - 100} 个请在本批完成后继续删除` : ""}`},
       {member_ids: batch.map(member => member.id)});
   }
+  function canStopMember(id: string) {
+    const member = cacheMembers.options.find(m => m.id === id);
+    return Boolean(member && member.stateLabel !== "离线" &&
+      (snapshot.cache_member_targets?.[id]?.can_stop ||
+       snapshot.resources.some(r => r.kind === "cache" && !["deleted", "planned"].includes(r.state) &&
+         Array.isArray(r.data.members) && r.data.members.some(m => m.member_id === id))));
+  }
+  function batchAction(key: string, ids: string[]) {
+    if (disabled || !ids.length) return;
+    setShortcutError("");
+    const force = key === "cache.force_stop";
+    const action = actions.find(a => a.action === (force ? "cache.stop" : key));
+    if (!action) return;
+    if (key.startsWith("cache.")) {
+      if (cacheMembers.pending || cacheMembers.error || !cacheMembers.operation ||
+          ids.some(id => key === "cache.delete_batch"
+            ? !cacheMembers.options.some(m => m.id === id && m.selectable)
+            : !canStopMember(id))) {
+        setShortcutError("所选成员状态不允许执行此操作，请刷新列表并调整选择。");
+        return;
+      }
+      void execute({...action, label: `${force ? "批量强制停止（kill -9）" : key === "cache.stop" ? "批量平滑停止（SIGTERM）" : "批量删除成员登记（保留数据）"}，共 ${ids.length} 个成员`},
+        {member_ids: ids, ...(force ? {force:true} : {})});
+    } else {
+      const expected = key === "mount.delete" ? "unmounted" : "mounted";
+      if (ids.some(id => !snapshot.resources.some(r => r.id === id && r.kind === "mount" && r.state === expected))) {
+        setShortcutError("所选客户端状态不允许执行此操作，请刷新状态并调整选择。");
+        return;
+      }
+      const paths = ids.map(id => snapshot.resources.find(r => r.id === id)?.name).join("、");
+      void execute({...action, label: `${key === "mount.delete" ? "删除已卸载客户端记录（保留目录、日志及文件系统）" : "批量卸载客户端"}，共 ${ids.length} 个：${paths}`},
+        {resource_ids:ids});
+    }
+  }
   function shortcut(resource: SavedResource, key: string, memberId?: string) {
     if (disabled) return;
     const force = key === "cache.force_stop";
@@ -573,6 +613,7 @@ export function ResourceSectionForm({
               <>
               <SavedResourcesTable
                 queried
+                onBatchAction={batchAction}
                 resources={cacheInventory.rows}
                 machines={snapshot.machines}
                 actions={actions}
@@ -580,7 +621,7 @@ export function ResourceSectionForm({
                 onAction={shortcut}
                 onMemberAction={shortcut}
               />
-              <CacheMemberInventory members={cacheMembers.options} resources={snapshot.resources}
+              <CacheMemberInventory onBatchAction={batchAction} canStop={canStopMember} members={cacheMembers.options} resources={snapshot.resources}
                 onManage={(member, key) => shortcut({id:`member:${member.id}`, name:member.groupName, kind:"cache", state:"unknown", created_at:"", data:{}}, key, member.id)}
                 actions={actions}
                 onDeleteUngrouped={actions.some(item => item.action === "cache.delete_batch") ? deleteUngroupedMembers : undefined}
@@ -613,7 +654,8 @@ export function ResourceSectionForm({
       )}
       {section.key === "mount" && (
         <SavedResourcesTable
-          resources={resources}
+          resources={resources.filter(r => r.state !== "deleted")}
+          onBatchAction={batchAction}
           machines={snapshot.machines}
           actions={actions}
           disabled={disabled}
@@ -657,7 +699,9 @@ export function ResourceSectionForm({
                   disabled ||
                   !storageReady ||
                   !cacheReady ||
+                  !rdmaReady ||
                   !mountCacheGroupReady ||
+                  !unmountSelectionReady ||
                   (needsFilesystem && !selectionReady) ||
                   (deletingCacheMember && !cacheSelectionReady)
                 )
@@ -985,6 +1029,9 @@ export function ResourceSectionForm({
                   }
                 />
               )}
+              {action.action === "trash.configure" && (
+                <p className="muted">已挂载客户端会保留挂载时的回收站配置。修改保留天数后，请对需要查看 .trash 的客户端执行重新挂载。</p>
+              )}
               {action.action === "mount.logs" && (
                 <p className="muted">
                   文件名留空时列出可用日志；选择文件后读取末尾 100 / 500 / 1000
@@ -1015,7 +1062,9 @@ export function ResourceSectionForm({
                       disabled ||
                       !storageReady ||
                       !cacheReady ||
-                  !mountCacheGroupReady ||
+                      !rdmaReady ||
+                      !mountCacheGroupReady ||
+                      !unmountSelectionReady ||
                       (needsFilesystem && !selectionReady) ||
                       (deletingCacheMember && !cacheSelectionReady)
                     }

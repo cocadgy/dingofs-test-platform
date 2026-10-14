@@ -186,3 +186,47 @@ def test_terminal_limit_and_release(admin):
         start(admin, c, "terminal", machine_id=m["id"], confirmed=True).status_code
         == 202
     )
+
+
+def test_machine_terminal_without_cluster_enforces_ownership_and_revision(admin):
+    from cryptography.fernet import Fernet
+    from dingofs_platform.inventory.credentials import encrypt_password
+    from dingofs_platform.remote.models import RemoteSession
+    own = machine(admin, 'standalone')
+    other = machine(admin, 'admin-only')
+    admin.app.state.settings.credential_encryption_key = Fernet.generate_key().decode()
+    with admin.app.state.session_factory.begin() as db:
+        db.get(Machine, own['id']).ssh_password_ciphertext = encrypt_password(
+            'secret', admin.app.state.settings.credential_encryption_key)
+    admin.app.state.remote_job_factory = FakeJob
+    payload = {'kind': 'terminal', 'machine_id': own['id'], 'confirmed': True}
+    assert admin.post('/api/v1/remote-sessions', json={**payload, 'confirmed': False}).status_code == 422
+    created = admin.post('/api/v1/remote-sessions', json=payload)
+    assert created.status_code == 202, created.text
+    assert created.json()['cluster_id'] is None
+    sid = created.json()['id']
+    wait(admin, sid, {'ready'})
+    with admin.app.state.session_factory() as db:
+        row = db.get(RemoteSession, sid)
+        assert row.cluster_id is None
+        assert row.target_user == 'test'
+    with admin.app.state.session_factory.begin() as db:
+        db.get(Machine, own['id']).revision += 1
+    assert admin.get('/api/v1/remote-sessions/' + sid).json()['state'] == 'closed'
+    assert FakeJob.instances[-1].closed
+    assert admin.post('/api/v1/remote-sessions', json={
+        'kind': 'files', 'service_id': 'svc1'}).status_code == 422
+
+    login = admin.post('/api/v1/auth/login', json={
+        'username': 'member', 'password': 'test-password-123'})
+    admin.headers['X-CSRF-Token'] = login.json()['csrf_token']
+    assert admin.post('/api/v1/remote-sessions', json={
+        **payload, 'machine_id': other['id']}).status_code == 403
+    member_machine = machine(admin, 'member-owned')
+    with admin.app.state.session_factory.begin() as db:
+        db.get(Machine, member_machine['id']).ssh_password_ciphertext = encrypt_password(
+            'secret', admin.app.state.settings.credential_encryption_key)
+    allowed = admin.post('/api/v1/remote-sessions', json={
+        **payload, 'machine_id': member_machine['id']})
+    assert allowed.status_code == 202, allowed.text
+    wait(admin, allowed.json()['id'], {'ready'})

@@ -13,12 +13,17 @@ class Cursor(BaseModel):
 class RemoteInput(BaseModel):
     model_config = ConfigDict(extra="forbid")
     kind: Literal["files", "search", "read", "download", "log-follow", "terminal"]
-    cluster_id: str = Field(max_length=36)
+    cluster_id: str | None = Field(default=None, max_length=36)
     service_id: str | None = Field(default=None, max_length=160)
     machine_id: str | None = Field(default=None, max_length=36)
     file_id: str | None = Field(default=None, max_length=80)
     keyword: str | None = Field(default=None, min_length=1, max_length=200)
     case_sensitive: bool = False
+    scan_mode: Literal["prefix", "full"] = "prefix"
+    per_file_mb: int = Field(default=1, ge=1, le=64)
+    max_files: int = Field(default=200, ge=1, le=1000)
+    max_total_mb: int = Field(default=16, ge=0, le=1024)
+    max_hits: int = Field(default=200, ge=0, le=500)
     lines: Literal[100, 500, 1000] = 500
     cursor: Cursor | None = None
     cols: int = Field(default=100, ge=1, le=500)
@@ -44,7 +49,7 @@ class RemoteView(BaseModel):
     ssh_port: int
     ssh_user: str
     target_user: str
-    cluster_id: str
+    cluster_id: str | None
     service_id: str | None
     log_dir: str | None
     expires_at: datetime

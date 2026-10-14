@@ -207,73 +207,175 @@ class LogRoot:
         files.sort(key=lambda item: (-item["mtime"], item["name"]))
         return {"type": "files", "files": files, "truncated": truncated}
 
-    def search(self, keyword, case_sensitive=False, progress=None):
+    def search(self, keyword, case_sensitive=False, progress=None,
+               scan_mode="prefix", per_file_mb=1, max_files=200,
+               max_total_mb=16, max_hits=200):
         if not isinstance(keyword, str) or not keyword.strip() or len(keyword) > 200 or "\x00" in keyword:
             raise LogError("invalid_keyword")
-        if type(case_sensitive) is not bool:
+        limits = ((per_file_mb, 1, 64), (max_files, 1, MAX_FILES),
+                  (max_total_mb, 0, 1024), (max_hits, 0, 500))
+        if (type(case_sensitive) is not bool or scan_mode not in ("prefix", "full")
+                or any(type(value) is not int or not low <= value <= high
+                       for value, low, high in limits)):
             raise LogError("invalid_request")
         needle = keyword if case_sensitive else keyword.casefold()
         result = {"type": "search", "hits": [], "scanned_files": 0,
                   "scanned_bytes": 0, "skipped_files": 0, "truncated": False,
                   "reason": None}
-        deadline = time.monotonic() + 20
+        deadline = time.monotonic() + 90
+        total_limit = max_total_mb * MAX_BYTES if max_total_mb else None
+
+        def truncated(reason):
+            result["truncated"] = True
+            if result["reason"] is None:
+                result["reason"] = reason
+
+        def report_progress():
+            if progress:
+                progress({"type": "search_progress", "scanned_files": result["scanned_files"],
+                          "scanned_bytes": result["scanned_bytes"], "hits": len(result["hits"]),
+                          "completed_files": completed_files, "total_files": total_files})
+
         with os.scandir(self.fd) as entries:
+            candidates = []
             for index, entry in enumerate(entries):
                 if index >= MAX_FILES:
-                    result.update(truncated=True, reason="directory_limit")
+                    truncated("directory_limit")
                     break
                 name = entry.name
                 if name.lower().endswith((".gz", ".zip", ".bz2", ".xz", ".zst")):
                     result["skipped_files"] += 1
                     continue
-                if not (re.search(r"\.log(?:[.-].+)?$", name, re.I)
+                if (re.search(r"\.log(?:[.-].+)?$", name, re.I)
                         or re.search(r"\.(?:INFO|WARNING|ERROR|FATAL)(?:\.|$)", name)
                         or name.lower() in ("stdout", "stderr", "launcher.log")):
-                    continue
-                if result["scanned_files"] >= 200 or result["scanned_bytes"] >= 16 * MAX_BYTES or time.monotonic() >= deadline:
-                    result.update(truncated=True, reason="scan_limit")
+                    candidates.append(name)
+            if len(candidates) > max_files:
+                truncated("file_count_limit")
+                candidates = candidates[:max_files]
+            total_files = len(candidates)
+            completed_files = 0
+            report_progress()
+            for name in candidates:
+                if total_limit is not None and result["scanned_bytes"] >= total_limit:
+                    truncated("total_bytes_limit")
+                    break
+                if time.monotonic() >= deadline:
+                    truncated("time_limit")
                     break
                 try:
                     fd = self.open_file(name)
                 except (LogError, OSError):
                     result["skipped_files"] += 1
+                    completed_files += 1
+                    report_progress()
                     continue
+                file_hits_start = len(result["hits"])
+                previous = deque(maxlen=2)
+                pending = []
+                partial = bytearray()
+                skipping_long_line = False
+                line_no = 0
+                binary = False
+                matched_limit = False
                 try:
                     size = os.fstat(fd).st_size
-                    remaining = 16 * MAX_BYTES - result["scanned_bytes"]
-                    count = min(size, MAX_BYTES, remaining)
-                    data = os.pread(fd, count, 0)
+                    budget = size if total_limit is None else min(size, total_limit - result["scanned_bytes"])
+                    if scan_mode == "prefix":
+                        budget = min(budget, per_file_mb * MAX_BYTES)
+                    offset = 0
+                    while offset < budget:
+                        if time.monotonic() >= deadline:
+                            truncated("time_limit")
+                            break
+                        data = os.pread(fd, min(65536, budget - offset), offset)
+                        if not data:
+                            break
+                        if b"\x00" in data:
+                            binary = True
+                            break
+                        offset += len(data)
+                        result["scanned_bytes"] += len(data)
+                        for part in data.split(b"\n")[:-1]:
+                            line_no += 1
+                            if not skipping_long_line and len(partial) + len(part) <= MAX_BYTES:
+                                raw = bytes(partial) + part
+                                line = PlainText().feed(raw, final=True).rstrip("\r")
+                                for hit in pending:
+                                    hit["after"].append(line[:250])
+                                pending = [hit for hit in pending if len(hit["after"]) < 2]
+                                searchable = line if case_sensitive else line.casefold()
+                                position = searchable.find(needle)
+                                if position >= 0:
+                                    excerpt_start = max(0, position - 500)
+                                    hit = {"name": name, "line": line_no,
+                                           "text": line[excerpt_start:excerpt_start + 1200],
+                                           "before": list(previous), "after": []}
+                                    result["hits"].append(hit)
+                                    pending.append(hit)
+                                    if max_hits and len(result["hits"]) >= max_hits:
+                                        truncated("match_limit")
+                                        matched_limit = True
+                                        break
+                                previous.append(line[:250])
+                            else:
+                                truncated("line_limit")
+                            partial.clear()
+                            skipping_long_line = False
+                        if matched_limit:
+                            break
+                        tail = data.rsplit(b"\n", 1)[-1]
+                        if not skipping_long_line:
+                            if len(partial) + len(tail) <= MAX_BYTES:
+                                partial.extend(tail)
+                            else:
+                                partial.clear()
+                                skipping_long_line = True
+                                truncated("line_limit")
+                        if result["scanned_bytes"] % (4 * MAX_BYTES) < len(data):
+                            report_progress()
+                    if not binary and not matched_limit and offset == size and partial and not skipping_long_line:
+                        line_no += 1
+                        line = PlainText().feed(bytes(partial), final=True).rstrip("\r")
+                        position = (line if case_sensitive else line.casefold()).find(needle)
+                        if position >= 0:
+                            excerpt_start = max(0, position - 500)
+                            result["hits"].append({"name": name, "line": line_no,
+                                "text": line[excerpt_start:excerpt_start + 1200],
+                                "before": list(previous), "after": []})
+                            if max_hits and len(result["hits"]) >= max_hits:
+                                truncated("match_limit")
+                    if binary:
+                        del result["hits"][file_hits_start:]
+                        result["skipped_files"] += 1
+                    else:
+                        result["scanned_files"] += 1
+                        if offset < size and not matched_limit:
+                            truncated("file_limit" if scan_mode == "prefix" and budget == per_file_mb * MAX_BYTES
+                                      else "total_bytes_limit" if budget < size else "time_limit")
                 except OSError:
+                    del result["hits"][file_hits_start:]
                     result["skipped_files"] += 1
-                    continue
                 finally:
                     os.close(fd)
-                if b"\x00" in data:
-                    result["skipped_files"] += 1
-                    continue
-                result["scanned_files"] += 1
-                result["scanned_bytes"] += len(data)
-                if progress and result["scanned_files"] % 5 == 0:
-                    progress({"type": "search_progress", "scanned_files": result["scanned_files"], "scanned_bytes": result["scanned_bytes"], "hits": len(result["hits"])})
-                if size > len(data):
-                    result.update(truncated=True, reason="file_limit")
-                lines = PlainText().feed(data, final=True).splitlines()
-                if size > len(data) and lines:
-                    lines.pop()  # Last line may be incomplete.
-                for line_no, line in enumerate(lines, 1):
-                    if time.monotonic() >= deadline:
-                        result.update(truncated=True, reason="time_limit")
-                        break
-                    if needle in (line if case_sensitive else line.casefold()):
-                        result["hits"].append({"name": name, "line": line_no,
-                            "text": line[:4000],
-                            "before": [part[:4000] for part in lines[max(0, line_no - 3):line_no - 1]],
-                            "after": [part[:4000] for part in lines[line_no:line_no + 2]]})
-                        if len(result["hits"]) >= 200:
-                            result.update(truncated=True, reason="match_limit")
-                            break
-                if result["reason"] in ("match_limit", "time_limit"):
+                if not matched_limit and result["reason"] != "time_limit":
+                    completed_files += 1
+                report_progress()
+                if matched_limit or result["reason"] == "time_limit":
                     break
+        result["completed_files"] = completed_files
+        result["total_files"] = total_files
+        if len(json.dumps(result).encode("utf8")) > 3 * MAX_BYTES:
+            low, high = 0, len(result["hits"])
+            while low < high:
+                middle = (low + high + 1) // 2
+                candidate = dict(result, hits=result["hits"][:middle])
+                if len(json.dumps(candidate).encode("utf8")) <= 3 * MAX_BYTES:
+                    low = middle
+                else:
+                    high = middle - 1
+            result["hits"] = result["hits"][:low]
+            truncated("result_bytes_limit")
         return result
 
     def _read(self, name, lines, cursor, decoder, final):
@@ -372,7 +474,10 @@ def main(parameters):
             if kind == "files":
                 emit(logs.list_files())
             elif kind == "search":
-                emit(logs.search(parameters.get("keyword"), parameters.get("case_sensitive", False), emit))
+                emit(logs.search(parameters.get("keyword"), parameters.get("case_sensitive", False), emit,
+                                 parameters.get("scan_mode", "prefix"), parameters.get("per_file_mb", 1),
+                                 parameters.get("max_files", 200), parameters.get("max_total_mb", 16),
+                                 parameters.get("max_hits", 200)))
             elif kind == "read":
                 emit(
                     logs.read(

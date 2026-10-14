@@ -1,4 +1,5 @@
 import { requestId } from "./requestId";
+import { restoreHourBuckets } from "./restoreHours";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api, ApiError } from "../../api/client";
 import {
@@ -114,8 +115,11 @@ export function useResourceWorkspace({
     options?: { autoCreateFromPlan?: boolean },
   ) {
     if (!canManage || active || executing.current || !snapshot) return;
+    const effectiveValues = action.action === "trash.restore" && !values.restore_hours_utc
+      ? { ...values, restore_hours_utc: restoreHourBuckets(Number(values.hours || 24)) }
+      : values;
     const target = Object.fromEntries(
-      Object.entries(values)
+      Object.entries(effectiveValues)
         .filter(
           ([key]) =>
             action.fields.find((field) => field.key === key)?.type !==
@@ -141,7 +145,7 @@ export function useResourceWorkspace({
         values.plan_id.length > 0
       ) &&
       !window.confirm(
-        `确认在集群「${name}」执行「${action.label}」？\n目标与参数：\n${JSON.stringify(target, null, 2)}`,
+        `确认在集群「${name}」执行「${action.label}」？\n${action.action === "trash.restore" ? "使用 root 执行；UTC 小时桶包含所选时间范围涉及的完整小时。\n" : ""}目标与参数：\n${JSON.stringify(target, null, 2)}`,
       )
     )
       return;
@@ -157,7 +161,7 @@ export function useResourceWorkspace({
           base_revision: revision,
           request_id: requestId(),
           action: action.action,
-          parameters: values,
+          parameters: effectiveValues,
           confirmed: action.mutating,
         },
       );
@@ -184,7 +188,7 @@ export function useResourceWorkspace({
       !operation ||
       !(
         (operation.action === "cache.create" &&
-          operation.state === "succeeded") ||
+          ["succeeded", "failed", "cancelled", "interrupted"].includes(operation.state)) ||
         (["cache.stop", "cache.delete", "cache.delete_batch", "cache.leave", "cache.unlock", "cache.weight"].includes(
           operation.action,
         ) &&

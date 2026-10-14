@@ -143,6 +143,109 @@ def traced_popen(argv, **kwargs):
     return process
 
 
+
+def prepare_mds_command(req, argv):
+    """Resolve the target user's MDS CLI and one reachable cluster endpoint.
+
+    Do not retry mutations after launch: their outcome could be unknown.
+    """
+    program = argv[0]
+    if program == "dingo-mds-client":
+        homes = [Path.home()]
+        if req.get("tool_home"):
+            homes.append(Path(req["tool_home"]))
+        candidates = [shutil.which(program)]
+        for home in homes:
+            candidates.extend(home / ".dingo/components/dingo-mds-client" / version / program
+                              for version in ("main", "latest"))
+    else:
+        candidates = [program]
+    binary = next((str(candidate) for candidate in candidates if candidate
+                   and os.path.isfile(candidate) and os.access(candidate, os.X_OK)), None)
+    if not binary:
+        raise ValueError("找不到可执行的 dingo-mds-client；请配置 MDS 客户端路径")
+    addresses = req["mds_addr"].split(",")
+    selected = None
+    for address in addresses:
+        try:
+            host, port_text = address.rsplit(":", 1)
+            if not host or not port_text.isdecimal():
+                continue
+            with socket.create_connection((host, int(port_text)), timeout=2):
+                selected = address
+                break
+        except (OSError, ValueError):
+            continue
+    if selected is None:
+        raise ValueError("MDS 地址均无法连接；未执行命令")
+    return [binary] + ["--mds_addr=" + selected if arg.startswith("--mds_addr=") else arg
+                       for arg in argv[1:]]
+
+
+def run_mds_command(req, argv):
+    """Resolve directory paths against MDS endpoints without replaying mutations."""
+    action = req["action"]
+    if action not in ("dirstat.info", "dirstat.summary", "dirstat.sync"):
+        return run_command(prepare_mds_command(req, argv), require_json="--format" in argv)
+
+    candidates = []
+    for address in req["mds_addr"].split(","):
+        try:
+            candidates.append(prepare_mds_command({**req, "mds_addr": address}, argv))
+        except ValueError as exc:
+            if "MDS 地址均无法连接" not in str(exc):
+                raise
+    if not candidates:
+        raise ValueError("MDS 地址均无法连接；未执行命令")
+
+    last_error = None
+    if action == "dirstat.sync":
+        # The CLI's initial path Lookup uses only --mds_addr. Probe it with a
+        # read before running the mutation once on a working endpoint.
+        def probe_argv(command):
+            return ["--cmd=info" if part == "--cmd=syncdirstat" else part
+                    for part in command if part not in ("--recursive", "--repair")]
+        for command in candidates:
+            try:
+                probe = run_command(probe_argv(command))
+            except CommandFailure as exc:
+                last_error = str(exc)
+                continue
+            if probe.get("stdout", "").strip():
+                result = run_command(command)
+                if not result.get("stdout", "").strip():
+                    raise CommandFailure("目录统计同步未返回结果；请检查 MDS 客户端日志")
+                return result
+    else:
+        for command in candidates:
+            try:
+                result = run_command(command)
+            except CommandFailure as exc:
+                last_error = str(exc)
+                continue
+            if result.get("stdout", "").strip():
+                return result
+    detail = "；最后错误：" + last_error[-4096:] if last_error else "；请检查路径及 MDS 客户端日志"
+    raise CommandFailure("目录路径在所有可连接的 MDS 上均未返回统计结果" + detail)
+
+
+def verify_mds_change(req, data):
+    action = req["action"]
+    if action not in ("trash.configure", "dirstat.enable"):
+        return data
+    fs_name = req["parameters"]["fs_name"]
+    expected_key = "trash_days" if action == "trash.configure" else "enable_dir_stats"
+    expected = req["parameters"]["trash_days"] if action == "trash.configure" else req["parameters"]["enable"]
+    argv = ["dingo", "fs", "query", "--fsname", fs_name, "--mdsaddr", req["mds_addr"], "--format", "json"]
+    for attempt in range(3):
+        query = run_command(argv, require_json=True)
+        info = query.get("result", {}).get("fs_info", {})
+        if info.get(expected_key) == expected:
+            return {**data, "verified": True, "effective_value": info[expected_key]}
+        if attempt < 2:
+            time.sleep(1)
+    raise ValueError("命令已执行，但复查文件系统配置未得到预期值；请刷新查询确认")
+
 def run_command(argv, timeout=45, require_json=False, *, max_stdout=MAX_OUTPUT):
     result = traced_popen(
         argv,
@@ -227,8 +330,8 @@ def run_command(argv, timeout=45, require_json=False, *, max_stdout=MAX_OUTPUT):
             except json.JSONDecodeError:
                 continue
         if data is None:
-            if re.search(r"(?im)^\s*(?:error|fatal|failed|fail to)\b", text):
-                raise ValueError("command reported failure: " + text[-4096:])
+            if re.search(r"(?im)^\s*(?:(?:error|fatal|failed|fail to|only root can restore)\b|[✗×])", text + "\n" + error_text):
+                raise CommandFailure("command reported failure: " + (text + "\n" + error_text)[-4096:])
             return {"stdout": text, "stderr": error_text, "returncode": 0}
     try:
         return check_json(data)
@@ -430,12 +533,18 @@ def process_flags(argv):
     return result
 
 
-def find_process(req):
+class MultipleResourceProcesses(ValueError):
+    """Process ownership is ambiguous, including during daemon startup."""
+
+
+def find_process(req, *, exclude_pid=None):
     record = req["record"]
     cache = req["action"].startswith("cache.")
     matches = []
     for entry in os.scandir("/proc"):
         if not entry.name.isdigit():
+            continue
+        if exclude_pid is not None and int(entry.name) == exclude_pid:
             continue
         process = process_identity(int(entry.name))
         if not process or os.path.basename(process["exe"]) != (
@@ -455,7 +564,7 @@ def find_process(req):
         if match:
             matches.append(process)
     if len(matches) > 1:
-        raise ValueError("multiple processes match this resource")
+        raise MultipleResourceProcesses("multiple processes match this resource")
     return matches[0] if matches else None
 
 
@@ -1022,16 +1131,47 @@ def wait_members_offline(req):
     raise ValueError("等待成员离线超时（180 秒），请刷新核实，未确认离线：" + ", ".join(remaining))
 
 
+def hot_remount(req, store, state, old_process):
+    """Relaunch the same mount without unmounting; DingoFS hands off its FUSE fd."""
+    record = req["record"]
+    if not same_process(old_process, process_identity(old_process["pid"])):
+        raise ValueError("recorded client process changed before hot update")
+    original_mount = require_owned_mount(state, record["mount_path"])
+    if not original_mount:
+        raise ValueError("client is no longer mounted; refresh its status")
+    port = state.get("vfs_dummy_server_port")
+    if type(port) is not int or not 1 <= port <= 65535:
+        raise ValueError("actual client port is unknown; refresh its status before hot update")
+    record["mount_options"] = {**record.get("mount_options", {}),
+                               "vfs_dummy_server_port": str(port)}
+    launched = _launch(req, mount_argv(req))
+    deadline = time.monotonic() + 45
+    while time.monotonic() < deadline:
+        # During handoff both processes can briefly exist. Ignore only the
+        # verified old PID; any second new candidate remains an error.
+        successor = find_process(req, exclude_pid=old_process["pid"])
+        if successor and require_owned_mount(state, record["mount_path"]):
+            state.update(process=successor, state="mounted")
+            store.save(state)
+            return "mounted", {"mount_path": record["mount_path"],
+                               "vfs_dummy_server_port": port, "hot_updated": True}
+        if launched.poll() not in (None, 0):
+            raise ValueError("client hot update launcher failed; inspect launcher.log")
+        time.sleep(0.5)
+    raise ValueError("client hot update did not complete; original ownership retained")
+
+
 def lifecycle(req):
     action, r = req["action"], req["record"]
     identity = req["resource_id"] + ":" + r.get("member_id", "mount")
     if action == "mount.logs":
         return "ready", read_logs(req)
-    creating = action in ("cache.create", "mount.create")
+    creating = action in ("cache.create", "mount.create", "mount.remount")
+    mount_start = action in ("mount.create", "mount.remount")
     if action in ("cache.stop", "cache.delete"):
         check_group_available(req)
     try:
-        owned_state = OwnedState(r["state_dir"], identity, create=creating)
+        owned_state = OwnedState(r["state_dir"], identity, create=action in ("cache.create", "mount.create"))
     except FileNotFoundError:
         if action in ("cache.stop", "cache.delete"):
             if find_process(req) is None and _membership(req) is None:
@@ -1049,6 +1189,18 @@ def lifecycle(req):
             r["listen_port"] = state["listen_port"]
         process = state.get("process")
         current = process_identity(process["pid"]) if process else None
+        if action == "mount.remount":
+            if require_owned_mount(state, r["mount_path"]):
+                if not same_process(process, current):
+                    raise ValueError("cannot verify the process owning this mount")
+                return hot_remount(req, store, state, process)
+            if current and same_process(process, current):
+                raise ValueError("previous client process is still running; retry after it exits")
+            # The prior process may have exited and its PID may have been reused.
+            # Keep the owner identity and logs, then begin a fresh launch.
+            state = {"state": "unmounted"}
+            store.save(state)
+            current = None
         if current and not same_process(process, current):
             raise ValueError("recorded process identity changed")
         if action == "mount.status":
@@ -1059,14 +1211,16 @@ def lifecycle(req):
                 else "unmounted"
                 if not active
                 else "unknown",
-                {"mounted": active, "process_running": bool(current)},
+                {"mounted": active, "process_running": bool(current),
+                 "vfs_dummy_server_port": state.get("vfs_dummy_server_port")},
             )
         if creating:
             if current:
-                if action == "mount.create" and require_owned_mount(
+                if mount_start and require_owned_mount(
                     state, r["mount_path"]
                 ):
-                    return "mounted", {"already_running": True}
+                    return "mounted", {"already_running": True,
+                                       "vfs_dummy_server_port": state.get("vfs_dummy_server_port")}
                 if action == "cache.create":
                     member = _membership(req)
                     if (
@@ -1087,7 +1241,7 @@ def lifecycle(req):
                     r["listen_port"] = select_cache_port(req)
                     state["listen_port"] = r["listen_port"]
                     store.save(state)
-                if action == "mount.create" and not state.get("launch_started"):
+                if mount_start and not state.get("launch_started"):
                     port = select_mount_port(req)
                     r["mount_options"] = {**r.get("mount_options", {}),
                                           "vfs_dummy_server_port": str(port)}
@@ -1112,17 +1266,26 @@ def lifecycle(req):
             else:
                 launched = None
             deadline = time.monotonic() + 45
+            ambiguous = None
             while time.monotonic() < deadline:
-                process = recovered or find_process(req)
+                try:
+                    process = recovered or find_process(req)
+                    ambiguous = None
+                except MultipleResourceProcesses as exc:
+                    # Daemon parent and child can briefly share the same argv.
+                    # Never pick either arbitrarily or relaunch; wait for one owner.
+                    process = None
+                    ambiguous = exc
                 recovered = None
                 if process:
                     state.update(process=process)
                     store.save(state)
-                    if action == "mount.create" and mounted(r["mount_path"]):
+                    if mount_start and mounted(r["mount_path"]):
                         state["state"] = "mounted"
                         state["mount"] = mount_identity(r["mount_path"])
                         store.save(state)
-                        return "mounted", {"mount_path": r["mount_path"]}
+                        return "mounted", {"mount_path": r["mount_path"],
+                                           "vfs_dummy_server_port": state.get("vfs_dummy_server_port")}
                     if action == "cache.create":
                         member = _membership(req)
                         if (
@@ -1139,9 +1302,15 @@ def lifecycle(req):
                     store.save(state)
                     raise ValueError("resource launcher failed; inspect launcher.log")
                 time.sleep(0.5)
+            if ambiguous:
+                raise ambiguous
             raise ValueError(
                 "resource did not become ready; recorded state retained for retry"
             )
+        if action == "mount.delete":
+            if mounted(r["mount_path"]) or current:
+                raise ValueError("client is still mounted or running; cannot delete its record")
+            return "deleted", {"mount_path": r["mount_path"], "data_preserved": True}
         if action == "mount.unmount":
             if not require_owned_mount(state, r["mount_path"]):
                 state["state"] = "unmounted"
@@ -1250,6 +1419,8 @@ def main(req):
         if req.get("commands"):
             options = {"max_stdout": FS_LIST_MAX_OUTPUT} if req["action"] == "fs.list" else {}
             values = [
+                run_mds_command(req, argv) if req["action"].startswith(("trash.", "dirstat."))
+                and req["action"] != "trash.get" else
                 run_command(argv, require_json="--format" in argv, **options)
                 for argv in req["commands"]
             ]
@@ -1258,6 +1429,7 @@ def main(req):
                 if req["action"] == "cache.list"
                 else values[0]
             )
+            data = verify_mds_change(req, data)
             state = "succeeded"
         elif req["action"] in ("cache.leave", "cache.unlock", "cache.weight"):
             state, data = manage_member(req)

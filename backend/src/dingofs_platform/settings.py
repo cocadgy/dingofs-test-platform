@@ -26,6 +26,10 @@ class Settings(BaseSettings):
     remote_terminal_limit: int = Field(default=2, ge=1, le=8)
     remote_follow_limit: int = Field(default=4, ge=1, le=16)
     session_hours: int = Field(default=12, ge=1, le=168)
+    tool_bundle_root: str = "/app/tool-bundles"
+    tool_deploy_timeout: int = Field(default=1800, ge=30, le=7200)
+    dashboard_monitor_enabled: bool = False
+    performance_worker_enabled: bool = False
 
     @field_validator("database_url")
     @classmethod
