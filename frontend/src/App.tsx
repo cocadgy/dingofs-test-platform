@@ -235,7 +235,11 @@ export function App() {
                     window.location.hash = "#/" + key;
                   return;
                 }
-                if (!dirty || confirm("有未保存修改，确定离开？")) {
+                if (
+                  kind === "start"
+                    ? confirm(dirty ? "有未保存修改，确定离开引导流程？" : "确定离开当前引导流程？")
+                    : !dirty || confirm("有未保存修改，确定离开？")
+                ) {
                   setDirty(false);
                   window.history.replaceState(
                     null,
