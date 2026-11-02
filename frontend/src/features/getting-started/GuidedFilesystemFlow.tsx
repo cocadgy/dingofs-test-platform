@@ -5,18 +5,19 @@ import type { StorageProfile } from "../storage/types";
 import { ResourceOperationView } from "../resources/ResourceOperationView";
 import { requestId } from "../resources/requestId";
 import { GuidedStoragePicker } from "./GuidedStoragePicker";
+import { formatFilesystemName, type FilesystemSuffix } from "./filesystemName";
 import type { ResourceOperation, ResourceSnapshot } from "../resources/types";
 
 type Step = "cluster" | "details" | "confirm" | "result";
 const draftKey = "guided-filesystem-draft";
-type Draft = { clusterId: string; fsName: string; storageId: string; partition: "hash" | "monolithic" };
+type Draft = { clusterId: string; fsName: string; suffix: FilesystemSuffix; storageId: string; partition: "hash" | "monolithic" };
 function readDraft(): Draft {
   try {
     const saved = JSON.parse(sessionStorage.getItem(draftKey) || "null") as Partial<Draft> | null;
     if (saved && typeof saved.clusterId === "string" && typeof saved.fsName === "string" && typeof saved.storageId === "string")
-      return { clusterId: saved.clusterId, fsName: saved.fsName, storageId: saved.storageId, partition: saved.partition === "monolithic" ? "monolithic" : "hash" };
+      return { clusterId: saved.clusterId, fsName: saved.fsName, suffix: ["date", "seconds", "milliseconds"].includes(saved.suffix || "") ? saved.suffix as FilesystemSuffix : "none", storageId: saved.storageId, partition: saved.partition === "monolithic" ? "monolithic" : "hash" };
   } catch { /* Ignore an invalid previous draft. */ }
-  return { clusterId: "", fsName: "", storageId: "", partition: "hash" };
+  return { clusterId: "", fsName: "", suffix: "none", storageId: "", partition: "hash" };
 }
 export function GuidedFilesystemFlow({ admin, userId, onNavigate, onDirty }: {
   admin: boolean;
@@ -27,6 +28,7 @@ export function GuidedFilesystemFlow({ admin, userId, onNavigate, onDirty }: {
   const [draft, setDraft] = useState<Draft>(readDraft);
   const [step, setStep] = useState<Step>(() => sessionStorage.getItem("guided-filesystem-storage-return") === "1" && readDraft().clusterId ? "details" : "cluster");
   const [clusters, setClusters] = useState<ClusterRow[]>([]);
+  const [confirmedName, setConfirmedName] = useState("");
   const [profiles, setProfiles] = useState<StorageProfile[]>([]);
   const [snapshot, setSnapshot] = useState<ResourceSnapshot>();
   const [loading, setLoading] = useState(true);
@@ -87,7 +89,7 @@ export function GuidedFilesystemFlow({ admin, userId, onNavigate, onDirty }: {
         base_revision: cluster.revision,
         request_id: requestId(),
         action: "fs.create",
-        parameters: { fs_name: draft.fsName.trim(), partition_type: draft.partition, storage_profile_id: profile.id, storage_profile_revision: profile.revision },
+        parameters: { fs_name: confirmedName, partition_type: draft.partition, storage_profile_id: profile.id, storage_profile_revision: profile.revision },
         confirmed: true,
       });
       if (!live.current) return;
@@ -120,16 +122,17 @@ export function GuidedFilesystemFlow({ admin, userId, onNavigate, onDirty }: {
     {step === "details" && <>
       <h2>填写文件系统信息</h2>
       <label>文件系统名称<input required value={draft.fsName} onChange={(event) => update({ fsName: event.target.value })} /></label>
+      <label>时间后缀<select value={draft.suffix} onChange={(event) => update({ suffix: event.target.value as FilesystemSuffix })}><option value="none">不添加（默认）</option><option value="date">日期 YYYYMMDD</option><option value="seconds">日期时间 YYYYMMDD-HHmmss</option><option value="milliseconds">日期时间＋毫秒 YYYYMMDD-HHmmss-SSS</option></select></label>
       <GuidedStoragePicker profiles={availableProfiles} value={draft.storageId} onChange={(storageId) => update({ storageId })} onAddStorage={() => onNavigate("#/start/filesystem/storage")} />
       {profile && <p className="muted">{profile.storage_type.toUpperCase()} · {profile.storage_type === "s3" ? `${profile.parameters.s3_endpoint || "—"} / ${profile.parameters.s3_bucketname || "—"}` : `${profile.parameters.rados_mon || "—"} / ${profile.parameters.rados_poolname || "—"}`} · 访问凭据已配置</p>}
       {!availableProfiles.length && <p>没有已启用且凭据齐全的存储配置。</p>}
       <details><summary>高级选项</summary><label>分区类型<select value={draft.partition} onChange={(event) => update({ partition: event.target.value as Draft["partition"] })}><option value="hash">hash（默认）</option><option value="monolithic">monolithic</option></select></label></details>
       <div className="getting-started-actions"><button type="button" onClick={() => setStep("cluster")}>上一步</button>
-        <button className="primary" type="button" disabled={!ready} onClick={() => setStep("confirm")}>下一步</button></div>
+        <button className="primary" type="button" disabled={!ready} onClick={() => { setConfirmedName(formatFilesystemName(draft.fsName, draft.suffix, new Date())); setStep("confirm"); }}>下一步</button></div>
     </>}
     {step === "confirm" && <>
       <h2>确认创建信息</h2>
-      <dl className="getting-started-summary"><div><dt>目标集群</dt><dd>{cluster?.external_name}</dd></div><div><dt>文件系统名称</dt><dd>{draft.fsName.trim()}</dd></div><div><dt>存储配置</dt><dd>{profile?.name}</dd></div><div><dt>分区类型</dt><dd>{draft.partition}</dd></div></dl>
+      <dl className="getting-started-summary"><div><dt>目标集群</dt><dd>{cluster?.external_name}</dd></div><div><dt>文件系统名称</dt><dd>{confirmedName}</dd></div><div><dt>存储配置</dt><dd>{profile?.name}</dd></div><div><dt>分区类型</dt><dd>{draft.partition}</dd></div></dl>
       <div className="getting-started-actions"><button type="button" disabled={busy} onClick={() => setStep("details")}>返回修改</button><button className="primary" type="button" disabled={!ready || !snapshot?.catalog.some((item) => item.action === "fs.create") || busy || uncertain} onClick={() => void create()}>{busy ? "提交中…" : "确认创建"}</button></div>
       {uncertain && <button type="button" onClick={() => onNavigate(`#/clusters/${encodeURIComponent(draft.clusterId)}/resources`)}>前往资源管理核实</button>}
     </>}

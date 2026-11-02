@@ -175,10 +175,11 @@ test("storage dropdown supports keyboard preview, selection and dismissal", asyn
 
 test("returning from storage creation restores the filesystem draft and selected profile", async () => {
   mockApi();
-  sessionStorage.setItem("guided-filesystem-draft", JSON.stringify({ clusterId: "cluster-1", fsName: "training-fs", storageId: "storage-1", partition: "hash" }));
+  sessionStorage.setItem("guided-filesystem-draft", JSON.stringify({ clusterId: "cluster-1", fsName: "training-fs", suffix: "milliseconds", storageId: "storage-1", partition: "hash" }));
   sessionStorage.setItem("guided-filesystem-storage-return", "1");
   render(<GuidedFilesystemFlow admin userId="user-1" onNavigate={vi.fn()} onDirty={vi.fn()} />);
   expect(await screen.findByLabelText("文件系统名称")).toHaveValue("training-fs");
+  expect(screen.getByLabelText("时间后缀")).toHaveValue("milliseconds");
   expect(screen.getByRole("combobox", { name: "存储配置" })).toHaveTextContent("s3-prod");
   expect(sessionStorage.getItem("guided-filesystem-storage-return")).toBeNull();
 });
@@ -186,4 +187,47 @@ test("returning from storage creation restores the filesystem draft and selected
 test("guided storage page uses the available desktop width", () => {
   const css = readFileSync("src/features/getting-started/getting-started.css", "utf8");
   expect(css).toMatch(/\.getting-started:has\(\.storage-profiles-page\)\s*\{[^}]*max-width:\s*1280px/);
+});
+
+test("timestamp suffix is frozen on confirmation and reused for submission", async () => {
+  mockApi();
+  render(<GuidedFilesystemFlow admin userId="user-1" onNavigate={vi.fn()} onDirty={vi.fn()} />);
+  fireEvent.change(await screen.findByLabelText("目标集群"), { target: { value: "cluster-1" } });
+  await waitFor(() => expect(screen.getByRole("button", { name: "下一步" })).toBeEnabled());
+  fireEvent.click(screen.getByRole("button", { name: "下一步" }));
+  fireEvent.change(screen.getByLabelText("文件系统名称"), { target: { value: "training" } });
+  fireEvent.change(screen.getByLabelText("时间后缀"), { target: { value: "seconds" } });
+  fireEvent.click(screen.getByRole("combobox", { name: "存储配置" }));
+  fireEvent.click(screen.getByRole("option", { name: "s3-prod · S3" }));
+  vi.useFakeTimers();
+  vi.setSystemTime(new Date(2026, 10, 2, 18, 15, 30, 123));
+  fireEvent.click(screen.getByRole("button", { name: "下一步" }));
+  expect(screen.getByText("training-20261102-181530")).toBeInTheDocument();
+  vi.setSystemTime(new Date(2026, 10, 2, 18, 16, 45, 987));
+  fireEvent.click(screen.getByRole("button", { name: "确认创建" }));
+  vi.useRealTimers();
+  await waitFor(() => expect(api).toHaveBeenCalledWith("/clusters/cluster-1/resource-operations", "POST", expect.objectContaining({
+    parameters: expect.objectContaining({ fs_name: "training-20261102-181530" }),
+  })));
+
+});
+test("returning from confirmation regenerates the timestamp", async () => {
+  mockApi();
+  render(<GuidedFilesystemFlow admin userId="user-1" onNavigate={vi.fn()} onDirty={vi.fn()} />);
+  fireEvent.change(await screen.findByLabelText("目标集群"), { target: { value: "cluster-1" } });
+  await waitFor(() => expect(screen.getByRole("button", { name: "下一步" })).toBeEnabled());
+  fireEvent.click(screen.getByRole("button", { name: "下一步" }));
+  fireEvent.change(screen.getByLabelText("文件系统名称"), { target: { value: "training" } });
+  fireEvent.change(screen.getByLabelText("时间后缀"), { target: { value: "date" } });
+  fireEvent.click(screen.getByRole("combobox", { name: "存储配置" }));
+  fireEvent.click(screen.getByRole("option", { name: "s3-prod · S3" }));
+  vi.useFakeTimers();
+  vi.setSystemTime(new Date(2026, 10, 2, 18, 15, 30));
+  fireEvent.click(screen.getByRole("button", { name: "下一步" }));
+  expect(screen.getByText("training-20261102")).toBeInTheDocument();
+  fireEvent.click(screen.getByRole("button", { name: "返回修改" }));
+  vi.setSystemTime(new Date(2026, 10, 3, 8, 0, 0));
+  fireEvent.click(screen.getByRole("button", { name: "下一步" }));
+  vi.useRealTimers();
+  expect(screen.getByText("training-20261103")).toBeInTheDocument();
 });
