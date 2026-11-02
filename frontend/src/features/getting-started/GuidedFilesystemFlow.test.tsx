@@ -1,3 +1,5 @@
+// @ts-expect-error Node types are not part of the browser build.
+import { readFileSync } from "node:fs";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, expect, test, vi } from "vitest";
 import { api } from "../../api/client";
@@ -104,4 +106,10 @@ test("cluster options identify the management machine and operating-system user"
   mockApi();
   render(<GuidedFilesystemFlow admin userId="user-1" onNavigate={vi.fn()} onDirty={vi.fn()} />);
   expect(await screen.findByRole("option", { name: "prod · node-1 (10.0.0.1) · dingofs" })).toHaveValue("cluster-1");
+});
+
+
+test("advanced-options panel has horizontal breathing room", () => {
+  const css = readFileSync("src/features/getting-started/getting-started.css", "utf8");
+  expect(css).toMatch(/\.guided-filesystem-flow details\s*\{[^}]*padding:\s*16px/);
 });
