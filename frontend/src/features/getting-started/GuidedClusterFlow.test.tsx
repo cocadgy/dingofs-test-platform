@@ -3,6 +3,7 @@ import { afterEach, expect, test, vi } from "vitest";
 import { api } from "../../api/client";
 import { DiscoverClusters } from "../clusters/DiscoverClusters";
 import { GuidedMachineForm } from "./GuidedMachineForm";
+import { GettingStartedPage } from "./GettingStartedPage";
 
 vi.mock("../../api/client", async (original) => ({ ...await original<typeof import("../../api/client")>(), api: vi.fn() }));
 afterEach(() => { cleanup(); vi.mocked(api).mockReset(); });
@@ -50,4 +51,25 @@ test("guided discovery confirms selected existing cluster before import", async 
   expect(vi.mocked(api).mock.calls.some((call) => call[0] === "/cluster-discoveries/discovery-1/import")).toBe(false);
   fireEvent.click(screen.getByRole("button", { name: "确认添加" }));
   await waitFor(() => expect(onImported).toHaveBeenCalledWith(["cluster-1"]));
+});
+
+
+test("cluster onboarding finishes with a view-cluster button", async () => {
+  const onNavigate = vi.fn();
+  vi.mocked(api).mockImplementation(async (path, method) => {
+    if (path.startsWith("/machines?")) return { items: [{ id: "machine-1", name: "node-1", address: "10.0.0.1", ssh_user: "jenkins", revision: 1, archived: false }], total: 1 };
+    if (path === "/cluster-discoveries" && method === "POST") return { id: "discovery-1", state: "succeeded", result: { names: ["prod-dingo"], registered_names: [] } };
+    if (path === "/cluster-discoveries/discovery-1/import" && method === "POST") return { created: [{ id: "cluster-1", name: "prod-dingo" }], existing: [], needs_confirmation: [] };
+    return {};
+  });
+  render(<GettingStartedPage route="cluster" onNavigate={onNavigate} onDirty={vi.fn()} admin />);
+  await screen.findByRole("option", { name: /node-1/ });
+  fireEvent.change(screen.getByLabelText("执行机器"), { target: { value: "machine-1" } });
+  fireEvent.click(screen.getByRole("button", { name: "查询集群" }));
+  fireEvent.click(await screen.findByRole("checkbox", { name: "prod-dingo" }));
+  fireEvent.click(screen.getByRole("button", { name: "下一步" }));
+  fireEvent.click(screen.getByRole("button", { name: "确认添加" }));
+  const button = await screen.findByRole("button", { name: "查看集群" });
+  fireEvent.click(button);
+  expect(onNavigate).toHaveBeenCalledWith("#/clusters/cluster-1");
 });
