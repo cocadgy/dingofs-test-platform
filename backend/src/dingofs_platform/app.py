@@ -21,6 +21,7 @@ from .auth.routes import router as auth
 from .auth.users import router as users
 from .configuration.routes import router as configs
 from .inventory.hardware_routes import router as hardware
+from .inventory.guided_routes import router as guided_start
 from .inventory.overview import router as overview
 from .inventory.routes import router as inventory
 from .clusters.routes import router as clusters
@@ -114,6 +115,7 @@ def create_app(settings=None):
     app.include_router(configs)
     app.include_router(users)
     app.include_router(hardware)
+    app.include_router(guided_start)
     app.include_router(overview)
     app.include_router(dashboard)
     app.include_router(clusters)
