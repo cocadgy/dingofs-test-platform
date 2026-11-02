@@ -267,3 +267,19 @@ it("allows retry after load failure and protects a dirty form on cancel", async 
   fireEvent.click(screen.getByRole("button", { name: "取消" }));
   expect(screen.queryByLabelText("配置名称")).toBeNull();
 });
+
+it("returns the new profile to guided filesystem creation only after save", async () => {
+  vi.stubGlobal("fetch", vi.fn(async (_url: RequestInfo | URL, init?: RequestInit) => json(init?.method === "POST" ? profile : [])));
+  const onCreated = vi.fn();
+  render(<StorageProfilesPage onDirty={vi.fn()} onCreated={onCreated} />);
+  expect(screen.queryByRole("button", { name: "继续创建文件系统" })).not.toBeInTheDocument();
+  fireEvent.click(screen.getByRole("button", { name: "新建存储配置" }));
+  change("配置名称", "测试 S3");
+  change("Endpoint", "https://s3.example.test");
+  change("Bucket", "test-data");
+  change("Access Key", "example-ak");
+  change("Secret Key", "example-sk");
+  fireEvent.click(screen.getByRole("button", { name: "创建配置" }));
+  fireEvent.click(await screen.findByRole("button", { name: "继续创建文件系统" }));
+  expect(onCreated).toHaveBeenCalledWith("storage-1");
+});

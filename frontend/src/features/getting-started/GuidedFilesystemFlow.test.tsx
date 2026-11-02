@@ -52,7 +52,7 @@ test("missing usable storage profile directs user to configuration without submi
   fireEvent.click(screen.getByRole("button", { name: "下一步" }));
   expect(screen.getByRole("button", { name: "下一步" })).toBeDisabled();
   fireEvent.click(screen.getByRole("button", { name: "添加存储配置" }));
-  expect(onNavigate).toHaveBeenCalledWith("#/storage");
+  expect(onNavigate).toHaveBeenCalledWith("#/start/filesystem/storage");
   expect(vi.mocked(api).mock.calls.some(([path]) => path.endsWith("/resource-operations"))).toBe(false);
 });
 
@@ -147,7 +147,7 @@ test("storage details appear only for the hovered item after opening the dropdow
   expect(picker).toHaveTextContent("ceph-prod · RADOS");
   expect(screen.queryByRole("listbox")).not.toBeInTheDocument();
   fireEvent.click(screen.getByRole("button", { name: "添加存储配置" }));
-  expect(onNavigate).toHaveBeenCalledWith("#/storage");
+  expect(onNavigate).toHaveBeenCalledWith("#/start/filesystem/storage");
 });
 
 
@@ -171,4 +171,14 @@ test("storage dropdown supports keyboard preview, selection and dismissal", asyn
   fireEvent.click(picker);
   fireEvent.pointerDown(document.body);
   expect(screen.queryByRole("listbox")).not.toBeInTheDocument();
+});
+
+test("returning from storage creation restores the filesystem draft and selected profile", async () => {
+  mockApi();
+  sessionStorage.setItem("guided-filesystem-draft", JSON.stringify({ clusterId: "cluster-1", fsName: "training-fs", storageId: "storage-1", partition: "hash" }));
+  sessionStorage.setItem("guided-filesystem-storage-return", "1");
+  render(<GuidedFilesystemFlow admin userId="user-1" onNavigate={vi.fn()} onDirty={vi.fn()} />);
+  expect(await screen.findByLabelText("文件系统名称")).toHaveValue("training-fs");
+  expect(screen.getByRole("combobox", { name: "存储配置" })).toHaveTextContent("s3-prod");
+  expect(sessionStorage.getItem("guided-filesystem-storage-return")).toBeNull();
 });

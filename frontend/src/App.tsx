@@ -295,7 +295,7 @@ export function App() {
         >
           {kind === "start" && user.email ? (
             <GettingStartedPage
-              route={hash === "#/start/filesystem" ? "filesystem" : hash === "#/start/cluster/machine" ? "cluster-machine" : hash === "#/start/cluster" ? "cluster" : hash === "#/start/machine" ? "machine" : "chooser"}
+              route={hash === "#/start/filesystem/storage" ? "filesystem-storage" : hash === "#/start/filesystem" ? "filesystem" : hash === "#/start/cluster/machine" ? "cluster-machine" : hash === "#/start/cluster" ? "cluster" : hash === "#/start/machine" ? "machine" : "chooser"}
               admin={user.role === "admin"}
               userId={user.id}
               onDirty={setDirty}

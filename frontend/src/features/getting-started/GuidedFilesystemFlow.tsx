@@ -25,13 +25,14 @@ export function GuidedFilesystemFlow({ admin, userId, onNavigate, onDirty }: {
   onDirty: (dirty: boolean) => void;
 }) {
   const [draft, setDraft] = useState<Draft>(readDraft);
-  const [step, setStep] = useState<Step>("cluster");
+  const [step, setStep] = useState<Step>(() => sessionStorage.getItem("guided-filesystem-storage-return") === "1" && readDraft().clusterId ? "details" : "cluster");
   const [clusters, setClusters] = useState<ClusterRow[]>([]);
   const [profiles, setProfiles] = useState<StorageProfile[]>([]);
   const [snapshot, setSnapshot] = useState<ResourceSnapshot>();
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  useEffect(() => { sessionStorage.removeItem("guided-filesystem-storage-return"); }, []);
   const [operation, setOperation] = useState<ResourceOperation>();
   const [uncertain, setUncertain] = useState(false);
   const live = useRef(true);
@@ -119,7 +120,7 @@ export function GuidedFilesystemFlow({ admin, userId, onNavigate, onDirty }: {
     {step === "details" && <>
       <h2>填写文件系统信息</h2>
       <label>文件系统名称<input required value={draft.fsName} onChange={(event) => update({ fsName: event.target.value })} /></label>
-      <GuidedStoragePicker profiles={availableProfiles} value={draft.storageId} onChange={(storageId) => update({ storageId })} onAddStorage={() => onNavigate("#/storage")} />
+      <GuidedStoragePicker profiles={availableProfiles} value={draft.storageId} onChange={(storageId) => update({ storageId })} onAddStorage={() => onNavigate("#/start/filesystem/storage")} />
       {profile && <p className="muted">{profile.storage_type.toUpperCase()} · {profile.storage_type === "s3" ? `${profile.parameters.s3_endpoint || "—"} / ${profile.parameters.s3_bucketname || "—"}` : `${profile.parameters.rados_mon || "—"} / ${profile.parameters.rados_poolname || "—"}`} · 访问凭据已配置</p>}
       {!availableProfiles.length && <p>没有已启用且凭据齐全的存储配置。</p>}
       <details><summary>高级选项</summary><label>分区类型<select value={draft.partition} onChange={(event) => update({ partition: event.target.value as Draft["partition"] })}><option value="hash">hash（默认）</option><option value="monolithic">monolithic</option></select></label></details>

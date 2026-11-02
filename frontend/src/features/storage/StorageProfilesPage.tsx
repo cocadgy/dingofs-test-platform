@@ -80,10 +80,13 @@ function updatedTime(value: string) {
 }
 
 export function StorageProfilesPage({
+  onCreated,
   onDirty,
 }: {
+  onCreated?: (id: string) => void;
   onDirty: (value: boolean) => void;
 }) {
+  const [createdId, setCreatedId] = useState<string>();
   const [items, setItems] = useState<StorageProfile[]>([]);
   const [loading, setLoading] = useState(true);
   const [refresh, setRefresh] = useState(0);
@@ -163,7 +166,7 @@ export function StorageProfilesPage({
     setError("");
     setNotice("");
     try {
-      await api(
+      const saved = await api<StorageProfile>(
         editing ? profilePath(editing) : "/storage-profiles",
         editing ? "PUT" : "POST",
         {
@@ -176,6 +179,7 @@ export function StorageProfilesPage({
         },
       );
       if (!active.current) return;
+      if (!editing && onCreated) setCreatedId(saved.id);
       setNotice(editing ? "存储配置已保存" : "存储配置已创建");
       setDraft(undefined);
       setEditing(undefined);
@@ -266,6 +270,7 @@ export function StorageProfilesPage({
           {notice}
         </p>
       )}
+      {createdId && onCreated && <button type="button" className="primary" onClick={() => onCreated(createdId)}>继续创建文件系统</button>}
       {draft && (
         <form className="panel storage-editor" onSubmit={save}>
           <div className="section-title">
