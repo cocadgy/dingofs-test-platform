@@ -159,7 +159,7 @@ export function DiscoverClusters({
     onClose();
   }
   return (
-    <section className="panel cluster-discover" aria-label="发现集群">
+    <section className={`panel cluster-discover${guided ? " guided-cluster-discover" : ""}`} aria-label="发现集群">
       <div className="section-title">
         <h2>发现集群</h2>
         <button onClick={close} disabled={busy}>

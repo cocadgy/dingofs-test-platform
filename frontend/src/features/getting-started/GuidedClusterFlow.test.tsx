@@ -40,6 +40,7 @@ test("guided discovery confirms selected existing cluster before import", async 
     return {};
   });
   render(<DiscoverClusters guided onImported={onImported} onClose={vi.fn()} admin />);
+  expect(screen.getByRole("region", { name: "发现集群" })).toHaveClass("guided-cluster-discover");
   await screen.findByRole("option", { name: /node-1/ });
   fireEvent.change(screen.getByLabelText("执行机器"), { target: { value: "machine-1" } });
   fireEvent.click(screen.getByRole("button", { name: "查询集群" }));

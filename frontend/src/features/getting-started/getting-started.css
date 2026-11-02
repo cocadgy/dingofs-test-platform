@@ -2,3 +2,13 @@
 .getting-started-card { display: grid; gap: 16px; margin-top: 28px; padding: 28px; border: 1px solid #dce5e1; border-radius: 16px; background: #fff; }
 .getting-started-card select { width: 100%; padding: 12px; border: 1px solid #b7cbc3; border-radius: 8px; background: #fff; }
 .getting-started-card button { justify-self: start; }
+
+/* The shared discovery panel has no padding outside cluster management. */
+.guided-cluster-discover { max-width: 100%; margin-top: 28px; padding: 28px; border-radius: 16px; }
+.guided-cluster-discover > .section-title { margin-bottom: 18px; }
+.guided-cluster-discover > .muted { margin: 0 0 24px; }
+.guided-cluster-discover > form { display: grid; gap: 20px; }
+.guided-cluster-discover .form-grid { grid-template-columns: 1fr; gap: 18px; }
+.guided-cluster-discover > form > .primary { justify-self: start; }
+.guided-cluster-discover > button { margin-top: 16px; }
+@media (max-width: 600px) { .guided-cluster-discover { padding: 20px; } }
