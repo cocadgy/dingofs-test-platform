@@ -29,7 +29,8 @@ test("wizard confirms name, stored credentials and partition before one create r
   await waitFor(() => expect(screen.getByRole("button", { name: "下一步" })).toBeEnabled());
   fireEvent.click(screen.getByRole("button", { name: "下一步" }));
   fireEvent.change(await screen.findByLabelText("文件系统名称"), { target: { value: "training-fs" } });
-  fireEvent.change(screen.getByLabelText("存储配置"), { target: { value: "storage-1" } });
+  fireEvent.click(screen.getByRole("combobox", { name: "存储配置" }));
+  fireEvent.click(screen.getByRole("option", { name: "s3-prod · S3" }));
   fireEvent.click(screen.getByRole("button", { name: "下一步" }));
   expect(screen.getByText("training-fs")).toBeInTheDocument();
   expect(vi.mocked(api).mock.calls.some(([path, method]) => path === "/clusters/cluster-1/resource-operations" && method === "POST")).toBe(false);
@@ -92,7 +93,8 @@ test("create submission cannot be sent twice while the first request is unresolv
   await waitFor(() => expect(screen.getByRole("button", { name: "下一步" })).toBeEnabled());
   fireEvent.click(screen.getByRole("button", { name: "下一步" }));
   fireEvent.change(screen.getByLabelText("文件系统名称"), { target: { value: "training-fs" } });
-  fireEvent.change(screen.getByLabelText("存储配置"), { target: { value: "storage-1" } });
+  fireEvent.click(screen.getByRole("combobox", { name: "存储配置" }));
+  fireEvent.click(screen.getByRole("option", { name: "s3-prod · S3" }));
   fireEvent.click(screen.getByRole("button", { name: "下一步" }));
   fireEvent.click(screen.getByRole("button", { name: "确认创建" }));
   expect(screen.getByRole("button", { name: "提交中…" })).toBeDisabled();
@@ -115,7 +117,7 @@ test("advanced-options panel has horizontal breathing room", () => {
 });
 
 
-test("storage picker previews available profiles on hover without exposing secrets", async () => {
+test("storage details appear only for the hovered item after opening the dropdown", async () => {
   const rados = { id: "storage-2", name: "ceph-prod", storage_type: "rados", revision: 1, enabled: true, has_secrets: true, parameters: { rados_mon: "10.0.0.2:6789", rados_poolname: "pool-a", rados_username: "client.admin", rados_clustername: "ceph", rados_key: "RADOS-SECRET" } };
   mockApi([{ ...profile, parameters: { ...profile.parameters, s3_sk: "S3-SECRET" } }, rados]);
   const onNavigate = vi.fn();
@@ -123,18 +125,50 @@ test("storage picker previews available profiles on hover without exposing secre
   fireEvent.change(await screen.findByLabelText("目标集群"), { target: { value: "cluster-1" } });
   await waitFor(() => expect(screen.getByRole("button", { name: "下一步" })).toBeEnabled());
   fireEvent.click(screen.getByRole("button", { name: "下一步" }));
-  const picker = screen.getByLabelText("存储配置");
-  expect(screen.queryByRole("tooltip")).not.toBeInTheDocument();
+  const picker = screen.getByRole("combobox", { name: "存储配置" });
   fireEvent.mouseEnter(picker);
-  const details = screen.getByRole("tooltip");
+  expect(screen.queryByRole("tooltip")).not.toBeInTheDocument();
+  fireEvent.click(picker);
+  expect(screen.getByRole("listbox", { name: "存储配置列表" })).toBeInTheDocument();
+  expect(screen.queryByRole("tooltip")).not.toBeInTheDocument();
+  fireEvent.mouseEnter(screen.getByRole("option", { name: "s3-prod · S3" }));
+  let details = screen.getByRole("tooltip");
   expect(details).toHaveTextContent("https://s3.example.com");
   expect(details).toHaveTextContent("bucket");
+  expect(details).not.toHaveTextContent("10.0.0.2:6789");
+  expect(details).not.toHaveTextContent("S3-SECRET");
+  fireEvent.mouseEnter(screen.getByRole("option", { name: "ceph-prod · RADOS" }));
+  details = screen.getByRole("tooltip");
   expect(details).toHaveTextContent("10.0.0.2:6789");
   expect(details).toHaveTextContent("client.admin");
-  expect(details).not.toHaveTextContent("S3-SECRET");
+  expect(details).not.toHaveTextContent("https://s3.example.com");
   expect(details).not.toHaveTextContent("RADOS-SECRET");
-  fireEvent.mouseLeave(picker);
-  expect(screen.queryByRole("tooltip")).not.toBeInTheDocument();
+  fireEvent.click(screen.getByRole("option", { name: "ceph-prod · RADOS" }));
+  expect(picker).toHaveTextContent("ceph-prod · RADOS");
+  expect(screen.queryByRole("listbox")).not.toBeInTheDocument();
   fireEvent.click(screen.getByRole("button", { name: "添加存储配置" }));
   expect(onNavigate).toHaveBeenCalledWith("#/storage");
+});
+
+
+test("storage dropdown supports keyboard preview, selection and dismissal", async () => {
+  const second = { ...profile, id: "storage-2", name: "s3-backup", parameters: { s3_endpoint: "https://backup.example.com", s3_bucketname: "backup" } };
+  mockApi([profile, second]);
+  render(<GuidedFilesystemFlow admin userId="user-1" onNavigate={vi.fn()} onDirty={vi.fn()} />);
+  fireEvent.change(await screen.findByLabelText("目标集群"), { target: { value: "cluster-1" } });
+  await waitFor(() => expect(screen.getByRole("button", { name: "下一步" })).toBeEnabled());
+  fireEvent.click(screen.getByRole("button", { name: "下一步" }));
+  const picker = screen.getByRole("combobox", { name: "存储配置" });
+  fireEvent.keyDown(picker, { key: "ArrowDown" });
+  const first = screen.getByRole("option", { name: "s3-prod · S3" });
+  await waitFor(() => expect(first).toHaveFocus());
+  fireEvent.keyDown(first, { key: "ArrowDown" });
+  expect(screen.getByRole("option", { name: "s3-backup · S3" })).toHaveFocus();
+  expect(screen.getByRole("tooltip")).toHaveTextContent("https://backup.example.com");
+  fireEvent.keyDown(screen.getByRole("option", { name: "s3-backup · S3" }), { key: "Escape" });
+  expect(screen.queryByRole("listbox")).not.toBeInTheDocument();
+  expect(picker).toHaveFocus();
+  fireEvent.click(picker);
+  fireEvent.pointerDown(document.body);
+  expect(screen.queryByRole("listbox")).not.toBeInTheDocument();
 });
