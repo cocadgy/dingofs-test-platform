@@ -50,7 +50,7 @@ test("missing usable storage profile directs user to configuration without submi
   await waitFor(() => expect(screen.getByRole("button", { name: "下一步" })).toBeEnabled());
   fireEvent.click(screen.getByRole("button", { name: "下一步" }));
   expect(screen.getByRole("button", { name: "下一步" })).toBeDisabled();
-  fireEvent.click(screen.getByRole("button", { name: "前往添加存储配置" }));
+  fireEvent.click(screen.getByRole("button", { name: "添加存储配置" }));
   expect(onNavigate).toHaveBeenCalledWith("#/storage");
   expect(vi.mocked(api).mock.calls.some(([path]) => path.endsWith("/resource-operations"))).toBe(false);
 });
@@ -112,4 +112,29 @@ test("cluster options identify the management machine and operating-system user"
 test("advanced-options panel has horizontal breathing room", () => {
   const css = readFileSync("src/features/getting-started/getting-started.css", "utf8");
   expect(css).toMatch(/\.guided-filesystem-flow details\s*\{[^}]*padding:\s*16px/);
+});
+
+
+test("storage picker previews available profiles on hover without exposing secrets", async () => {
+  const rados = { id: "storage-2", name: "ceph-prod", storage_type: "rados", revision: 1, enabled: true, has_secrets: true, parameters: { rados_mon: "10.0.0.2:6789", rados_poolname: "pool-a", rados_username: "client.admin", rados_clustername: "ceph", rados_key: "RADOS-SECRET" } };
+  mockApi([{ ...profile, parameters: { ...profile.parameters, s3_sk: "S3-SECRET" } }, rados]);
+  const onNavigate = vi.fn();
+  render(<GuidedFilesystemFlow admin userId="user-1" onNavigate={onNavigate} onDirty={vi.fn()} />);
+  fireEvent.change(await screen.findByLabelText("目标集群"), { target: { value: "cluster-1" } });
+  await waitFor(() => expect(screen.getByRole("button", { name: "下一步" })).toBeEnabled());
+  fireEvent.click(screen.getByRole("button", { name: "下一步" }));
+  const picker = screen.getByLabelText("存储配置");
+  expect(screen.queryByRole("tooltip")).not.toBeInTheDocument();
+  fireEvent.mouseEnter(picker);
+  const details = screen.getByRole("tooltip");
+  expect(details).toHaveTextContent("https://s3.example.com");
+  expect(details).toHaveTextContent("bucket");
+  expect(details).toHaveTextContent("10.0.0.2:6789");
+  expect(details).toHaveTextContent("client.admin");
+  expect(details).not.toHaveTextContent("S3-SECRET");
+  expect(details).not.toHaveTextContent("RADOS-SECRET");
+  fireEvent.mouseLeave(picker);
+  expect(screen.queryByRole("tooltip")).not.toBeInTheDocument();
+  fireEvent.click(screen.getByRole("button", { name: "添加存储配置" }));
+  expect(onNavigate).toHaveBeenCalledWith("#/storage");
 });

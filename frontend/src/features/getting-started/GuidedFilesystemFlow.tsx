@@ -33,6 +33,7 @@ export function GuidedFilesystemFlow({ admin, userId, onNavigate, onDirty }: {
   const [error, setError] = useState("");
   const [operation, setOperation] = useState<ResourceOperation>();
   const [uncertain, setUncertain] = useState(false);
+  const [showStorageDetails, setShowStorageDetails] = useState(false);
   const live = useRef(true);
   const submitting = useRef(false);
   const cluster = clusters.find((item) => item.id === draft.clusterId);
@@ -118,15 +119,24 @@ export function GuidedFilesystemFlow({ admin, userId, onNavigate, onDirty }: {
     {step === "details" && <>
       <h2>填写文件系统信息</h2>
       <label>文件系统名称<input required value={draft.fsName} onChange={(event) => update({ fsName: event.target.value })} /></label>
-      <label>存储配置<select value={draft.storageId} onChange={(event) => update({ storageId: event.target.value })}>
-        <option value="">请选择存储配置</option>
-        {availableProfiles.map((item) => <option key={item.id} value={item.id}>{item.name} · {item.storage_type.toUpperCase()}</option>)}
-      </select></label>
+      <div className="guided-storage-field" onMouseEnter={() => setShowStorageDetails(true)} onMouseLeave={() => setShowStorageDetails(false)} onFocus={() => setShowStorageDetails(true)} onBlur={(event) => { if (!event.currentTarget.contains(event.relatedTarget)) setShowStorageDetails(false); }}>
+        <label>存储配置<select value={draft.storageId} onChange={(event) => update({ storageId: event.target.value })} aria-describedby={showStorageDetails && availableProfiles.length ? "guided-storage-details" : undefined}>
+          <option value="">请选择存储配置</option>
+          {availableProfiles.map((item) => <option key={item.id} value={item.id}>{item.name} · {item.storage_type.toUpperCase()}</option>)}
+        </select></label>
+        <button type="button" onClick={() => onNavigate("#/storage")}>添加存储配置</button>
+        {showStorageDetails && availableProfiles.length > 0 && <div id="guided-storage-details" role="tooltip" className="guided-storage-details">
+          {availableProfiles.map((item) => <div key={item.id}>
+            <strong>{item.name} · {item.storage_type.toUpperCase()}</strong>
+            {item.description && <p>{item.description}</p>}
+            <dl>{(item.storage_type === "s3" ? [["Endpoint", "s3_endpoint"], ["Bucket", "s3_bucketname"]] : [["Monitor", "rados_mon"], ["Pool", "rados_poolname"], ["用户", "rados_username"], ["集群", "rados_clustername"]]).map(([label, key]) => <div key={key}><dt>{label}</dt><dd>{item.parameters[key] || "—"}</dd></div>)}</dl>
+          </div>)}
+        </div>}
+      </div>
       {profile && <p className="muted">{profile.storage_type.toUpperCase()} · {profile.storage_type === "s3" ? `${profile.parameters.s3_endpoint || "—"} / ${profile.parameters.s3_bucketname || "—"}` : `${profile.parameters.rados_mon || "—"} / ${profile.parameters.rados_poolname || "—"}`} · 访问凭据已配置</p>}
       {!availableProfiles.length && <p>没有已启用且凭据齐全的存储配置。</p>}
       <details><summary>高级选项</summary><label>分区类型<select value={draft.partition} onChange={(event) => update({ partition: event.target.value as Draft["partition"] })}><option value="hash">hash（默认）</option><option value="monolithic">monolithic</option></select></label></details>
       <div className="getting-started-actions"><button type="button" onClick={() => setStep("cluster")}>上一步</button>
-        <button type="button" onClick={() => onNavigate("#/storage")}>前往添加存储配置</button>
         <button className="primary" type="button" disabled={!ready} onClick={() => setStep("confirm")}>下一步</button></div>
     </>}
     {step === "confirm" && <>

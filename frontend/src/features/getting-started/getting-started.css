@@ -22,3 +22,14 @@
 .guided-filesystem-flow .getting-started-summary > div { display: grid; grid-template-columns: 120px 1fr; gap: 12px; }
 .guided-filesystem-flow .getting-started-summary dt { color: #5d716d; }
 .guided-filesystem-flow .getting-started-summary dd { margin: 0; overflow-wrap: anywhere; }
+
+.guided-storage-field { position: relative; display: grid; gap: 10px; }
+.guided-storage-field > label { display: grid; gap: 8px; font-weight: 600; }
+.guided-storage-field > button { justify-self: start; }
+.guided-storage-details { position: absolute; z-index: 20; top: 100%; left: 0; width: min(100%, 560px); box-sizing: border-box; max-height: 280px; overflow: auto; padding: 14px; border: 1px solid #b7cbc3; border-radius: 8px; background: #fff; box-shadow: 0 12px 28px #17352e26; }
+.guided-storage-details > div + div { margin-top: 12px; padding-top: 12px; border-top: 1px solid #e0e9e5; }
+.guided-storage-details p { margin: 5px 0; color: #5d716d; }
+.guided-storage-details dl { display: grid; gap: 4px; margin: 8px 0 0; }
+.guided-storage-details dl > div { display: grid; grid-template-columns: 80px minmax(0, 1fr); gap: 8px; }
+.guided-storage-details dt { color: #5d716d; }
+.guided-storage-details dd { margin: 0; overflow-wrap: anywhere; }
