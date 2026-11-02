@@ -1,3 +1,4 @@
+import { GettingStartedPage } from "./features/getting-started/GettingStartedPage";
 import { PerformancePage } from "./features/performance/PerformancePage";
 import {ConfigurationPage} from "./features/configuration/ConfigurationPage";
 import { DashboardPage } from "./features/dashboard/DashboardPage";
@@ -51,7 +52,8 @@ export function App() {
       queueMicrotask(() => {
         setHash(window.location.hash);
         if (user?.email) {
-          if (window.location.hash.startsWith("#/performance")) setKind("performance");
+          if (window.location.hash.startsWith("#/start")) setKind("start");
+          else if (window.location.hash.startsWith("#/performance")) setKind("performance");
           else if (window.location.hash.startsWith("#/clusters"))
             setKind("clusters");
           else if (/^#\/(configuration|cache-profiles|mount-profiles|storage)(\/|$)/.test(window.location.hash)) setKind("configuration");
@@ -68,7 +70,7 @@ export function App() {
     setHash(window.location.hash);
     setKind(
       u.email
-        ? window.location.hash.startsWith("#/performance") ? "performance" : window.location.hash.startsWith("#/clusters")
+        ? window.location.hash.startsWith("#/start") ? "start" : window.location.hash.startsWith("#/performance") ? "performance" : window.location.hash.startsWith("#/clusters")
           ? "clusters"
           : /^#\/(configuration|cache-profiles|mount-profiles|storage)(\/|$)/.test(window.location.hash)
             ? "configuration"
@@ -203,6 +205,7 @@ export function App() {
         <p className="nav-label">工作空间</p>
         <nav>
           {Object.entries({
+            start: "开始",
             dashboard: "资源总览",
             ...sections,
             configuration: "配置管理",
@@ -215,9 +218,12 @@ export function App() {
               aria-current={kind === key ? "page" : undefined}
               onClick={() => {
                 if (key === kind) {
+                  if (key === "start" && hash !== "#/start" && dirty && !confirm("有未保存修改，确定离开？")) return;
+                  if (key === "start") setDirty(false);
                   if (
                     [
                       "dashboard",
+                      "start",
                       "machines",
                       "clusters",
                       "storage",
@@ -236,6 +242,7 @@ export function App() {
                     "",
                     [
                       "dashboard",
+                      "start",
                       "machines",
                       "clusters",
                       "storage",
@@ -275,14 +282,25 @@ export function App() {
         <div
           className={
             "content" +
-            (["dashboard", "machines", "clusters", "storage", "cache-profiles", "configuration", "performance"].includes(
+            (["start", "dashboard", "machines", "clusters", "storage", "cache-profiles", "configuration", "performance"].includes(
               kind,
             )
               ? " machines-content"
               : "")
           }
         >
-          {kind === "performance" && user.email ? (
+          {kind === "start" && user.email ? (
+            <GettingStartedPage
+              route={hash === "#/start/machine" ? "machine" : "chooser"}
+              onDirty={setDirty}
+              onNavigate={(next) => {
+                if (dirty && !confirm("有未保存修改，确定离开？")) return;
+                setDirty(false);
+                window.location.hash = next;
+                setHash(next);
+              }}
+            />
+          ) : kind === "performance" && user.email ? (
             <PerformancePage />
           ) : kind === "dashboard" && user.email ? (
             <DashboardPage userId={user.id} />

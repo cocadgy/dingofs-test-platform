@@ -14,8 +14,9 @@ docker compose --env-file .env -f deploy/compose.yaml exec api \
   python -m dingofs_platform.auth.cli create-admin
 ```
 
-访问 http://172.30.14.126:58080 ，使用交互创建的账号登录。首次进入按“机器 → 发现集群 → 环境”登记资源。
+访问 http://172.30.14.126:58080 ，使用交互创建的账号登录。新用户可从左侧“开始”进入引导流程；目前开放“添加机器”，其余引导任务逐步上线。也可按“机器 → 发现集群 → 环境”使用原有入口登记资源。
 
+- [开始页面与添加机器验收](docs/GUIDED_START_ACCEPTANCE.md)
 - [开发、部署与测试](docs/DEVELOPMENT.md)
 - [集群日志与网页终端验收](docs/REMOTE_ACCESS_ACCEPTANCE.md)
 - [用户管理验收](docs/USER_MANAGEMENT_ACCEPTANCE.md)
