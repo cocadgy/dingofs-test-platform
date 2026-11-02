@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { GuidedMachineForm } from "./GuidedMachineForm";
+import { GuidedFilesystemFlow } from "./GuidedFilesystemFlow";
 import { DiscoverClusters } from "../clusters/DiscoverClusters";
 import "./getting-started.css";
 
@@ -14,7 +15,7 @@ const actions = [
 ] as const;
 
 export function GettingStartedPage({ route, onNavigate, onDirty, admin = false, userId }: {
-  route: "chooser" | "machine" | "cluster" | "cluster-machine";
+  route: "chooser" | "machine" | "cluster" | "cluster-machine" | "filesystem";
   onNavigate: (hash: string) => void;
   onDirty: (dirty: boolean) => void;
   admin?: boolean;
@@ -24,9 +25,10 @@ export function GettingStartedPage({ route, onNavigate, onDirty, admin = false, 
   const [comingSoon, setComingSoon] = useState(false);
   const [newMachineId, setNewMachineId] = useState<string>();
   const [importedIds, setImportedIds] = useState<string[]>([]);
+  if (route === "filesystem") return <section className="getting-started"><p className="eyebrow">GETTING STARTED / FILESYSTEM</p><h1>创建文件系统</h1><GuidedFilesystemFlow admin={admin} userId={userId} onNavigate={onNavigate} onDirty={onDirty} /></section>;
   if (route === "machine") return <section className="getting-started"><p className="eyebrow">GETTING STARTED / MACHINE</p><h1>添加机器</h1><GuidedMachineForm onDirty={onDirty} onBack={() => onNavigate("#/start")} /></section>;
   if (route === "cluster-machine") return <section className="getting-started"><p className="eyebrow">GETTING STARTED / CLUSTER / MACHINE</p><h1>先添加执行机器</h1><GuidedMachineForm onDirty={onDirty} onBack={() => onNavigate("#/start/cluster")} onCreated={(id) => { setNewMachineId(id); onNavigate("#/start/cluster"); }} /></section>;
-  if (route === "cluster") return <section className="getting-started"><p className="eyebrow">GETTING STARTED / CLUSTER</p><h1>添加集群</h1>{importedIds.length ? <div className="getting-started-card"><h2>集群添加成功</h2>{importedIds.map((id) => <button className="primary" type="button" key={id} onClick={() => onNavigate(`#/clusters/${encodeURIComponent(id)}`)}>查看集群</button>)}<button type="button" onClick={() => onNavigate("#/start")}>返回开始页</button></div> : <DiscoverClusters guided admin={admin} userId={userId} initialMachineId={newMachineId} onAddMachine={() => onNavigate("#/start/cluster/machine")} onClose={() => onNavigate("#/start")} onImported={setImportedIds} />}</section>;
+  if (route === "cluster") return <section className="getting-started"><p className="eyebrow">GETTING STARTED / CLUSTER</p><h1>添加集群</h1>{importedIds.length ? <div className="getting-started-card"><h2>集群添加成功</h2>{importedIds.map((id) => <button className="primary" type="button" key={id} onClick={() => onNavigate(`#/clusters/${encodeURIComponent(id)}`)}>查看集群</button>)}{sessionStorage.getItem("guided-filesystem-return") === "1" && <button className="primary" type="button" onClick={() => { const saved = JSON.parse(sessionStorage.getItem("guided-filesystem-draft") || "{}"); sessionStorage.setItem("guided-filesystem-draft", JSON.stringify({ ...saved, clusterId: importedIds[0] })); sessionStorage.removeItem("guided-filesystem-return"); onNavigate("#/start/filesystem"); }}>继续创建文件系统</button>}<button type="button" onClick={() => onNavigate("#/start")}>返回开始页</button></div> : <DiscoverClusters guided admin={admin} userId={userId} initialMachineId={newMachineId} onAddMachine={() => onNavigate("#/start/cluster/machine")} onClose={() => onNavigate("#/start")} onImported={setImportedIds} />}</section>;
   return (
     <section className="getting-started">
       <p className="eyebrow">GETTING STARTED</p>
@@ -44,7 +46,7 @@ export function GettingStartedPage({ route, onNavigate, onDirty, admin = false, 
           <select id="start-action" value={action} onChange={(event) => setAction(event.target.value)}>
             {actions.map(([value, label]) => <option key={value} value={value}>{label}</option>)}
           </select>
-          <button className="primary" type="button" onClick={() => action === "machine" ? onNavigate("#/start/machine") : action === "cluster" ? onNavigate("#/start/cluster") : setComingSoon(true)}>下一步</button>
+          <button className="primary" type="button" onClick={() => action === "machine" ? onNavigate("#/start/machine") : action === "cluster" ? onNavigate("#/start/cluster") : action === "filesystem" ? onNavigate("#/start/filesystem") : setComingSoon(true)}>下一步</button>
         </div>
       )}
     </section>

@@ -12,3 +12,13 @@
 .guided-cluster-discover > form > .primary { justify-self: start; }
 .guided-cluster-discover > button { margin-top: 16px; }
 @media (max-width: 600px) { .guided-cluster-discover { padding: 20px; } }
+
+.guided-filesystem-flow > label { display: grid; gap: 8px; font-weight: 600; }
+.guided-filesystem-flow input, .guided-filesystem-flow select { width: 100%; box-sizing: border-box; padding: 11px 12px; border: 1px solid #b7cbc3; border-radius: 8px; background: #fff; }
+.guided-filesystem-flow details { padding: 12px 0; }
+.guided-filesystem-flow details label { display: grid; gap: 8px; margin-top: 12px; }
+.guided-filesystem-flow .getting-started-actions { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; margin-top: 8px; }
+.guided-filesystem-flow .getting-started-summary { display: grid; gap: 12px; margin: 0; }
+.guided-filesystem-flow .getting-started-summary > div { display: grid; grid-template-columns: 120px 1fr; gap: 12px; }
+.guided-filesystem-flow .getting-started-summary dt { color: #5d716d; }
+.guided-filesystem-flow .getting-started-summary dd { margin: 0; overflow-wrap: anywhere; }
