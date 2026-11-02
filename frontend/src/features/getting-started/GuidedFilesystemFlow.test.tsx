@@ -182,3 +182,8 @@ test("returning from storage creation restores the filesystem draft and selected
   expect(screen.getByRole("combobox", { name: "存储配置" })).toHaveTextContent("s3-prod");
   expect(sessionStorage.getItem("guided-filesystem-storage-return")).toBeNull();
 });
+
+test("guided storage page uses the available desktop width", () => {
+  const css = readFileSync("src/features/getting-started/getting-started.css", "utf8");
+  expect(css).toMatch(/\.getting-started:has\(\.storage-profiles-page\)\s*\{[^}]*max-width:\s*1280px/);
+});

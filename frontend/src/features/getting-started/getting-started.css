@@ -1,4 +1,5 @@
 .getting-started { max-width: 760px; margin: 0 auto; padding: 36px 0; }
+.getting-started:has(.storage-profiles-page) { max-width: 1280px; }
 .getting-started-card { display: grid; gap: 16px; margin-top: 28px; padding: 28px; border: 1px solid #dce5e1; border-radius: 16px; background: #fff; }
 .getting-started-card select { width: 100%; padding: 12px; border: 1px solid #b7cbc3; border-radius: 8px; background: #fff; }
 .getting-started-card button { justify-self: start; }
