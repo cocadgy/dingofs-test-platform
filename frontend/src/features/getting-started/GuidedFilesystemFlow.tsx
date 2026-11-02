@@ -108,7 +108,7 @@ export function GuidedFilesystemFlow({ admin, userId, onNavigate, onDirty }: {
       <h2>选择目标集群</h2>
       <label>目标集群<select value={draft.clusterId} onChange={(event) => update({ clusterId: event.target.value, storageId: "" })} disabled={loading}>
         <option value="">请选择集群</option>
-        {availableClusters.map((item) => <option key={item.id} value={item.id}>{item.external_name}</option>)}
+        {availableClusters.map((item) => <option key={item.id} value={item.id}>{item.external_name} · {item.machine_name} ({item.machine_address}) · {item.os_user}</option>)}
       </select></label>
       {!loading && !availableClusters.length && <p>还没有可用集群。请先添加集群，并确保集群状态已成功采集。</p>}
       <div className="getting-started-actions"><button type="button" onClick={() => onNavigate("#/start")}>返回开始页</button>

@@ -5,7 +5,7 @@ import { GuidedFilesystemFlow } from "./GuidedFilesystemFlow";
 import { GettingStartedPage } from "./GettingStartedPage";
 
 vi.mock("../../api/client", async (original) => ({ ...await original<typeof import("../../api/client")>(), api: vi.fn() }));
-const cluster = { id: "cluster-1", external_name: "prod", revision: 4, creator_id: "user-1", archived: false, binding_state: "verified" };
+const cluster = { id: "cluster-1", external_name: "prod", machine_name: "node-1", machine_address: "10.0.0.1", os_user: "dingofs", revision: 4, creator_id: "user-1", archived: false, binding_state: "verified" };
 const profile = { id: "storage-1", name: "s3-prod", storage_type: "s3", revision: 3, enabled: true, has_secrets: true, parameters: { s3_endpoint: "https://s3.example.com", s3_bucketname: "bucket" } };
 afterEach(() => { cleanup(); sessionStorage.clear(); vi.mocked(api).mockReset(); });
 
@@ -97,4 +97,11 @@ test("create submission cannot be sent twice while the first request is unresolv
   expect(vi.mocked(api).mock.calls.filter(([path, method]) => path === "/clusters/cluster-1/resource-operations" && method === "POST")).toHaveLength(1);
   resolvePost({ id: "op-1", action: "fs.create", state: "succeeded" });
   expect(await screen.findByRole("button", { name: "查看文件系统" })).toBeInTheDocument();
+});
+
+
+test("cluster options identify the management machine and operating-system user", async () => {
+  mockApi();
+  render(<GuidedFilesystemFlow admin userId="user-1" onNavigate={vi.fn()} onDirty={vi.fn()} />);
+  expect(await screen.findByRole("option", { name: "prod · node-1 (10.0.0.1) · dingofs" })).toHaveValue("cluster-1");
 });
