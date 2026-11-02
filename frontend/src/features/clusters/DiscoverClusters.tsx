@@ -16,11 +16,17 @@ export function DiscoverClusters({
   userId,
   onImported,
   onClose,
+  initialMachineId,
+  onAddMachine,
+  guided = false,
 }: {
   admin?: boolean;
   userId?: string;
   onImported: (ids: string[]) => void;
   onClose: () => void;
+  initialMachineId?: string;
+  onAddMachine?: () => void;
+  guided?: boolean;
 }) {
   const [machines, setMachines] = useState<Machine[]>([]),
     [mid, setMid] = useState(""),
@@ -30,7 +36,8 @@ export function DiscoverClusters({
     [busy, setBusy] = useState(false),
     [error, setError] = useState(""),
     [imports, setImports] = useState<ImportResult>(),
-    [query, setQuery] = useState("");
+    [query, setQuery] = useState(""),
+    [confirmSelection, setConfirmSelection] = useState(false);
   const live = useRef(true);
   const generation = useRef(0);
   useEffect(() => {
@@ -54,6 +61,11 @@ export function DiscoverClusters({
         if (!r.items.length || offset >= r.total) break;
       }
       setMachines(all);
+      const initial = all.find((machine) => machine.id === initialMachineId);
+      if (initial) {
+        setMid(initial.id);
+        setUser(initial.ssh_user);
+      }
     })().catch((e) => {
       if (active) setError(e.message);
     });
@@ -61,7 +73,7 @@ export function DiscoverClusters({
       active = false;
       live.current = false;
     };
-  }, [admin, userId]);
+  }, [admin, userId, initialMachineId]);
   const names =
     (op?.state === "succeeded"
       ? (op.result?.names as string[] | undefined)
@@ -77,6 +89,7 @@ export function DiscoverClusters({
     setError("");
     setImports(undefined);
     setSelected([]);
+    setConfirmSelection(false);
     const gen = ++generation.current;
     try {
       const next = await api<Operation>("/cluster-discoveries", "POST", {
@@ -177,6 +190,7 @@ export function DiscoverClusters({
                 );
                 setOp(undefined);
                 setImports(undefined);
+                setConfirmSelection(false);
               }}
             >
               <option value="">请选择机器</option>
@@ -199,6 +213,7 @@ export function DiscoverClusters({
                 setUser(e.target.value);
                 setOp(undefined);
                 setImports(undefined);
+                setConfirmSelection(false);
               }}
             />
           </label>
@@ -207,8 +222,17 @@ export function DiscoverClusters({
           查询集群
         </button>
       </form>
+      {onAddMachine && <button type="button" disabled={working} onClick={onAddMachine}>先添加机器</button>}
       {op && <OperationAuthDialog operation={op} onChange={setOp} />}
-      {op?.state === "succeeded" && (
+      {op?.state === "succeeded" && guided && confirmSelection ? (
+        <div className="cluster-operation" aria-label="确认添加集群">
+          <h3>确认添加</h3>
+          <p>执行机器：{machines.find((machine) => machine.id === mid)?.name || "未知"} · 执行用户：{user}</p>
+          <p>将登记：{selected.join("、")}</p>
+          <button type="button" disabled={busy} onClick={() => setConfirmSelection(false)}>上一步</button>
+          <button type="button" className="primary" disabled={busy} onClick={importing}>确认添加</button>
+        </div>
+      ) : op?.state === "succeeded" && (
         <>
           <h3>发现 {names.length} 个集群</h3>
           <label>
@@ -251,9 +275,9 @@ export function DiscoverClusters({
           <button
             className="primary"
             disabled={busy || !selected.length}
-            onClick={importing}
+            onClick={guided ? () => setConfirmSelection(true) : importing}
           >
-            导入所选集群
+            {guided ? "下一步" : "导入所选集群"}
           </button>
         </>
       )}

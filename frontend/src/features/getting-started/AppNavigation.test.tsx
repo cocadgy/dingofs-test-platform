@@ -10,6 +10,7 @@ function session() {
   vi.mocked(api).mockImplementation(async (path) => {
     if (path === "/auth/me") return { id: "u1", username: "tester", email: "tester@example.com", role: "member", csrf_token: "token" };
     if (path === "/dashboard") return { generated_at: new Date().toISOString(), progress: { running: false, completed: 0, total: 0 }, machines: [], clusters: [] };
+    if (path.startsWith("/machines?")) return { items: [], total: 0 };
     return {};
   });
 }
@@ -64,4 +65,26 @@ test("leaving a partly filled machine guide through the sidebar warns about unsa
   expect(confirm).toHaveBeenCalledWith(expect.stringContaining("未保存"));
   expect(window.location.hash).toBe("#/start/machine");
   expect(screen.getByLabelText("机器名称")).toHaveValue("draft-node");
+});
+
+
+test("refreshing the guided cluster route restores the entry step", async () => {
+  window.history.replaceState(null, "", "#/start/cluster");
+  session();
+  render(<App />);
+  expect(await screen.findByRole("heading", { name: "添加集群" })).toBeInTheDocument();
+  expect(screen.getByLabelText("执行机器")).toBeInTheDocument();
+  expect(screen.getByRole("button", { name: "先添加机器" })).toBeInTheDocument();
+});
+
+
+test("wizard back navigation does not ask for a second confirmation", async () => {
+  window.history.replaceState(null, "", "#/start/cluster/machine");
+  session();
+  const confirm = vi.spyOn(window, "confirm").mockReturnValue(true);
+  render(<App />);
+  fireEvent.change(await screen.findByLabelText("机器名称"), { target: { value: "unfinished" } });
+  fireEvent.click(screen.getByRole("button", { name: "上一步" }));
+  await waitFor(() => expect(window.location.hash).toBe("#/start/cluster"));
+  expect(confirm).not.toHaveBeenCalled();
 });

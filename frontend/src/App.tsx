@@ -295,10 +295,12 @@ export function App() {
         >
           {kind === "start" && user.email ? (
             <GettingStartedPage
-              route={hash === "#/start/machine" ? "machine" : "chooser"}
+              route={hash === "#/start/cluster/machine" ? "cluster-machine" : hash === "#/start/cluster" ? "cluster" : hash === "#/start/machine" ? "machine" : "chooser"}
+              admin={user.role === "admin"}
+              userId={user.id}
               onDirty={setDirty}
               onNavigate={(next) => {
-                if (dirty && !confirm("有未保存修改，确定离开？")) return;
+                if (dirty && !next.startsWith("#/start") && !confirm("有未保存修改，确定离开？")) return;
                 setDirty(false);
                 window.location.hash = next;
                 setHash(next);
