@@ -59,6 +59,8 @@ def step(db, actor, c, action, params, *, record=None, mid=None, user=None):
     user = "root" if action == "trash.restore" else (user or c.os_user)
     return dict(
         machine_id=m.id,
+        machine_name=m.name,
+        machine_address=m.address,
         machine_revision=m.revision,
         target_user=user,
         tool_home=c.execution_home,

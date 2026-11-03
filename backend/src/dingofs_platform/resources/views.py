@@ -65,6 +65,25 @@ def _operation_message(op):
     return message
 
 
+def _step_results(db, op):
+    result = redact(op.result, show_storage_keys=op.action == "fs.get")
+    if not isinstance(result, dict) or not isinstance(result.get("steps"), list):
+        return result
+    for index, row in enumerate(result["steps"]):
+        if not isinstance(row, dict):
+            continue
+        planned = op.steps[index] if index < len(op.steps) else {}
+        mid = row.get("machine_id") or planned.get("machine_id")
+        if planned.get("machine_id") != mid:
+            planned = next((s for s in op.steps if s.get("machine_id") == mid
+                            and s.get("target_user") == row.get("target_user")), {})
+        machine = db.get(Machine, mid) if db is not None and mid else None
+        row["machine_name"] = planned.get("machine_name") or getattr(machine, "name", None)
+        row["machine_address"] = planned.get("machine_address") or getattr(machine, "address", None)
+        row["target_user"] = row.get("target_user") or planned.get("target_user")
+    return result
+
+
 def operation_view(db, op, *, private=False):
     expire(db, op)
     step = op.steps[min(op.cursor, len(op.steps) - 1)] if op.steps else {}
@@ -75,7 +94,7 @@ def operation_view(db, op, *, private=False):
         action=op.action,
         state=op.state,
         payload=redact(op.parameters),
-        result=redact(op.result, show_storage_keys=op.action == "fs.get"),
+        result=_step_results(db, op),
         error_code=op.error_code,
         message=_operation_message(op),
         auth_account=op.auth_account if private else None,

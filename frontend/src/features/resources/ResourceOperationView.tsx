@@ -607,6 +607,10 @@ export const ResourceOperationView = memo(function ResourceOperationView({
               : ""}{" "}
             · 退出码：{step.returncode ?? "未知"}
           </p>
+          <p className="resource-operation-meta">
+            <span>执行机器：{step.machine_name || "未记录"}（{step.machine_address || "IP 未记录"}）</span>
+            <span>执行用户：{step.target_user || "未记录"}</span>
+          </p>
           {step.message && (
             <p className={step.failed ? "error" : ""}>{step.message}</p>
           )}

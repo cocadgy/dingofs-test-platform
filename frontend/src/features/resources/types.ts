@@ -49,6 +49,10 @@ export type ResourceOperation = {
   payload?: Parameters;
   result?: {
     steps?: {
+      machine_id?: string;
+      machine_name?: string | null;
+      machine_address?: string | null;
+      target_user?: string | null;
       fs_name?: string;
       member_id?: string;
       message?: string | null;
