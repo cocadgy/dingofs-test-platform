@@ -79,3 +79,18 @@ test("edited options persist in draft and reach cache planning request", async (
     action: "cache.plan", parameters: expect.objectContaining({ cache_options: { cache_expire_s: "90" } }),
   })));
 });
+
+test("an enabled stale RDMA pair cannot advance to confirmation", async () => {
+  setup();
+  const saved = JSON.parse(sessionStorage.getItem("guided-cache-draft-u")!);
+  saved.rows[0] = { ...saved.rows[0], rdma: true, rdmaDevice: "stale-device", rdmaPort: 1 };
+  cleanup(); sessionStorage.setItem("guided-cache-draft-u", JSON.stringify(saved));
+  render(<GuidedCacheFlow admin userId="u" route="#/start/cache" onNavigate={vi.fn()} onDirty={vi.fn()} />);
+  await waitFor(() => expect(screen.getByRole("button", { name: "下一步" })).toBeEnabled());
+  fireEvent.click(screen.getByRole("button", { name: "下一步" }));
+  fireEvent.click(screen.getByRole("button", { name: "下一步" }));
+  fireEvent.click(screen.getByRole("button", { name: "下一步" }));
+  expect(screen.queryByRole("button", { name: "检查并创建缓存组" })).not.toBeInTheDocument();
+  expect(screen.getAllByRole("alert").some(item => item.textContent?.includes("不属于当前机器"))).toBe(true);
+  expect(vi.mocked(api).mock.calls.some(([, method]) => method === "POST")).toBe(false);
+});
