@@ -1,6 +1,8 @@
 import os
 import stat
 import subprocess
+from pathlib import Path
+import tempfile
 
 import pytest
 
@@ -137,3 +139,55 @@ def test_search_only_ancestor_does_not_require_read_permission(tmp_path):
         assert stat.S_IMODE(parent.stat().st_mode) == 0o111
     finally:
         parent.chmod(0o700)
+
+def test_root_creates_on_foreign_owned_mount_without_staging():
+    if os.geteuid() != 0:
+        pytest.skip("root-only mount ownership regression")
+    # Provided only by the isolated container: a separate tmpfs owned by UID 1002.
+    mount = os.environ.get("DTT_TEST_FOREIGN_MOUNT")
+    if not mount:
+        pytest.skip("requires isolated foreign-owned mount")
+    with tempfile.TemporaryDirectory(dir=mount) as directory:
+        parent = Path(directory)
+        os.chown(parent, 1002, 1002)
+        parent.chmod(0o755)
+        before = parent.stat()
+        base = parent / "cache"
+        mod.create_directory(str(base), 65534, 65534)
+        assert (base.stat().st_uid, base.stat().st_gid) == (65534, 65534)
+        assert stat.S_IMODE(base.stat().st_mode) == 0o750
+        assert (parent.stat().st_uid, parent.stat().st_mode) == (before.st_uid, before.st_mode)
+
+
+def test_sudo_script_error_preserves_actual_reason(tmp_path, monkeypatch):
+    monkeypatch.setattr(mod, "create_directory", lambda *a, **k: (_ for _ in ()).throw(PermissionError()))
+    monkeypatch.setattr(mod.subprocess, "run", lambda *a, **k: subprocess.CompletedProcess(a, 1, "", "OSError: Read-only file system"))
+    with pytest.raises(ValueError, match="Read-only file system"):
+        mod.prepare_cache_directory(str(tmp_path / "cache"))
+
+def test_foreign_parent_swap_is_rejected_without_deleting_existing_directory(monkeypatch):
+    mount = os.environ.get("DTT_TEST_FOREIGN_MOUNT")
+    if os.geteuid() != 0 or not mount:
+        pytest.skip("requires isolated foreign-owned mount")
+    with tempfile.TemporaryDirectory(dir=mount) as directory:
+        parent = Path(directory)
+        os.chown(parent, 1002, 1002)
+        parent.chmod(0o755)
+        existing = parent / "existing"
+        existing.mkdir(mode=0o755)
+        inode = existing.stat().st_ino
+        original_open = mod.os.open
+        swapped = []
+        def swap(path, flags, *args, **kwargs):
+            if str(path).startswith(".dtt-cache-") and not swapped:
+                fd = kwargs["dir_fd"]
+                os.rmdir(path, dir_fd=fd)
+                os.rename(existing, path, dst_dir_fd=fd)
+                swapped.append(parent / path)
+            return original_open(path, flags, *args, **kwargs)
+        monkeypatch.setattr(mod.os, "open", swap)
+        with pytest.raises(ValueError, match="changed"):
+            mod.create_directory(str(parent / "cache"), 65534, 65534)
+        assert swapped[0].exists()
+        assert swapped[0].stat().st_ino == inode
+        assert stat.S_IMODE(swapped[0].stat().st_mode) == 0o755

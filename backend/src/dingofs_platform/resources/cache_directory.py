@@ -43,12 +43,23 @@ def create_directory(path, uid, gid):
                     if stage_fd is None:
                         if os.geteuid() != 0:
                             raise PermissionError('privileged directory preparation required')
-                        raise ValueError('没有可安全创建缓存目录的同文件系统父目录，请管理员预先创建')
+                        # A mounted disk may belong to another user. Root can
+                        # still prepare a fresh directory in that parent, just
+                        # as sudo mkdir can; do not require a root-owned mount.
+                        stage_fd = fd
                     temporary = '.dtt-cache-' + secrets.token_hex(16)
                     os.mkdir(temporary, 0o700, dir_fd=stage_fd)
                     child = os.open(temporary, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC, dir_fd=stage_fd)
                     published = False
+                    candidate_valid = False
                     try:
+                        opened = os.fstat(child)
+                        actual = os.stat(temporary, dir_fd=stage_fd, follow_symlinks=False)
+                        if (opened.st_uid != os.geteuid() or
+                                opened.st_mode & 0o777 != 0o700 or os.listdir(child) or
+                                (actual.st_dev, actual.st_ino) != (opened.st_dev, opened.st_ino)):
+                            raise ValueError('cache temporary directory changed during creation')
+                        candidate_valid = True
                         libc = ctypes.CDLL(None, use_errno=True)
                         rename = libc.renameat2
                         rename.argtypes = [ctypes.c_int, ctypes.c_char_p, ctypes.c_int, ctypes.c_char_p, ctypes.c_uint]
@@ -64,7 +75,7 @@ def create_directory(path, uid, gid):
                         if (actual.st_dev, actual.st_ino) != (opened.st_dev, opened.st_ino):
                             raise ValueError('cache directory changed during creation')
                     except BaseException:
-                        if not published:
+                        if not published and candidate_valid:
                             actual, opened = os.stat(temporary, dir_fd=stage_fd, follow_symlinks=False), os.fstat(child)
                             if (actual.st_dev, actual.st_ino) == (opened.st_dev, opened.st_ino):
                                 os.rmdir(temporary, dir_fd=stage_fd)
@@ -103,7 +114,9 @@ def prepare_cache_directory(path):
         except (OSError, subprocess.TimeoutExpired) as exc:
             raise ValueError("sudo 创建缓存基础目录失败，请管理员检查 sudo 授权或手动创建：" + path) from exc
         if result.returncode:
-            raise ValueError("sudo 创建缓存基础目录失败（需要免密 sudo 授权），请管理员检查路径或手动创建：" + path)
+            lines = (result.stderr or result.stdout or "").strip().splitlines()
+            detail = lines[-1][:500] if lines else "子进程退出码 " + str(result.returncode)
+            raise ValueError("sudo 创建缓存基础目录失败：" + path + "；原因：" + detail)
     fd = os.open('/', os.O_PATH | os.O_DIRECTORY)
     try:
         for part in path.split('/')[1:]:
