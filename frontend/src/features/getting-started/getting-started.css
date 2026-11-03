@@ -72,3 +72,10 @@
 .guided-cache-parameters .cache-parameter-table input, .guided-cache-parameters .cache-parameter-table select { max-width: 100%; }
 
 .guided-cache-grid > .guided-rdma-notice { align-self: end; margin: 0; padding: 10px 12px; min-height: 42px; box-sizing: border-box; line-height: 20px; }
+
+/* Help text must not stretch the neighbouring field or its control. */
+.guided-cache-grid { align-items: start; }
+.guided-cache-grid label, .guided-cache-grid .guided-capacity-field { align-content: start; }
+.guided-cache-grid label { line-height: 20px; }
+.guided-cache-grid input:not([type="checkbox"]), .guided-cache-grid select { height: 42px; }
+.guided-cache-grid > .guided-rdma-notice { grid-column: 1 / -1; }
