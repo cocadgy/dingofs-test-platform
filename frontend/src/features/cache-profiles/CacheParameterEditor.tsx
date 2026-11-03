@@ -40,6 +40,7 @@ export function CacheParameterEditor({
   }), [catalog]);
   const rows = orderedFields.filter(
     (row) =>
+      (!(creation && collapsible) || row.name !== "group_weight") &&
       (!group || (group === "common" ? COMMON_PARAMETERS.includes(row.name) : row.group === group)) &&
       (!onlyChanged || Object.hasOwn(values, row.name)) &&
       `${row.name} ${row.label} ${row.description}`

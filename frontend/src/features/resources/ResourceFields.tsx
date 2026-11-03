@@ -187,6 +187,7 @@ export function ResourceFields({
                     ["listen_port", "监听端口", "number", true],
                     ["cache_dir", "缓存目录", "text", true],
                     ["cache_size_mb", "缓存容量 (MB)", "number", true],
+                    ["group_weight", "一致性哈希权重", "number", true],
                   ]
                     .filter(
                       ([key]) =>
@@ -200,8 +201,8 @@ export function ResourceFields({
                         <input
                           type={String(type)}
                           required={Boolean(required)}
-                          min={type === "number" ? 1 : undefined}
-                          value={String(member[String(key)] ?? "")}
+                          min={type === "number" ? key === "group_weight" ? 0 : 1 : undefined}
+                          value={String(member[String(key)] ?? (key === "group_weight" ? 100 : ""))}
                           onChange={(e) =>
                             update(
                               String(key),

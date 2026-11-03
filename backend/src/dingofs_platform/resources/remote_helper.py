@@ -684,6 +684,8 @@ def cache_argv(req):
         "log_dir": r["log_dir"],
         "daemonize": "true",
     }
+    if "group_weight" in r:
+        values["group_weight"] = r["group_weight"]
     extra = r.get("cache_options", {})
     protected = set(values) | {"conf", "cache_dir_uuid", "use_rdma", "cache_rdma_device", "cache_rdma_port_num"}
     if set(extra) & (protected - {"cache_expire_s"}):

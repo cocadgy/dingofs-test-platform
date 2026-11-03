@@ -82,6 +82,7 @@ export function CacheProfileSelection({
               const defaults = p
                 ? {
                     cache_size_mb: 1024,
+                    group_weight: 100,
                     use_rdma: false,
                     rdma_device: "",
                     rdma_port: 1,

@@ -170,6 +170,7 @@ def build_script(action, parameters, mds_addr, resource_id, record=None, tool_ho
                 "port_mode",
                 "cache_dir",
                 "cache_size_mb",
+                "group_weight",
                 "use_rdma",
                 "rdma_device",
                 "rdma_port",

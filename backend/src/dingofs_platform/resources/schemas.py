@@ -50,6 +50,7 @@ MEMBER_FIELDS = (
         field("listen_port", "监听端口", "integer", default=21000),
         field("cache_dir", "缓存基础目录", required=True),
         field("cache_size_mb", "缓存容量（MiB）", "integer", default=1024),
+        field("group_weight", "一致性哈希权重", "integer", default=100),
         field("binary_source", "程序来源", default="", options=["", "default", "commit", "tag", "path"]),
         field("binary_commit", "Commit ID", default=""),
         field("binary_tag", "镜像 TAG", default=""),
@@ -409,6 +410,7 @@ def _fields(specs, parameters):
                 value = int(value)
             limits = {
                 "weight": (0, 2**32 - 1),
+                "group_weight": (0, 2**32 - 1),
                 "listen_port": (1, 65535),
                 "rdma_port": (1, 255),
                 "cache_size_mb": (1, 2**32 - 1),

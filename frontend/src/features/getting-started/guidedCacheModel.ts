@@ -4,7 +4,7 @@ import type { Parameters, ResourceMachine } from "../resources/types";
 import type { FilesystemSuffix } from "./filesystemName";
 
 export type CacheMachineDraft = {
-  machineId: string; user: string; count: number; directory: string; capacity: number; capacityUnit?: CapacityUnit;
+  machineId: string; user: string; count: number; directory: string; capacity: number; capacityUnit?: CapacityUnit; weight?: number;
   listenIp: string; portMode: "auto" | "manual"; port: number;
   binaryDirectory: string; rdma: boolean; rdmaDevice: string; rdmaPort: number;
 };
@@ -29,6 +29,8 @@ export function cacheDraftError(draft: CacheDraft): string {
   for (const row of draft.rows) {
     if (!row.user.trim() || !row.directory.startsWith("/") || row.directory === "/") return "请填写各机器的执行用户和缓存基础目录";
     if (!Number.isInteger(row.count) || row.count < 1 || !Number.isSafeInteger(row.capacity) || row.capacity < 1) return "节点数量必须为正整数，容量换算为 MiB 后必须为安全范围内的正整数";
+    const weight = row.weight ?? Number(draft.options?.group_weight ?? 100);
+    if (!Number.isInteger(weight) || weight < 0 || weight > 4294967295) return "一致性哈希权重必须为 0～4294967295 的整数";
     if (draft.source === "path" && !(row.binaryDirectory || draft.binaryDirectory).startsWith("/")) return "请填写程序所在目录的绝对路径";
     if (row.portMode === "manual" && (!Number.isInteger(row.port) || row.port < 1 || row.port + row.count - 1 > 65535)) return "手动端口范围必须在 1～65535 之间";
     if (row.rdma && !row.rdmaDevice.trim()) return "启用 RDMA 时请填写设备名称";
@@ -42,6 +44,7 @@ export function cacheMembers(draft: CacheDraft): Parameters[] {
     machine_id: row.machineId, target_user: row.user.trim(),
     listen_ip: row.listenIp.trim(), port_mode: row.portMode, listen_port: row.port + (row.portMode === "manual" ? index : 0),
     cache_dir: row.directory.trim(), cache_size_mb: row.capacity,
+    group_weight: row.weight ?? Number(draft.options?.group_weight ?? 100),
     use_rdma: row.rdma, rdma_device: row.rdmaDevice.trim(), rdma_port: row.rdmaPort,
     binary_source: draft.source, binary_tag: draft.source === "tag" ? draft.tag : "",
     binary_digest: draft.source === "tag" ? draft.imageDigest : "",

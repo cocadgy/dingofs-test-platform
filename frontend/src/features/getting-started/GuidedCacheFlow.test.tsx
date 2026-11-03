@@ -94,3 +94,23 @@ test("an enabled stale RDMA pair cannot advance to confirmation", async () => {
   expect(screen.getAllByRole("alert").some(item => item.textContent?.includes("不属于当前机器"))).toBe(true);
   expect(vi.mocked(api).mock.calls.some(([, method]) => method === "POST")).toBe(false);
 });
+
+test("each machine has its own weight and all its nodes inherit it", async () => {
+  setup();
+  await waitFor(() => expect(screen.getByRole("button", { name: "下一步" })).toBeEnabled());
+  fireEvent.click(screen.getByRole("button", { name: "下一步" }));
+  expect(screen.queryByLabelText(/一致性哈希权重/)).not.toBeInTheDocument();
+  fireEvent.click(screen.getByRole("button", { name: "下一步" }));
+  const weights = screen.getAllByLabelText(/一致性哈希权重/);
+  expect(weights).toHaveLength(2);
+  fireEvent.change(weights[0], { target: { value: "50" } });
+  fireEvent.change(weights[1], { target: { value: "200" } });
+  fireEvent.click(screen.getByRole("button", { name: "下一步" }));
+  expect(screen.getByRole("columnheader", { name: "一致性哈希权重" })).toBeInTheDocument();
+  expect(screen.getByRole("cell", { name: "50" })).toBeInTheDocument();
+  expect(screen.getByRole("cell", { name: "200" })).toBeInTheDocument();
+  fireEvent.click(screen.getByRole("button", { name: "检查并创建缓存组" }));
+  await waitFor(() => expect(api).toHaveBeenCalledWith("/clusters/c/resource-operations", "POST", expect.objectContaining({ action: "cache.plan" })));
+  const request = vi.mocked(api).mock.calls.find(([, , body]) => (body as {action?:string})?.action === "cache.plan")![2] as {parameters:{members:{group_weight:number}[]}};
+  expect(request.parameters.members.map(m => m.group_weight)).toEqual([50, 200, 200]);
+});

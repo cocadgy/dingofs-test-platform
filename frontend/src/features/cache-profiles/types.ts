@@ -29,6 +29,7 @@ export function memberDefaults(options: CacheOptions): Record<string, unknown> {
     id: "member_id",
     cache_dir: "cache_dir",
     cache_size_mb: "cache_size_mb",
+    group_weight: "group_weight",
     use_rdma: "use_rdma",
     cache_rdma_device: "rdma_device",
     cache_rdma_port_num: "rdma_port",
@@ -40,7 +41,7 @@ export function memberDefaults(options: CacheOptions): Record<string, unknown> {
         keys[key],
         key === "use_rdma"
           ? value === "true"
-          : ["cache_size_mb", "cache_rdma_port_num"].includes(key)
+          : ["cache_size_mb", "cache_rdma_port_num", "group_weight"].includes(key)
             ? Number(value)
             : value,
       ]),
