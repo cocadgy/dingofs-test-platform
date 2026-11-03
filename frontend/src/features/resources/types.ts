@@ -126,7 +126,9 @@ export const newMember = (field?: ResourceField): Parameters => ({
   rdma_port: 1,
   ...Object.fromEntries(
     (field?.fields || [])
-      .filter((item) => item.default != null)
+      // Legacy resource forms edit shared group options. Omission inherits them;
+      // an explicit per-member {} is reserved for the machine-specific wizard.
+      .filter((item) => item.default != null && !["cache_options", "cache_profile_id", "cache_profile_revision"].includes(item.key))
       .map((item) => [item.key, item.default]),
   ),
   port_mode: "auto",

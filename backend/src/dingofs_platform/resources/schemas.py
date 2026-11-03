@@ -56,6 +56,9 @@ MEMBER_FIELDS = (
         field("binary_tag", "镜像 TAG", default=""),
         field("binary_digest", "镜像摘要", default=""),
         field("binary_directory", "程序所在目录", default=""),
+        field("cache_options", "本机缓存参数", "cache_options", default={}),
+        field("cache_profile_id", "本机参数模板", default=""),
+        field("cache_profile_revision", "模板版本", "integer", default=0),
     ]
     + RDMA
 )
@@ -468,6 +471,8 @@ def _fields(specs, parameters):
         directory = result.get("binary_directory", "")
         if not directory.startswith("/") or ".." in directory.split("/") or any(ord(c) < 32 for c in directory):
             raise ValueError("binary_directory: 请填写程序目录的绝对路径")
+    if "cache_profile_id" in result and bool(result["cache_profile_id"]) != bool(result["cache_profile_revision"]):
+        raise ValueError("cache_profile_id: 配置与版本必须同时提供")
     if result.get("use_rdma") and not result.get("rdma_device"):
         raise ValueError("rdma_device: required when RDMA is enabled")
     return result

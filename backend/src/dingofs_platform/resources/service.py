@@ -173,8 +173,8 @@ def prepare(db, actor, c, action, p):
                     group_name=p["group_name"],
                     member_id=member_id,
                     process_state="not_started",
-                    cache_expire_s=p.get("cache_expire_s", 259200),
-                    cache_options={k:v for k,v in p.get("cache_options", {}).items() if k not in MEMBER_KEYS},
+                    cache_expire_s=int(data.get("cache_options", p.get("cache_options", {})).get("cache_expire_s", 259200)),
+                    cache_options={k:v for k,v in data.get("cache_options", p.get("cache_options", {})).items() if k not in MEMBER_KEYS},
                     cache_dir=data["cache_dir"].rstrip("/") + "/" + member_id,
                     state_dir="/tmp/dingofs-platform-resources-"
                     + data["target_user"]
@@ -356,11 +356,23 @@ def create(request, cid, payload):
                 saved, source = cache_profiles.resolve(db, p["cache_profile_id"], p["cache_profile_revision"])
                 if "cache_options" not in payload.parameters:
                     options = saved
-            defaults = member_defaults(options)
-            # Explicit per-member values win; the template only supplies omissions.
+            # Resolve every machine independently. Presence matters: {} explicitly
+            # replaces a template; omission inherits the template or legacy group.
             members = []
             for normalized, raw in zip(p["members"], payload.parameters["members"]):
-                members.append({**normalized, **{key:value for key,value in defaults.items() if key not in raw}})
+                member_options = options
+                if normalized.get("cache_profile_id"):
+                    member_options, _ = cache_profiles.resolve(
+                        db, normalized["cache_profile_id"], normalized["cache_profile_revision"]
+                    )
+                if "cache_options" in raw:
+                    member_options = normalized["cache_options"]
+                defaults = member_defaults(member_options)
+                members.append({
+                    **normalized,
+                    **{key: value for key, value in defaults.items() if key not in raw},
+                    "cache_options": dict(member_options),
+                })
             try:
                 p = commands.validate(payload.action, {
                     "group_name": p["group_name"], "members": members,

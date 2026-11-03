@@ -16,7 +16,7 @@ function Form() {
   const [values, setValues] = useState<CacheOptions>({});
   const [profileId, setProfileId] = useState("");
   return <GuidedCacheParameters catalog={catalog} profiles={[profile]} profileId={profileId} values={values}
-    onChange={setValues} onLoad={p => { setProfileId(p?.id || ""); setValues(p?.parameters || {}); }} onSaved={p => setProfileId(p.id)} />;
+    onChange={setValues} onLoad={p => { setProfileId(p?.id || ""); if (p) setValues({ ...p.parameters }); }} onSaved={p => setProfileId(p.id)} />;
 }
 test("common parameters open, other parameters collapsed, loading then saving uses edited values", async () => {
   vi.mocked(api).mockResolvedValue({ ...profile, id: "new", name: "新模板" });
@@ -30,4 +30,24 @@ test("common parameters open, other parameters collapsed, loading then saving us
   fireEvent.click(screen.getByRole("button", { name: "另存为模板" }));
   await waitFor(() => expect(api).toHaveBeenCalledWith("/cache-profiles", "POST", expect.objectContaining({ name: "新模板", parameters: { cache_expire_s: "90" } })));
   expect(profile.parameters.cache_expire_s).toBe("60");
+});
+
+test("detaching a template preserves the current filled parameters", () => {
+  render(<Form />);
+  fireEvent.change(screen.getByLabelText("加载已有模板"), { target: { value: "p" } });
+  fireEvent.change(screen.getByLabelText("参数 --cache_expire_s"), { target: { value: "90" } });
+  fireEvent.change(screen.getByLabelText("加载已有模板"), { target: { value: "" } });
+  expect(screen.getByRole("option", { name: "使用当前填写的参数" })).toBeInTheDocument();
+  expect(screen.getByLabelText("参数 --cache_expire_s")).toHaveValue("90");
+});
+
+test("unavailable template remains visibly selected so current parameters can be kept", () => {
+  const onLoad = vi.fn();
+  render(<GuidedCacheParameters catalog={catalog} profiles={[]} profileId="deleted"
+    values={{cache_expire_s:"90"}} onChange={vi.fn()} onLoad={onLoad} onSaved={vi.fn()} />);
+  expect(screen.getByLabelText("加载已有模板")).toHaveValue("deleted");
+  expect(screen.getByRole("option", {name:"原模板已不可用（保留当前参数）"})).toBeInTheDocument();
+  fireEvent.change(screen.getByLabelText("加载已有模板"), {target:{value:""}});
+  expect(onLoad).toHaveBeenCalledWith(undefined);
+  expect(screen.getByLabelText("参数 --cache_expire_s")).toHaveValue("90");
 });

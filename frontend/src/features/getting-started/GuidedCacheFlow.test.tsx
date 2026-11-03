@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, expect, test, vi } from "vitest";
 import { api } from "../../api/client";
 import { GuidedCacheFlow } from "./GuidedCacheFlow";
@@ -51,18 +51,16 @@ test("explicit binary directory can be overridden per machine", () => {
   expect(cacheMembers(draft).map(row => row.binary_directory)).toEqual(["/opt/cache", "/custom/bin"]);
 });
 
-test("bulk GiB capacity survives confirmation and is submitted as MiB", async () => {
+test("per-machine GiB capacity stays independent and is submitted as MiB", async () => {
   setup();
   await waitFor(() => expect(screen.getByRole("button", { name: "下一步" })).toBeEnabled());
   fireEvent.click(screen.getByRole("button", { name: "下一步" }));
   fireEvent.click(screen.getByRole("button", { name: "下一步" }));
-  fireEvent.click(screen.getByText("批量填写"));
   fireEvent.change(screen.getAllByLabelText("容量单位")[0], { target: { value: "GiB" } });
   fireEvent.change(screen.getAllByLabelText("每节点容量")[0], { target: { value: "1.5" } });
-  fireEvent.click(screen.getByRole("button", { name: "应用到已选机器" }));
-  expect(screen.getAllByLabelText("每节点容量")[1]).toHaveValue(1.5);
+  expect(screen.getAllByLabelText("每节点容量")[1]).toHaveValue(1024);
   fireEvent.click(screen.getByRole("button", { name: "下一步" }));
-  expect(screen.getAllByText("1.5 GiB")).toHaveLength(2);
+  expect(screen.getAllByText("1.5 GiB")).toHaveLength(1);
   fireEvent.click(screen.getByRole("button", { name: "检查并创建缓存组" }));
   await waitFor(() => expect(api).toHaveBeenCalledWith("/clusters/c/resource-operations", "POST", expect.objectContaining({
     action: "cache.plan", parameters: expect.objectContaining({ members: expect.arrayContaining([expect.objectContaining({ cache_size_mb: 1536 })]) }),
@@ -76,7 +74,7 @@ test("edited options persist in draft and reach cache planning request", async (
   render(<GuidedCacheFlow admin userId="u" route="#/start/cache" onNavigate={vi.fn()} onDirty={vi.fn()} />);
   await confirm();
   await waitFor(() => expect(api).toHaveBeenCalledWith("/clusters/c/resource-operations", "POST", expect.objectContaining({
-    action: "cache.plan", parameters: expect.objectContaining({ cache_options: { cache_expire_s: "90" } }),
+    action: "cache.plan", parameters: expect.objectContaining({ members: expect.arrayContaining([expect.objectContaining({ cache_options: { cache_expire_s: "90" } })]) }),
   })));
 });
 
@@ -113,4 +111,48 @@ test("each machine has its own weight and all its nodes inherit it", async () =>
   await waitFor(() => expect(api).toHaveBeenCalledWith("/clusters/c/resource-operations", "POST", expect.objectContaining({ action: "cache.plan" })));
   const request = vi.mocked(api).mock.calls.find(([, , body]) => (body as {action?:string})?.action === "cache.plan")![2] as {parameters:{members:{group_weight:number}[]}};
   expect(request.parameters.members.map(m => m.group_weight)).toEqual([50, 200, 200]);
+});
+
+test("path source is global but directories belong to machines; adding clones current settings only", async () => {
+  setup();
+  await waitFor(() => expect(screen.getByRole("button", { name: "下一步" })).toBeEnabled());
+  fireEvent.click(screen.getByRole("button", { name: "下一步" }));
+  fireEvent.change(screen.getByLabelText("程序来源"), { target: { value: "path" } });
+  expect(screen.queryByLabelText("程序所在目录")).not.toBeInTheDocument();
+  fireEvent.click(screen.getByRole("button", { name: "下一步" }));
+  fireEvent.click(screen.getAllByLabelText("node-2 · 10.0.0.2")[0]);
+  fireEvent.change(screen.getByLabelText(/一致性哈希权重/), { target: { value: "60" } });
+  fireEvent.change(screen.getByLabelText(/程序所在目录/), { target: { value: "/a/bin" } });
+  fireEvent.click(screen.getByLabelText("node-2 · 10.0.0.2"));
+  expect(screen.getAllByLabelText(/一致性哈希权重/)[1]).toHaveValue(60);
+  expect(screen.getAllByLabelText(/程序所在目录/)[1]).toHaveValue("");
+  fireEvent.change(screen.getAllByLabelText(/一致性哈希权重/)[0], { target: { value: "90" } });
+  expect(screen.getAllByLabelText(/一致性哈希权重/)[1]).toHaveValue(60);
+  fireEvent.click(screen.getByRole("button", { name: "下一步" }));
+  expect(screen.queryByRole("button", { name: "检查并创建缓存组" })).not.toBeInTheDocument();
+  fireEvent.change(screen.getAllByLabelText(/程序所在目录/)[1], { target: { value: "/b/bin" } });
+  fireEvent.click(screen.getByRole("button", { name: "下一步" }));
+  fireEvent.click(screen.getByRole("button", { name: "检查并创建缓存组" }));
+  await waitFor(() => expect(api).toHaveBeenCalledWith("/clusters/c/resource-operations", "POST", expect.objectContaining({
+    action: "cache.plan", parameters: expect.objectContaining({ members: expect.arrayContaining([
+      expect.objectContaining({ machine_id: "m1", binary_directory: "/a/bin", group_weight: 90 }),
+      expect.objectContaining({ machine_id: "m2", binary_directory: "/b/bin", group_weight: 60 }),
+    ]) }),
+  })));
+});
+test("copying settings requires explicit target selection and overwrite confirmation", async () => {
+  setup();
+  await waitFor(() => expect(screen.getByRole("button", { name: "下一步" })).toBeEnabled());
+  fireEvent.click(screen.getByRole("button", { name: "下一步" }));
+  fireEvent.click(screen.getByRole("button", { name: "下一步" }));
+  const cards = screen.getAllByRole("group");
+  const first = within(cards[0]);
+  fireEvent.change(first.getByLabelText(/一致性哈希权重/), { target: { value: "60" } });
+  fireEvent.click(first.getByText("复制缓存参数到其他机器"));
+  fireEvent.click(first.getByLabelText("node-2 · 10.0.0.2"));
+  fireEvent.click(first.getByRole("button", { name: "复制参数" }));
+  expect(screen.getAllByLabelText(/一致性哈希权重/)[1]).toHaveValue(100);
+  fireEvent.click(first.getByRole("button", { name: "确认覆盖" }));
+  expect(screen.getAllByLabelText(/一致性哈希权重/)[1]).toHaveValue(60);
+  expect(screen.getAllByLabelText("节点数量")[1]).toHaveValue(2);
 });

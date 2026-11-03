@@ -1,4 +1,4 @@
-import { useId, useMemo, useState } from "react";
+import { useId, useMemo, useState, type ReactNode } from "react";
 import type { CacheCatalog, CacheOptions } from "./types";
 import "./cache-profiles.css";
 
@@ -16,7 +16,11 @@ export function CacheParameterEditor({
   creation = false,
   collapsible = false,
   tool = "dingo-cache",
+  commonContent,
+  hideMemberFields = false,
 }: {
+  commonContent?: ReactNode;
+  hideMemberFields?: boolean;
   catalog: CacheCatalog;
   values: CacheOptions;
   onChange: (values: CacheOptions) => void;
@@ -40,6 +44,7 @@ export function CacheParameterEditor({
   }), [catalog]);
   const rows = orderedFields.filter(
     (row) =>
+      (!hideMemberFields || !row.member_key) &&
       (!(creation && collapsible) || row.name !== "group_weight") &&
       (!group || (group === "common" ? COMMON_PARAMETERS.includes(row.name) : row.group === group)) &&
       (!onlyChanged || Object.hasOwn(values, row.name)) &&
@@ -164,7 +169,7 @@ export function CacheParameterEditor({
         {catalog.fields.length}{" "}
         项。勾选“自定义”才会设置该参数；未设置时使用程序默认值。
       </p>
-      {creation && (
+      {creation && !commonContent && (
         <p className="muted">
           容量、缓存目录和 RDMA
           参数在下方成员表单调整，以成员最终值为准。平台容量初始值为 1024
@@ -201,9 +206,9 @@ export function CacheParameterEditor({
         </label>
       </div>
       {collapsible && !search && !group && !onlyChanged ? <>
-        <details open><summary>常用参数</summary>{renderTable(rows.filter(row => COMMON_PARAMETERS.includes(row.name)))}</details>
+        <details open><summary>常用参数</summary>{commonContent}{renderTable(rows.filter(row => COMMON_PARAMETERS.includes(row.name)))}</details>
         <details><summary>其他参数（{rows.filter(row => !COMMON_PARAMETERS.includes(row.name)).length}）</summary>{renderTable(rows.filter(row => !COMMON_PARAMETERS.includes(row.name)))}</details>
-      </> : renderTable(rows)}
+      </> : <>{commonContent}{renderTable(rows)}</>}
     </section>
   );
 }
