@@ -134,6 +134,8 @@ def prepare(db, actor, c, action, p):
         # Deleting an MDS registration only needs the verified cluster entry.
         # It does not grant process access to the member's host.
         return [step(db, actor, c, action, p)], None
+    if action == "cache.create" and "retry_operation_id" in p:
+        return port_planning.retry_creation(db, actor, c, p["retry_operation_id"])
     if action == "cache.create" and "plan_id" in p:
         return port_planning.consume(db, actor, c, p["plan_id"])
     if action == "mount.create" and p.get("count", 1) > 1:
@@ -348,7 +350,7 @@ def create(request, cid, payload):
                 "fs_name": p["fs_name"], "partition_type": p["partition_type"],
                 **connection,
             })
-        if payload.action in ("cache.create", "cache.plan") and "plan_id" not in p:
+        if payload.action in ("cache.create", "cache.plan") and "plan_id" not in p and "retry_operation_id" not in p:
             options = p.get("cache_options", {})
             if p.get("cache_profile_id"):
                 saved, source = cache_profiles.resolve(db, p["cache_profile_id"], p["cache_profile_revision"])

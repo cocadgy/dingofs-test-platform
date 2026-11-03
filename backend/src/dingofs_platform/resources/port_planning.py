@@ -75,3 +75,42 @@ def store_effective_port(db, op, cursor, port):
         if row["member_id"] == member["member_id"] else row
         for row in resource.data["members"]
     ]}
+
+
+def store_binary_info(db, op, cursor, info):
+    if not isinstance(info, dict) or not str(info.get("path", "")).startswith("/") or len(info.get("sha256", "")) != 64:
+        raise ValueError("程序检查没有返回有效路径和校验值")
+    steps = deepcopy(op.steps)
+    steps[cursor]["record"]["binary_info"] = info
+    op.steps = steps
+    resource = db.get(ManagedResource, op.resource_id)
+    member_id = steps[cursor]["record"]["member_id"]
+    resource.data = {**resource.data, "members": [
+        {**row, "binary_info": info} if row["member_id"] == member_id else row
+        for row in resource.data["members"]
+    ]}
+
+
+def retry_creation(db, actor, cluster, operation_id):
+    from .execution import valid
+    previous = db.get(ResourceOperation, operation_id)
+    if (not previous or previous.action != "cache.create" or previous.actor_id != actor.id
+            or previous.cluster_id != cluster.id or previous.state not in ("failed", "interrupted", "cancelled", "unknown")
+            or not valid(db, previous)):
+        raise Problem(409, "retry_invalid", "原创建任务不可重试，请刷新并核实状态")
+    resource = db.get(ManagedResource, previous.resource_id)
+    if not resource or resource.state not in ("partial", "unknown"):
+        raise Problem(409, "retry_invalid", "缓存组当前状态不可重试")
+    rows = {m["member_id"]: m for m in resource.data["members"]}
+    work = []
+    for original in previous.steps:
+        member = rows[original["record"]["member_id"]]
+        if member.get("process_state") == "running":
+            continue
+        item = deepcopy(original)
+        item["record"] = deepcopy(member)
+        work.append(item)
+    if not work:
+        raise Problem(409, "retry_empty", "没有需要重试的节点")
+    resource.state = "pending"
+    return work, resource

@@ -1,3 +1,4 @@
+import { GuidedCacheFlow } from "./GuidedCacheFlow";
 import { useState } from "react";
 import { GuidedMachineForm } from "./GuidedMachineForm";
 import { GuidedFilesystemFlow } from "./GuidedFilesystemFlow";
@@ -16,7 +17,7 @@ const actions = [
 ] as const;
 
 export function GettingStartedPage({ route, onNavigate, onDirty, admin = false, userId }: {
-  route: "chooser" | "machine" | "cluster" | "cluster-machine" | "filesystem" | "filesystem-storage";
+  route: "chooser" | "machine" | "cluster" | "cluster-machine" | "filesystem" | "filesystem-storage" | "cache";
   onNavigate: (hash: string) => void;
   onDirty: (dirty: boolean) => void;
   admin?: boolean;
@@ -26,6 +27,7 @@ export function GettingStartedPage({ route, onNavigate, onDirty, admin = false, 
   const [comingSoon, setComingSoon] = useState(false);
   const [newMachineId, setNewMachineId] = useState<string>();
   const [importedIds, setImportedIds] = useState<string[]>([]);
+  if (route === "cache") return <GuidedCacheFlow admin={admin} userId={userId} route={window.location.hash} onNavigate={onNavigate} onDirty={onDirty} />;
   if (route === "filesystem") return <section className="getting-started"><p className="eyebrow">GETTING STARTED / FILESYSTEM</p><h1>创建文件系统</h1><GuidedFilesystemFlow admin={admin} userId={userId} onNavigate={onNavigate} onDirty={onDirty} /></section>;
   if (route === "filesystem-storage") return <section className="getting-started"><p className="eyebrow">GETTING STARTED / FILESYSTEM / STORAGE</p><h1>添加存储配置</h1><button type="button" onClick={() => onNavigate("#/start/filesystem")}>返回创建文件系统</button><StorageProfilesPage onDirty={onDirty} onCreated={(id) => { const saved = JSON.parse(sessionStorage.getItem("guided-filesystem-draft") || "{}"); sessionStorage.setItem("guided-filesystem-draft", JSON.stringify({ ...saved, storageId: id })); sessionStorage.setItem("guided-filesystem-storage-return", "1"); onNavigate("#/start/filesystem"); }} /></section>;
   if (route === "machine") return <section className="getting-started"><p className="eyebrow">GETTING STARTED / MACHINE</p><h1>添加机器</h1><GuidedMachineForm onDirty={onDirty} onBack={() => onNavigate("#/start")} /></section>;
@@ -48,7 +50,7 @@ export function GettingStartedPage({ route, onNavigate, onDirty, admin = false, 
           <select id="start-action" value={action} onChange={(event) => setAction(event.target.value)}>
             {actions.map(([value, label]) => <option key={value} value={value}>{label}</option>)}
           </select>
-          <button className="primary" type="button" onClick={() => action === "machine" ? onNavigate("#/start/machine") : action === "cluster" ? onNavigate("#/start/cluster") : action === "filesystem" ? onNavigate("#/start/filesystem") : setComingSoon(true)}>下一步</button>
+          <button className="primary" type="button" onClick={() => action === "machine" ? onNavigate("#/start/machine") : action === "cluster" ? onNavigate("#/start/cluster") : action === "filesystem" ? onNavigate("#/start/filesystem") : action === "cache" ? onNavigate("#/start/cache") : setComingSoon(true)}>下一步</button>
         </div>
       )}
     </section>

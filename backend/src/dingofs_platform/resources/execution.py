@@ -289,6 +289,12 @@ def run(request, oid, password=None, *, claimed=False):
                 return
             if result and op.action in ("cache.plan", "cache.create"):
                 data = result.get("data") or {}
+                if op.action == "cache.plan" and not error and work["record"].get("binary_source"):
+                    try:
+                        port_planning.store_binary_info(db, op, cursor, (data.get("member") or {}).get("binary_info"))
+                    except ValueError as exc:
+                        error = "query_failed"
+                        result = {**result, "message": str(exc), "returncode": 1}
                 port = data.get("effective_port")
                 if port is not None:
                     try:

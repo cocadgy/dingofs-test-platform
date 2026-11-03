@@ -10,7 +10,9 @@ type Draft = Pick<
 >;
 export function CacheProfilesPage({
   onDirty,
+  onSaved,
 }: {
+  onSaved?: (id: string) => void;
   onDirty: (dirty: boolean) => void;
 }) {
   const [items, setItems] = useState<CacheProfile[]>([]);
@@ -20,6 +22,7 @@ export function CacheProfilesPage({
   const [baseline, setBaseline] = useState("");
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
+  const [savedId, setSavedId] = useState("");
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [search, setSearch] = useState("");
@@ -84,6 +87,7 @@ export function CacheProfilesPage({
         ),
       );
       setEditing(row);
+      if (onSaved) setSavedId(row.id);
       setBaseline(JSON.stringify(draft));
       setNotice("缓存组配置已保存。已有成员和已提交任务不受影响。");
     } catch (e) {
@@ -136,6 +140,7 @@ export function CacheProfilesPage({
           {error}
         </p>
       )}
+      {savedId && onSaved && <button type="button" className="primary" disabled={dirty || busy} onClick={() => onSaved(savedId)}>继续创建缓存组</button>}
       {notice && <p role="status">{notice}</p>}
       <div className="cache-profile-toolbar">
         <label>

@@ -18,7 +18,7 @@ type Machine = {
   } | null;
 };
 
-export function GuidedMachineForm({ onDirty, onBack, onCreated }: { onDirty: (value: boolean) => void; onBack: () => void; onCreated?: (id: string) => void }) {
+export function GuidedMachineForm({ onDirty, onBack, onCreated, continueLabel = "继续添加集群" }: { onDirty: (value: boolean) => void; onBack: () => void; onCreated?: (id: string) => void; continueLabel?: string }) {
   const [name, setName] = useState("");
   const [address, setAddress] = useState("");
   const [port, setPort] = useState("22");
@@ -80,7 +80,7 @@ export function GuidedMachineForm({ onDirty, onBack, onCreated }: { onDirty: (va
       </dl>
       <a href={`#/machines/${encodeURIComponent(result.id)}`}>查看机器详情</a>
       <button type="button" onClick={onBack}>返回开始页</button>
-      {onCreated ? <button type="button" className="primary" onClick={() => onCreated(result.id)}>继续添加集群</button> : <button type="button" disabled>继续添加集群（即将支持）</button>}
+      {onCreated ? <button type="button" className="primary" onClick={() => onCreated(result.id)}>{continueLabel}</button> : <button type="button" disabled>继续添加集群（即将支持）</button>}
     </section>;
   }
   return <form className="getting-started-card" onSubmit={submit}>

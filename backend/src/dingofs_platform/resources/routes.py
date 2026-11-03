@@ -67,3 +67,13 @@ def authenticate(
 @router.post("/resource-operations/{id}/cancel")
 def cancel(id: str, request: Request, user=Depends(current_user)):
     return execution.cancel(request, id)
+
+
+@router.get("/cache-binaries/{commit}")
+def cache_binary(commit: str, user=Depends(current_user)):
+    from .cache_binary import resolve_cache_commit
+    from dingofs_platform.errors import Problem
+    try:
+        return resolve_cache_commit(commit)
+    except (ValueError, OSError) as exc:
+        raise Problem(422, "binary_unavailable", str(exc)) from None

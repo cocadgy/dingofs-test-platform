@@ -21,6 +21,7 @@ import sys
 import time
 import uuid
 from pathlib import Path
+from .cache_binary import prepare_cache_binary, verify_cache_binary
 
 MAX_OUTPUT = 1024 * 1024
 # Each filesystem may contain 1024 pretty-printed hash bucket IDs. Even a
@@ -687,10 +688,11 @@ def cache_argv(req):
     if set(extra) & (protected - {"cache_expire_s"}):
         raise ValueError("cache options must not override managed member arguments")
     values.update(extra)
+    if r.get("binary_source") and not r.get("binary_info"):
+        raise ValueError("请先完成程序检查，再创建缓存节点")
+    prefix = [verify_cache_binary(r["binary_info"])] if r.get("binary_info") else ["dingo", "cache", "start"]
     return [
-        "dingo",
-        "cache",
-        "start",
+        *prefix,
         *["--{}={}".format(*item) for item in values.items()],
         *rdma_flags(r),
     ]
@@ -1440,6 +1442,12 @@ def main(req):
         elif req["action"] == "cache.wait_offline":
             state, data = wait_members_offline(req)
         elif req["action"] == "cache.plan":
+            if req["record"].get("binary_source"):
+                req["record"]["binary_info"] = prepare_cache_binary(req["record"])
+                directory = Path(req["record"]["cache_dir"]).parent
+                directory.mkdir(parents=True, exist_ok=True)
+                if not os.access(directory, os.W_OK | os.X_OK):
+                    raise ValueError("缓存基础目录不可写：" + str(directory))
             port = select_cache_port(req)
             state, data = "planned", {"effective_port": port, "member": {
                 key: value for key, value in req["record"].items() if key != "reserved_ports"

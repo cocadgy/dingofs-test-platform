@@ -50,6 +50,9 @@ MEMBER_FIELDS = (
         field("listen_port", "监听端口", "integer", default=21000),
         field("cache_dir", "缓存基础目录", required=True),
         field("cache_size_mb", "缓存容量（MiB）", "integer", default=1024),
+        field("binary_source", "程序来源", default="", options=["", "default", "commit", "path"]),
+        field("binary_commit", "Commit ID", default=""),
+        field("binary_directory", "程序所在目录", default=""),
     ]
     + RDMA
 )
@@ -450,6 +453,12 @@ def _fields(specs, parameters):
             if f["options"] and value not in f["options"]:
                 raise ValueError(f"{key}: invalid option")
         result[key] = value
+    if result.get("binary_source") == "commit" and not re.fullmatch(r"[0-9a-fA-F]{7,40}", result.get("binary_commit", "")):
+        raise ValueError("binary_commit: 请填写 7～40 位 commit ID")
+    if result.get("binary_source") == "path":
+        directory = result.get("binary_directory", "")
+        if not directory.startswith("/") or ".." in directory.split("/") or any(ord(c) < 32 for c in directory):
+            raise ValueError("binary_directory: 请填写程序目录的绝对路径")
     if result.get("use_rdma") and not result.get("rdma_device"):
         raise ValueError("rdma_device: required when RDMA is enabled")
     return result
@@ -458,6 +467,11 @@ def _fields(specs, parameters):
 def validate(action_name, parameters):
     if action_name not in INDEX:
         raise ValueError("unknown resource action")
+    if action_name == "cache.create" and isinstance(parameters, dict) and "retry_operation_id" in parameters:
+        import uuid
+        result = _fields([field("retry_operation_id", "原创建任务", required=True)], parameters)
+        result["retry_operation_id"] = str(uuid.UUID(result["retry_operation_id"]))
+        return result
     if action_name == "cache.create" and isinstance(parameters, dict) and "plan_id" in parameters:
         result = _fields([field("plan_id", "检查清单", required=True)], parameters)
         import uuid

@@ -173,6 +173,9 @@ def build_script(action, parameters, mds_addr, resource_id, record=None, tool_ho
                 "use_rdma",
                 "rdma_device",
                 "rdma_port",
+                "binary_source",
+                "binary_commit",
+                "binary_directory",
             )
             if k in parameters
         }
@@ -211,6 +214,8 @@ def build_script(action, parameters, mds_addr, resource_id, record=None, tool_ho
         "commands": _simple_commands(action, p, mds_addr),
     }
     source = Path(__file__).with_name("remote_helper.py").read_text(encoding="utf-8")
+    binary_source = Path(__file__).with_name("cache_binary.py").read_text(encoding="utf-8")
+    source = source.replace("from .cache_binary import prepare_cache_binary, verify_cache_binary", binary_source)
     return (
         "python3 -c "
         + shlex.quote(source)
