@@ -70,3 +70,5 @@
 .guided-cache-parameters .cache-parameter-table { min-width: 0; width: 100%; table-layout: fixed; }
 .guided-cache-parameters .cache-parameter-table td { overflow-wrap: anywhere; }
 .guided-cache-parameters .cache-parameter-table input, .guided-cache-parameters .cache-parameter-table select { max-width: 100%; }
+
+.guided-cache-grid > .guided-rdma-notice { align-self: end; margin: 0; padding: 10px 12px; min-height: 42px; box-sizing: border-box; line-height: 20px; }

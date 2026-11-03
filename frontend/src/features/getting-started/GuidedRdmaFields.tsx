@@ -15,7 +15,7 @@ export function GuidedRdmaFields({ machine, row, onChange }: {
   const device = devices.includes(row.rdmaDevice) ? row.rdmaDevice : "";
   const ports = [...new Set(pairs.filter(pair => pair.device === device).map(pair => pair.port))];
   const port = ports.includes(row.rdmaPort) ? row.rdmaPort : "";
-  if (!pairs.length) return <p role="alert" className="error">{machine?.rdma == null
+  if (!pairs.length) return <p role="alert" className="error guided-rdma-notice">{machine?.rdma == null
     ? "该机器未采集 RDMA 信息，请先更新机器信息。"
     : "该机器没有 RDMA 设备，无法使用 RDMA。"}</p>;
   return <>
