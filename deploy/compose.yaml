@@ -30,6 +30,7 @@ services:
       dockerfile: deploy/api.Dockerfile
     environment:
       PLATFORM_DATABASE_URL: postgresql+psycopg://platform:${POSTGRES_PASSWORD}@db:5432/platform
+      PLATFORM_CACHE_BINARY_DIR: /var/lib/dingofs-platform/cache-binaries
       PLATFORM_TOOL_BUNDLE_ROOT: /app/tool-bundles
       PLATFORM_TOOL_DEPLOY_TIMEOUT: ${PLATFORM_TOOL_DEPLOY_TIMEOUT:-1800}
       PLATFORM_DASHBOARD_MONITOR_ENABLED: "true"
@@ -54,6 +55,7 @@ services:
       PLATFORM_REMOTE_TERMINAL_LIMIT: ${PLATFORM_REMOTE_TERMINAL_LIMIT:-2}
       PLATFORM_REMOTE_FOLLOW_LIMIT: ${PLATFORM_REMOTE_FOLLOW_LIMIT:-4}
     volumes:
+      - cache-binaries:/var/lib/dingofs-platform/cache-binaries
       - ./ssh:/app/deploy/ssh:ro
       - ../tool-bundles:/app/tool-bundles:ro
     command: [uvicorn, dingofs_platform.app:create_app, --factory, --host, 0.0.0.0, --port, '8000', --proxy-headers, --forwarded-allow-ips, '*']
@@ -77,4 +79,5 @@ services:
         condition: service_healthy
     restart: unless-stopped
 volumes:
+  cache-binaries:
   database:

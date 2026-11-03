@@ -175,6 +175,8 @@ def build_script(action, parameters, mds_addr, resource_id, record=None, tool_ho
                 "rdma_port",
                 "binary_source",
                 "binary_commit",
+                "binary_tag",
+                "binary_digest",
                 "binary_directory",
             )
             if k in parameters

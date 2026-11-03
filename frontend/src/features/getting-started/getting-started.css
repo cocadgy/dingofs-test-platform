@@ -58,3 +58,6 @@
 .guided-cache-profile-list { display: grid; gap: 6px; padding: 12px; border: 1px solid #dce5e1; border-radius: 10px; }
 .guided-cache-profile-list [role="tooltip"] { padding: 12px; background: #f5faf8; overflow-wrap: anywhere; max-height: 240px; overflow: auto; }
 @media (max-width: 680px) { .guided-cache-grid { grid-template-columns: 1fr; } }
+
+.guided-tag-selector { display: grid; gap: 12px; }
+.guided-tag-selector label { display: grid; gap: 8px; }

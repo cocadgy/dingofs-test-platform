@@ -1,3 +1,4 @@
+import { CacheTagSelector } from "./CacheTagSelector";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { api } from "../../api/client";
 import type { ClusterRow } from "../clusters/types";
@@ -12,13 +13,12 @@ import { formatFilesystemName, type FilesystemSuffix } from "./filesystemName";
 import { blankCacheDraft, cacheDraftError, cacheMembers, newCacheRow, type CacheDraft, type CacheMachineDraft } from "./guidedCacheModel";
 
 type Operation = ResourceOperation & { resource_id?: string };
-type Artifact = { commit: string; build_time: string; size: string };
 type Props = { admin: boolean; userId?: string; route: string; onNavigate: (hash: string) => void; onDirty: (dirty: boolean) => void };
 export function GuidedCacheFlow({ admin, userId, route, onNavigate, onDirty }: Props) {
   const key = "guided-cache-draft-" + (userId || "");
   const operationKey = key + "-operation";
   const [draft, setDraft] = useState<CacheDraft>(() => {
-    try { const saved = JSON.parse(sessionStorage.getItem(key) || "null"); return saved && Array.isArray(saved.rows) ? { ...blankCacheDraft(), ...saved } : blankCacheDraft(); }
+    try { const saved = JSON.parse(sessionStorage.getItem(key) || "null"); return saved && Array.isArray(saved.rows) ? { ...blankCacheDraft(), ...saved, ...(saved.source === "commit" ? { source: "tag", tag: "", imageDigest: "" } : {}) } : blankCacheDraft(); }
     catch { return blankCacheDraft(); }
   });
   const [step, setStep] = useState(1);
@@ -26,7 +26,6 @@ export function GuidedCacheFlow({ admin, userId, route, onNavigate, onDirty }: P
   const [snapshot, setSnapshot] = useState<ResourceSnapshot>();
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
-  const [artifact, setArtifact] = useState<Artifact>();
   const [finalName, setFinalName] = useState("");
   const [operation, setOperation] = useState<Operation>();
   const [plan, setPlan] = useState<Operation>();
@@ -44,7 +43,7 @@ export function GuidedCacheFlow({ admin, userId, route, onNavigate, onDirty }: P
   const profile = profiles.find(item => item.id === draft.profileId);
   const preview = profiles.find(item => item.id === profilePreview);
   const active = !!operation && pendingStates.includes(operation.state);
-  const sourceText = draft.source === "default" ? "机器默认程序" : draft.source === "commit" ? "Commit " + draft.commit : draft.binaryDirectory + "/dingo-cache";
+  const sourceText = draft.source === "default" ? "机器默认程序" : draft.source === "tag" ? "TAG " + draft.tag : draft.binaryDirectory + "/dingo-cache";
   const count = draft.rows.reduce((sum, row) => sum + row.count, 0);
   const capacity = draft.rows.reduce((sum, row) => sum + row.count * row.capacity, 0);
   const loadSnapshot = useCallback(async () => {
@@ -124,12 +123,6 @@ export function GuidedCacheFlow({ admin, userId, route, onNavigate, onDirty }: P
     if (values.cache_size_mb) setBulk(current => ({ ...current, capacity: Number(values.cache_size_mb) }));
     setProfileOpen(false);
   }
-  async function queryCommit() {
-    setBusy(true); setError(""); setArtifact(undefined);
-    try { const found = await api<Artifact>("/cache-binaries/" + encodeURIComponent(draft.commit.trim())); setArtifact(found); update({ commit: found.commit }); }
-    catch (cause) { setError((cause as Error).message); }
-    finally { setBusy(false); }
-  }
   async function submit(retry?: string) {
     if (!cluster || sending.current) return;
     if (!retry) {
@@ -154,7 +147,7 @@ export function GuidedCacheFlow({ admin, userId, route, onNavigate, onDirty }: P
   }
   function createAnother() {
     sessionStorage.removeItem(operationKey);
-    setOperation(undefined); setPlan(undefined); setFinalName(""); setArtifact(undefined);
+    setOperation(undefined); setPlan(undefined); setFinalName("");
     setDraft(blankCacheDraft()); setStep(1); setError(""); submittedPlan.current = "";
   }
   const backToGuide = () => onNavigate("#/start/cache");
@@ -164,7 +157,7 @@ export function GuidedCacheFlow({ admin, userId, route, onNavigate, onDirty }: P
   const resources = snapshot?.resources || [];
   const resource = resources.find(item => item.id === operation?.resource_id || item.id === plan?.resource_id);
   const members = (resource?.data.members || []) as (Parameters & { binary_info?: { path: string; version: string; sha256: string } })[];
-  const detailsReady = !!draft.name.trim() && (!draft.profileId || !!profile) && (draft.source !== "commit" || artifact?.commit === draft.commit) && (draft.source !== "path" || draft.binaryDirectory.startsWith("/"));
+  const detailsReady = !!draft.name.trim() && (!draft.profileId || !!profile) && (draft.source !== "tag" || !!draft.tag && /^sha256:[0-9a-f]{64}$/.test(draft.imageDigest)) && (draft.source !== "path" || draft.binaryDirectory.startsWith("/"));
   return <section className="getting-started guided-cache-flow">
     <p className="eyebrow">GETTING STARTED / CACHE</p><h1>创建缓存组</h1>
     <section className="getting-started-card">
@@ -183,8 +176,8 @@ export function GuidedCacheFlow({ admin, userId, route, onNavigate, onDirty }: P
           {profileOpen && <div className="guided-cache-profile-list" role="listbox"><button role="option" aria-selected={!draft.profileId} onClick={() => selectProfile("")}>使用默认参数</button>{profiles.map(item => <button key={item.id} role="option" aria-selected={item.id === draft.profileId} onMouseEnter={() => setProfilePreview(item.id)} onFocus={() => setProfilePreview(item.id)} onClick={() => selectProfile(item.id)}>{item.name}</button>)}{preview && <div role="tooltip"><strong>{preview.name}</strong><p>{preview.description}</p>{Object.entries(preview.parameters).map(([name, value]) => <div key={name}>{name}: {value}</div>)}</div>}</div>}
         </div>
         <button onClick={() => onNavigate("#/start/cache/profile")}>添加缓存组配置</button>
-        <label>程序来源<select value={draft.source} onChange={event => { update({ source: event.target.value as CacheDraft["source"] }); setArtifact(undefined); }}><option value="default">使用机器默认 dingo-cache</option><option value="commit">使用指定 commit ID</option><option value="path">使用指定目录</option></select></label>
-        {draft.source === "commit" && <><label>Commit ID<input disabled={busy} value={draft.commit} onChange={event => { update({ commit: event.target.value }); setArtifact(undefined); }} /></label><button disabled={busy || !draft.commit.trim()} onClick={() => void queryCommit()}>{busy ? "查询中…" : "查询版本"}</button>{artifact && <p role="status">Commit {artifact.commit} · {artifact.build_time} · {artifact.size}</p>}</>}
+        <label>程序来源<select value={draft.source} onChange={event => { update({ source: event.target.value as CacheDraft["source"] });  }}><option value="default">使用机器默认 dingo-cache</option><option value="tag">使用指定 TAG</option><option value="path">使用指定目录</option></select></label>
+        {draft.source === "tag" && <CacheTagSelector tag={draft.tag} digest={draft.imageDigest} onChange={(tag, imageDigest) => update({ tag, imageDigest })} />}
         {draft.source === "path" && <label>程序所在目录<input value={draft.binaryDirectory} placeholder="/opt/dingofs/bin" onChange={event => update({ binaryDirectory: event.target.value })} /><small>使用该目录下的 dingo-cache，下一步可按机器调整。</small></label>}
         <div className="getting-started-actions"><button onClick={() => setStep(1)}>上一步</button><button className="primary" disabled={!detailsReady || busy} onClick={() => setStep(3)}>下一步</button></div>
       </>}
@@ -202,11 +195,11 @@ export function GuidedCacheFlow({ admin, userId, route, onNavigate, onDirty }: P
       {step === 4 && <>
         <h2>确认并创建</h2><p>目标集群：{cluster?.external_name}</p><p>缓存组名称：{finalName}</p><p>程序：{sourceText}</p><p>缓存配置：{profile?.name || "默认参数"}</p>
         <div className="guided-cache-table"><table><thead><tr><th>机器 / 用户</th><th>节点数量</th><th>缓存基础目录</th><th>每节点容量</th><th>程序目录</th></tr></thead><tbody>{draft.rows.map(row => <tr key={row.machineId}><td>{machines.find(item => item.id === row.machineId)?.name} / {row.user}</td><td>{row.count}</td><td>{row.directory}</td><td>{row.capacity} MiB</td><td>{draft.source === "path" ? row.binaryDirectory || draft.binaryDirectory : sourceText}</td></tr>)}</tbody></table></div>
-        <p>全部 {count} 个节点加入同一缓存组。先检查所有机器的程序、目录和端口，通过后自动创建。</p>
+        <p>全部 {count} 个节点加入同一缓存组。先准备并分发程序，检查所有机器的程序、目录和端口，通过后自动创建。</p>
         <div className="getting-started-actions"><button disabled={busy} onClick={() => setStep(3)}>返回修改</button><button className="primary" disabled={busy} onClick={() => void submit()}>{busy ? "提交中…" : "检查并创建缓存组"}</button></div>
       </>}
       {step === 5 && operation && <>
-        <h2>{operation.action === "cache.plan" ? "准备程序并检查部署环境" : operation.state === "succeeded" ? "缓存组创建完成" : "缓存组创建进度"}</h2>
+        <h2>{operation.action === "cache.plan" ? "准备与分发程序并检查部署环境" : operation.state === "succeeded" ? "缓存组创建完成" : "缓存组创建进度"}</h2>
         <ResourceOperationView operation={operation} label={operation.action === "cache.plan" ? "程序和端口检查" : "创建缓存组"} canManage onChange={setOperation} />
         {!!members.length && <div className="guided-cache-table"><table><thead><tr><th>机器 / 节点</th><th>状态</th><th>监听地址</th><th>程序版本 / 路径</th></tr></thead><tbody>{members.map(member => <tr key={String(member.member_id)}><td>{machines.find(item => item.id === member.machine_id)?.name || String(member.machine_id)}<br />{String(member.member_id)}</td><td>{member.process_state === "running" ? "成功" : member.process_state === "unknown" ? "失败或结果待核实" : "待启动"}</td><td>{String(member.listen_ip)}:{String(member.listen_port)}</td><td>{member.binary_info?.version}<br />{member.binary_info?.path || "等待程序检查"}</td></tr>)}</tbody></table></div>}
         <div className="getting-started-actions">

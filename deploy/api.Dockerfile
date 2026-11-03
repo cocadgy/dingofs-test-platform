@@ -3,6 +3,8 @@ WORKDIR /app
 COPY backend/requirements.lock backend/requirements.lock
 RUN pip install --no-cache-dir -r backend/requirements.lock
 COPY backend backend
-RUN pip install --no-cache-dir --no-deps ./backend && useradd --uid 10001 --create-home platform
+RUN pip install --no-cache-dir --no-deps ./backend && useradd --uid 10001 --create-home platform \
+    && mkdir -p /var/lib/dingofs-platform/cache-binaries \
+    && chown platform:platform /var/lib/dingofs-platform/cache-binaries
 USER platform
 EXPOSE 8000

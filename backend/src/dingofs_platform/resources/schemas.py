@@ -50,8 +50,10 @@ MEMBER_FIELDS = (
         field("listen_port", "监听端口", "integer", default=21000),
         field("cache_dir", "缓存基础目录", required=True),
         field("cache_size_mb", "缓存容量（MiB）", "integer", default=1024),
-        field("binary_source", "程序来源", default="", options=["", "default", "commit", "path"]),
+        field("binary_source", "程序来源", default="", options=["", "default", "commit", "tag", "path"]),
         field("binary_commit", "Commit ID", default=""),
+        field("binary_tag", "镜像 TAG", default=""),
+        field("binary_digest", "镜像摘要", default=""),
         field("binary_directory", "程序所在目录", default=""),
     ]
     + RDMA
@@ -455,6 +457,11 @@ def _fields(specs, parameters):
         result[key] = value
     if result.get("binary_source") == "commit" and not re.fullmatch(r"[0-9a-fA-F]{7,40}", result.get("binary_commit", "")):
         raise ValueError("binary_commit: 请填写 7～40 位 commit ID")
+    if result.get("binary_source") == "tag":
+        if not re.fullmatch(r"[A-Za-z0-9_][A-Za-z0-9_.-]{0,127}", result.get("binary_tag", "")):
+            raise ValueError("binary_tag: 请从列表选择有效 TAG")
+        if not re.fullmatch(r"sha256:[0-9a-f]{64}", result.get("binary_digest", "")):
+            raise ValueError("binary_digest: 请重新选择 TAG 获取镜像摘要")
     if result.get("binary_source") == "path":
         directory = result.get("binary_directory", "")
         if not directory.startswith("/") or ".." in directory.split("/") or any(ord(c) < 32 for c in directory):

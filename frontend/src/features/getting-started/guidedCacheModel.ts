@@ -8,12 +8,12 @@ export type CacheMachineDraft = {
 };
 export type CacheDraft = {
   clusterId: string; name: string; suffix: FilesystemSuffix; profileId: string;
-  source: "default" | "commit" | "path"; commit: string; binaryDirectory: string;
+  source: "default" | "tag" | "path"; tag: string; imageDigest: string; binaryDirectory: string;
   rows: CacheMachineDraft[];
 };
 export const blankCacheDraft = (): CacheDraft => ({
   clusterId: "", name: "", suffix: "none", profileId: "", source: "default",
-  commit: "", binaryDirectory: "", rows: [],
+  tag: "", imageDigest: "", binaryDirectory: "", rows: [],
 });
 export function newCacheRow(machine: ResourceMachine): CacheMachineDraft {
   return { machineId: machine.id, user: machine.ssh_user, count: 1, directory: "", capacity: 1024,
@@ -21,6 +21,7 @@ export function newCacheRow(machine: ResourceMachine): CacheMachineDraft {
     rdma: false, rdmaDevice: "", rdmaPort: 1 };
 }
 export function cacheDraftError(draft: CacheDraft): string {
+  if (draft.source === "tag" && (!draft.tag || !/^sha256:[0-9a-f]{64}$/.test(draft.imageDigest))) return "请从列表选择镜像 TAG";
   if (!draft.rows.length) return "请至少选择一台部署机器";
   for (const row of draft.rows) {
     if (!row.user.trim() || !row.directory.startsWith("/") || row.directory === "/") return "请填写各机器的执行用户和缓存基础目录";
@@ -39,7 +40,8 @@ export function cacheMembers(draft: CacheDraft): Parameters[] {
     listen_ip: row.listenIp.trim(), port_mode: row.portMode, listen_port: row.port + (row.portMode === "manual" ? index : 0),
     cache_dir: row.directory.trim(), cache_size_mb: row.capacity,
     use_rdma: row.rdma, rdma_device: row.rdmaDevice.trim(), rdma_port: row.rdmaPort,
-    binary_source: draft.source, binary_commit: draft.source === "commit" ? draft.commit.trim() : "",
+    binary_source: draft.source, binary_tag: draft.source === "tag" ? draft.tag : "",
+    binary_digest: draft.source === "tag" ? draft.imageDigest : "",
     binary_directory: draft.source === "path" ? (row.binaryDirectory || draft.binaryDirectory).trim() : "",
   })));
 }

@@ -4,6 +4,7 @@ import json
 import os
 import re
 import subprocess
+import shutil
 import tempfile
 import urllib.request
 from pathlib import Path
@@ -63,6 +64,33 @@ def prepare_cache_binary(record):
         if not directory.startswith("/") or ".." in Path(directory).parts:
             raise ValueError("请填写程序所在目录的绝对路径")
         path = Path(directory) / "dingo-cache"
+    elif source == "tag":
+        digest = record.get("binary_digest", "")
+        uploaded = record.get("binary_upload") or {}
+        expected = uploaded.get("sha256", "")
+        if not re.fullmatch(r"sha256:[0-9a-f]{64}", digest) or not re.fullmatch(r"[0-9a-f]{64}", expected):
+            raise ValueError("TAG 程序尚未完成平台分发或校验信息无效")
+        root = Path.home() / ".local/share/dingofs-platform/cache-binaries" / digest.split(":")[1]
+        root.mkdir(parents=True, exist_ok=True, mode=0o700)
+        path = root / "dingo-cache"
+        if not path.is_file() or cache_file_digest(path) != expected:
+            source_path = Path(uploaded.get("path", ""))
+            if not source_path.is_file():
+                raise ValueError("平台分发的程序文件不存在，请重新检查")
+            temporary = None
+            try:
+                with tempfile.NamedTemporaryFile(dir=root, delete=False) as out, source_path.open("rb") as source_file:
+                    temporary = Path(out.name)
+                    shutil.copyfileobj(source_file, out, 1024 * 1024)
+                if cache_file_digest(temporary) != expected:
+                    raise ValueError("TAG 程序校验失败，不会使用其他版本")
+                temporary.chmod(0o700)
+                inspect_cache_binary(temporary)
+                os.replace(temporary, path)
+                temporary = None
+            finally:
+                if temporary is not None:
+                    temporary.unlink(missing_ok=True)
     elif source == "commit":
         artifact = resolve_cache_commit(record.get("binary_commit", ""))
         commit = artifact["commit"]
@@ -102,7 +130,8 @@ def prepare_cache_binary(record):
             raise ValueError("无法读取当前执行用户的默认 dingo-cache：" + str(exc)) from exc
     else:
         raise ValueError("无效的程序来源")
-    return {**inspect_cache_binary(path, commit), "source": source, "commit": commit}
+    return {**inspect_cache_binary(path, commit), "source": source, "commit": commit,
+            **({"tag": record["binary_tag"], "digest": record["binary_digest"]} if source == "tag" else {})}
 
 
 def verify_cache_binary(info):

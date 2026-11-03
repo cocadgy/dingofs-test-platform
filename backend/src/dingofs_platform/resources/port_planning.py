@@ -7,12 +7,18 @@ from .models import ManagedResource, ResourceOperation
 from .views import now, ACTIVE
 
 
+def fresh_plan(plan):
+    if any(step.get("record", {}).get("binary_source") == "tag" for step in plan.steps):
+        return plan.expires_at > now()
+    return plan.created_at > now() - timedelta(minutes=10)
+
+
 def reserved_ports(db, member):
     ports = set()
     for resource in db.scalars(select(ManagedResource).where(ManagedResource.kind == "cache", ManagedResource.state.in_(("planned", "pending", "running", "partial")))):
         if resource.state in ("planned", "pending"):
             operations = list(db.scalars(select(ResourceOperation).where(ResourceOperation.resource_id == resource.id)))
-            if not any(op.expires_at > now() and (op.state in ACTIVE or op.action == "cache.plan" and op.state == "succeeded" and op.created_at > now()-timedelta(minutes=10)) for op in operations):
+            if not any(op.expires_at > now() and (op.state in ACTIVE or op.action == "cache.plan" and op.state == "succeeded" and fresh_plan(op)) for op in operations):
                 continue
         for other in resource.data.get("members", []):
             if other["machine_id"] == member["machine_id"] and other["member_id"] != member["member_id"]:
@@ -44,7 +50,7 @@ def consume(db, actor, cluster, plan_id):
     plan = db.get(ResourceOperation, plan_id)
     if (not plan or plan.action != "cache.plan" or plan.actor_id != actor.id
             or plan.cluster_id != cluster.id or plan.state != "succeeded"
-            or plan.created_at <= now()-timedelta(minutes=10) or not valid(db, plan)):
+            or not fresh_plan(plan) or not valid(db, plan)):
         raise Problem(409, "plan_stale", "端口检查清单已失效或尚未完成，请重新检查")
     resource = db.get(ManagedResource, plan.resource_id)
     if not resource or resource.state != "planned":

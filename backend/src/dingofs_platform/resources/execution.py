@@ -1,6 +1,9 @@
 """Sequential bounded execution; completed steps are never repeated after sudo auth."""
 
 import json
+import os
+from pathlib import Path
+from contextlib import ExitStack
 from copy import deepcopy
 import secrets
 import time
@@ -24,7 +27,7 @@ from dingofs_platform.errors import Problem
 from .models import ResourceOperation, ManagedResource
 from .views import ACTIVE, now, expire, operation_view
 from .safety import redact, product_failed
-from . import commands, port_planning
+from . import commands, port_planning, cache_images, cache_transfer
 from .bulk_create import finish_mount_batch
 from .remote_helper import FS_LIST_MAX_RESPONSE
 
@@ -67,6 +70,8 @@ def terminal(db, op, state, code=None):
     if op.resource_id:
         r = db.get(ManagedResource, op.resource_id)
         if state == "succeeded":
+            if op.action == "cache.plan":
+                op.expires_at = now() + timedelta(minutes=10)
             status = {
                 "cache.create": "running",
                 "cache.stop": "stopped",
@@ -96,7 +101,9 @@ def terminal(db, op, state, code=None):
 
 def run(request, oid, password=None, *, claimed=False):
     settings = request.app.state.settings
-    deadline = time.monotonic() + settings.resource_operation_timeout
+    operation_timeout = settings.resource_operation_timeout
+    deadline = time.monotonic() + operation_timeout
+    artifacts, distributed = {}, set()
     with get_db(request) as db, db.begin():
         lock_inventory(db)
         op = db.get(ResourceOperation, oid)
@@ -108,9 +115,12 @@ def run(request, oid, password=None, *, claimed=False):
         if not valid(db, op):
             terminal(db, op, "failed", "stale")
             return
+        if op.action == "cache.plan" and any(step.get("record", {}).get("binary_source") == "tag" for step in op.steps):
+            operation_timeout = max(operation_timeout, 3600)
+            deadline = time.monotonic() + operation_timeout
         op.state = "running"
         op.expires_at = now() + timedelta(
-            seconds=settings.resource_operation_timeout + 10
+            seconds=operation_timeout + 10
         )
         lease = op.lease_token
     while True:
@@ -186,7 +196,21 @@ def run(request, oid, password=None, *, claimed=False):
                     ]
             return last_check[1]
 
+        transfer_stack = ExitStack()
+        distributed_key = None
         try:
+            if work["action"] == "cache.plan" and work["record"].get("binary_source") == "tag":
+                image_digest = work["record"]["binary_digest"]
+                if image_digest not in artifacts:
+                    root = Path(os.environ.get("PLATFORM_CACHE_BINARY_DIR", str(Path.home() / ".cache/dingofs-platform/cache-binaries")))
+                    artifacts[image_digest] = cache_images.ensure_cached(image_digest, root, cancelled, deadline)
+                artifact = artifacts[image_digest]
+                distributed_key = (work["machine_id"], work["target_user"], image_digest)
+                if distributed_key in distributed:
+                    work["record"]["binary_upload"] = {"path": "", "sha256": artifact["sha256"]}
+                else:
+                    work["record"]["binary_upload"] = transfer_stack.enter_context(
+                        cache_transfer.upload_binary(config, artifact, cancelled, deadline))
             remaining = deadline - time.monotonic()
             if remaining <= 0:
                 raise ClusterExecutionError("timeout")
@@ -260,13 +284,22 @@ def run(request, oid, password=None, *, claimed=False):
             )
             if output.returncode or product_failed(parsed):
                 raise ClusterExecutionError("query_failed")
+            if distributed_key is not None:
+                distributed.add(distributed_key)
         except AuthenticationRequired as exc:
             error, auth_account = "needs_password", exc.account
         except (ClusterExecutionError, CollectionError) as exc:
             error = exc.code
+        except (ValueError, OSError) as exc:
+            if work["record"].get("binary_source") == "tag":
+                error = "query_failed"
+                result = {"message": "TAG 程序准备失败：" + str(exc), "returncode": 1}
+            else:
+                error = "worker_failed"
         except Exception:
             error = "worker_failed"
         finally:
+            transfer_stack.close()
             password = None
             secret_values.clear()
         with get_db(request) as db, db.begin():

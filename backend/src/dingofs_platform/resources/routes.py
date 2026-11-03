@@ -1,5 +1,5 @@
 from uuid import UUID
-from fastapi import APIRouter, Request, Depends, BackgroundTasks
+from fastapi import APIRouter, Request, Depends, BackgroundTasks, Query
 from pydantic import BaseModel, Field, ConfigDict, SecretStr
 from dingofs_platform.auth.dependencies import current_user
 from dingofs_platform.db import get_db
@@ -77,3 +77,14 @@ def cache_binary(commit: str, user=Depends(current_user)):
         return resolve_cache_commit(commit)
     except (ValueError, OSError) as exc:
         raise Problem(422, "binary_unavailable", str(exc)) from None
+
+
+@router.get("/cache-image-tags")
+def cache_image_tags(page: int = Query(default=1, ge=1, le=10000),
+                     search: str = Query(default="", max_length=128), user=Depends(current_user)):
+    from .cache_images import list_tags
+    from dingofs_platform.errors import Problem
+    try:
+        return list_tags(page, search)
+    except (ValueError, OSError, KeyError, TypeError):
+        raise Problem(502, "image_tags_unavailable", "无法获取 Docker Hub TAG 列表，请稍后重试") from None
