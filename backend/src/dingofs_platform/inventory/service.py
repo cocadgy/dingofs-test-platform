@@ -76,6 +76,11 @@ def serialize(db, kind, row):
 
 
 def lock_inventory(db):
+    # Global order: accounts -> inventory. Resource reads recheck the actor
+    # after locking inventory, while creation paths already hold accounts.
+    from dingofs_platform.auth.users import lock_accounts
+
+    lock_accounts(db)
     # Serializes relationship mutations and archival, not future long-running jobs.
     db.execute(text("SELECT pg_advisory_xact_lock(7412081)"))
 
