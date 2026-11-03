@@ -22,6 +22,7 @@ import time
 import uuid
 from pathlib import Path
 from .cache_binary import prepare_cache_binary, verify_cache_binary
+from .cache_directory import prepare_cache_directory
 
 MAX_OUTPUT = 1024 * 1024
 # Each filesystem may contain 1024 pretty-printed hash bucket IDs. Even a
@@ -1445,9 +1446,7 @@ def main(req):
             if req["record"].get("binary_source"):
                 req["record"]["binary_info"] = prepare_cache_binary(req["record"])
                 directory = Path(req["record"]["cache_dir"]).parent
-                directory.mkdir(parents=True, exist_ok=True)
-                if not os.access(directory, os.W_OK | os.X_OK):
-                    raise ValueError("缓存基础目录不可写：" + str(directory))
+                prepare_cache_directory(str(directory))
             port = select_cache_port(req)
             state, data = "planned", {"effective_port": port, "member": {
                 key: value for key, value in req["record"].items() if key != "reserved_ports"

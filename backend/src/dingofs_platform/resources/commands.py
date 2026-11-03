@@ -218,6 +218,8 @@ def build_script(action, parameters, mds_addr, resource_id, record=None, tool_ho
     source = Path(__file__).with_name("remote_helper.py").read_text(encoding="utf-8")
     binary_source = Path(__file__).with_name("cache_binary.py").read_text(encoding="utf-8")
     source = source.replace("from .cache_binary import prepare_cache_binary, verify_cache_binary", binary_source)
+    directory_source = Path(__file__).with_name("cache_directory.py").read_text(encoding="utf-8")
+    source = source.replace("from .cache_directory import prepare_cache_directory", directory_source)
     return (
         "python3 -c "
         + shlex.quote(source)

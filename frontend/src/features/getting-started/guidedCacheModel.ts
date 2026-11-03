@@ -1,14 +1,17 @@
+import type { CapacityUnit } from "./CapacityInput";
+import type { CacheOptions } from "../cache-profiles/types";
 import type { Parameters, ResourceMachine } from "../resources/types";
 import type { FilesystemSuffix } from "./filesystemName";
 
 export type CacheMachineDraft = {
-  machineId: string; user: string; count: number; directory: string; capacity: number;
+  machineId: string; user: string; count: number; directory: string; capacity: number; capacityUnit?: CapacityUnit;
   listenIp: string; portMode: "auto" | "manual"; port: number;
   binaryDirectory: string; rdma: boolean; rdmaDevice: string; rdmaPort: number;
 };
 export type CacheDraft = {
   clusterId: string; name: string; suffix: FilesystemSuffix; profileId: string;
   source: "default" | "tag" | "path"; tag: string; imageDigest: string; binaryDirectory: string;
+  options?: CacheOptions;
   rows: CacheMachineDraft[];
 };
 export const blankCacheDraft = (): CacheDraft => ({
@@ -25,7 +28,7 @@ export function cacheDraftError(draft: CacheDraft): string {
   if (!draft.rows.length) return "请至少选择一台部署机器";
   for (const row of draft.rows) {
     if (!row.user.trim() || !row.directory.startsWith("/") || row.directory === "/") return "请填写各机器的执行用户和缓存基础目录";
-    if (!Number.isInteger(row.count) || row.count < 1 || !Number.isInteger(row.capacity) || row.capacity < 1) return "节点数量和每节点容量必须为正整数";
+    if (!Number.isInteger(row.count) || row.count < 1 || !Number.isSafeInteger(row.capacity) || row.capacity < 1) return "节点数量必须为正整数，容量换算为 MiB 后必须为安全范围内的正整数";
     if (draft.source === "path" && !(row.binaryDirectory || draft.binaryDirectory).startsWith("/")) return "请填写程序所在目录的绝对路径";
     if (row.portMode === "manual" && (!Number.isInteger(row.port) || row.port < 1 || row.port + row.count - 1 > 65535)) return "手动端口范围必须在 1～65535 之间";
     if (row.rdma && !row.rdmaDevice.trim()) return "启用 RDMA 时请填写设备名称";

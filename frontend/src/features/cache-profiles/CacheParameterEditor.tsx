@@ -14,6 +14,7 @@ export function CacheParameterEditor({
   onChange,
   disabled = false,
   creation = false,
+  collapsible = false,
   tool = "dingo-cache",
 }: {
   catalog: CacheCatalog;
@@ -21,6 +22,7 @@ export function CacheParameterEditor({
   onChange: (values: CacheOptions) => void;
   disabled?: boolean;
   creation?: boolean;
+  collapsible?: boolean;
   tool?: "dingo-cache" | "dingo-client";
 }) {
   const id = useId();
@@ -50,49 +52,7 @@ export function CacheParameterEditor({
     else next[key] = value;
     onChange(next);
   }
-  return (
-    <section className="cache-parameter-editor" aria-label={tool === "dingo-client" ? "挂载启动参数" : "缓存启动参数"}>
-      <p className="muted">
-        参数来自 {tool} {catalog.source_version} · 共{" "}
-        {catalog.fields.length}{" "}
-        项。勾选“自定义”才会设置该参数；未设置时使用程序默认值。
-      </p>
-      {creation && (
-        <p className="muted">
-          容量、缓存目录和 RDMA
-          参数在下方成员表单调整，以成员最终值为准。平台容量初始值为 1024
-          MiB，与程序默认值不同。
-        </p>
-      )}
-      <div className="cache-parameter-filters">
-        <label>
-          搜索参数
-          <input
-            type="search"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            placeholder="参数名、说明"
-          />
-        </label>
-        <label>
-          参数分类
-          <select value={group} onChange={(e) => setGroup(e.target.value)}>
-            <option value="">全部分类</option>
-            <option value="common">常用参数</option>
-            {groups.map((g) => (
-              <option key={g}>{g}</option>
-            ))}
-          </select>
-        </label>
-        <label className="cache-inline">
-          <input
-            type="checkbox"
-            checked={onlyChanged}
-            onChange={(e) => setOnlyChanged(e.target.checked)}
-          />
-          仅已配置（{Object.keys(values).length}）
-        </label>
-      </div>
+  const renderTable = (fields: CacheCatalog["fields"]) => (
       <div className="cache-parameter-scroll">
         <table className="cache-parameter-table">
           <thead>
@@ -103,7 +63,7 @@ export function CacheParameterEditor({
             </tr>
           </thead>
           <tbody>
-            {rows.map((row) => {
+            {fields.map((row) => {
               const locked =
                 row.managed ||
                 (creation && row.member_key ? "在成员表单中设置" : "");
@@ -193,8 +153,56 @@ export function CacheParameterEditor({
             })}
           </tbody>
         </table>
-        {!rows.length && <p className="muted">没有匹配的参数。</p>}
+        {!fields.length && <p className="muted">没有匹配的参数。</p>}
       </div>
+  );
+  return (
+    <section className="cache-parameter-editor" aria-label={tool === "dingo-client" ? "挂载启动参数" : "缓存启动参数"}>
+      <p className="muted">
+        参数来自 {tool} {catalog.source_version} · 共{" "}
+        {catalog.fields.length}{" "}
+        项。勾选“自定义”才会设置该参数；未设置时使用程序默认值。
+      </p>
+      {creation && (
+        <p className="muted">
+          容量、缓存目录和 RDMA
+          参数在下方成员表单调整，以成员最终值为准。平台容量初始值为 1024
+          MiB，与程序默认值不同。
+        </p>
+      )}
+      <div className="cache-parameter-filters">
+        <label>
+          搜索参数
+          <input
+            type="search"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="参数名、说明"
+          />
+        </label>
+        <label>
+          参数分类
+          <select value={group} onChange={(e) => setGroup(e.target.value)}>
+            <option value="">全部分类</option>
+            <option value="common">常用参数</option>
+            {groups.map((g) => (
+              <option key={g}>{g}</option>
+            ))}
+          </select>
+        </label>
+        <label className="cache-inline">
+          <input
+            type="checkbox"
+            checked={onlyChanged}
+            onChange={(e) => setOnlyChanged(e.target.checked)}
+          />
+          仅已配置（{Object.keys(values).length}）
+        </label>
+      </div>
+      {collapsible && !search && !group && !onlyChanged ? <>
+        <details open><summary>常用参数</summary>{renderTable(rows.filter(row => COMMON_PARAMETERS.includes(row.name)))}</details>
+        <details><summary>其他参数（{rows.filter(row => !COMMON_PARAMETERS.includes(row.name)).length}）</summary>{renderTable(rows.filter(row => !COMMON_PARAMETERS.includes(row.name)))}</details>
+      </> : renderTable(rows)}
     </section>
   );
 }

@@ -1,3 +1,5 @@
+import { CapacityInput, capacityFactors, type CapacityUnit } from "./CapacityInput";
+import { GuidedCacheParameters } from "./GuidedCacheParameters";
 import { CacheTagSelector } from "./CacheTagSelector";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { api } from "../../api/client";
@@ -29,9 +31,7 @@ export function GuidedCacheFlow({ admin, userId, route, onNavigate, onDirty }: P
   const [finalName, setFinalName] = useState("");
   const [operation, setOperation] = useState<Operation>();
   const [plan, setPlan] = useState<Operation>();
-  const [profilePreview, setProfilePreview] = useState("");
-  const [profileOpen, setProfileOpen] = useState(false);
-  const [bulk, setBulk] = useState({ user: "", count: 1, directory: "", capacity: 1024 });
+  const [bulk, setBulk] = useState({ user: "", count: 1, directory: "", capacity: 1024, capacityUnit: "MiB" as CapacityUnit });
   const submittedPlan = useRef("");
   const sending = useRef(false);
   const newMachine = useRef("");
@@ -41,7 +41,7 @@ export function GuidedCacheFlow({ admin, userId, route, onNavigate, onDirty }: P
   const machines = (snapshot?.machines || []).filter(item => item.can_manage);
   const profiles = (snapshot?.cache_profiles || []).filter(item => item.enabled);
   const profile = profiles.find(item => item.id === draft.profileId);
-  const preview = profiles.find(item => item.id === profilePreview);
+  const options = draft.options ?? profile?.parameters ?? {};
   const active = !!operation && pendingStates.includes(operation.state);
   const sourceText = draft.source === "default" ? "机器默认程序" : draft.source === "tag" ? "TAG " + draft.tag : draft.binaryDirectory + "/dingo-cache";
   const count = draft.rows.reduce((sum, row) => sum + row.count, 0);
@@ -56,7 +56,7 @@ export function GuidedCacheFlow({ admin, userId, route, onNavigate, onDirty }: P
         const saved = next.cache_profiles?.find(item => item.id === newProfile.current);
         if (saved) {
           const values = memberDefaults(saved.parameters);
-          setDraft(current => ({ ...current, rows: current.rows.map(row => ({ ...row,
+          setDraft(current => ({ ...current, options: { ...saved.parameters }, rows: current.rows.map(row => ({ ...row,
             ...(values.cache_size_mb ? { capacity: Number(values.cache_size_mb) } : {}),
             ...(values.cache_dir ? { directory: String(values.cache_dir) } : {}),
             ...(values.use_rdma !== undefined ? { rdma: Boolean(values.use_rdma), rdmaDevice: String(values.rdma_device || ""), rdmaPort: Number(values.rdma_port || 1) } : {}),
@@ -119,9 +119,8 @@ export function GuidedCacheFlow({ admin, userId, route, onNavigate, onDirty }: P
   function selectProfile(id: string) {
     const selected = profiles.find(item => item.id === id);
     const values = memberDefaults(selected?.parameters || {});
-    update({ profileId: id, rows: draft.rows.map(row => ({ ...row, ...(values.cache_size_mb ? { capacity: Number(values.cache_size_mb) } : {}), ...(values.cache_dir ? { directory: String(values.cache_dir) } : {}), ...(values.use_rdma !== undefined ? { rdma: Boolean(values.use_rdma), rdmaDevice: String(values.rdma_device || ""), rdmaPort: Number(values.rdma_port || 1) } : {}) })) });
+    update({ profileId: id, options: { ...selected?.parameters }, rows: draft.rows.map(row => ({ ...row, ...(values.cache_size_mb ? { capacity: Number(values.cache_size_mb) } : {}), ...(values.cache_dir ? { directory: String(values.cache_dir) } : {}), ...(values.use_rdma !== undefined ? { rdma: Boolean(values.use_rdma), rdmaDevice: String(values.rdma_device || ""), rdmaPort: Number(values.rdma_port || 1) } : {}) })) });
     if (values.cache_size_mb) setBulk(current => ({ ...current, capacity: Number(values.cache_size_mb) }));
-    setProfileOpen(false);
   }
   async function submit(retry?: string) {
     if (!cluster || sending.current) return;
@@ -134,7 +133,7 @@ export function GuidedCacheFlow({ admin, userId, route, onNavigate, onDirty }: P
     sending.current = true; setBusy(true); setError("");
     try {
       const parameters: Parameters = retry ? { retry_operation_id: retry } : {
-        group_name: finalName, members: cacheMembers(draft),
+        group_name: finalName, members: cacheMembers(draft), cache_options: options,
         ...(profile ? { cache_profile_id: profile.id, cache_profile_revision: profile.revision } : {}),
       };
       const next = await api<Operation>("/clusters/" + encodeURIComponent(cluster.id) + "/resource-operations", "POST", {
@@ -172,10 +171,11 @@ export function GuidedCacheFlow({ admin, userId, route, onNavigate, onDirty }: P
         <h2>填写缓存组信息</h2>
         <label>缓存组名称<input value={draft.name} onChange={event => update({ name: event.target.value })} placeholder="例如 test-cache" /></label>
         <label>时间后缀<select value={draft.suffix} onChange={event => update({ suffix: event.target.value as FilesystemSuffix })}><option value="none">不添加（默认）</option><option value="date">日期 YYYYMMDD</option><option value="seconds">日期时间 YYYYMMDD-HHmmss</option><option value="milliseconds">日期时间＋毫秒 YYYYMMDD-HHmmss-SSS</option></select></label>
-        <div className="guided-storage-field"><span>缓存组配置</span><button type="button" role="combobox" aria-label="缓存组配置" aria-expanded={profileOpen} onClick={() => { setProfileOpen(!profileOpen); setProfilePreview(""); }}>{profile?.name || "使用默认参数"} ▾</button>
-          {profileOpen && <div className="guided-cache-profile-list" role="listbox"><button role="option" aria-selected={!draft.profileId} onClick={() => selectProfile("")}>使用默认参数</button>{profiles.map(item => <button key={item.id} role="option" aria-selected={item.id === draft.profileId} onMouseEnter={() => setProfilePreview(item.id)} onFocus={() => setProfilePreview(item.id)} onClick={() => selectProfile(item.id)}>{item.name}</button>)}{preview && <div role="tooltip"><strong>{preview.name}</strong><p>{preview.description}</p>{Object.entries(preview.parameters).map(([name, value]) => <div key={name}>{name}: {value}</div>)}</div>}</div>}
-        </div>
-        <button onClick={() => onNavigate("#/start/cache/profile")}>添加缓存组配置</button>
+        <h3>缓存组配置</h3>
+        {snapshot?.cache_parameter_catalog ? <GuidedCacheParameters catalog={snapshot.cache_parameter_catalog} profiles={snapshot.cache_profiles || []} profileId={draft.profileId} values={options}
+          onChange={options => update({ options })} onLoad={p => selectProfile(p?.id || "")}
+          onSaved={saved => { setSnapshot(current => current ? { ...current, cache_profiles: [...(current.cache_profiles || []).filter(p => p.id !== saved.id), saved] } : current); update({ profileId: saved.id, options: { ...saved.parameters } }); }}
+        /> : <p className="muted">正在读取缓存参数…</p>}
         <label>程序来源<select value={draft.source} onChange={event => { update({ source: event.target.value as CacheDraft["source"] });  }}><option value="default">使用机器默认 dingo-cache</option><option value="tag">使用指定 TAG</option><option value="path">使用指定目录</option></select></label>
         {draft.source === "tag" && <CacheTagSelector tag={draft.tag} digest={draft.imageDigest} onChange={(tag, imageDigest) => update({ tag, imageDigest })} />}
         {draft.source === "path" && <label>程序所在目录<input value={draft.binaryDirectory} placeholder="/opt/dingofs/bin" onChange={event => update({ binaryDirectory: event.target.value })} /><small>使用该目录下的 dingo-cache，下一步可按机器调整。</small></label>}
@@ -183,18 +183,18 @@ export function GuidedCacheFlow({ admin, userId, route, onNavigate, onDirty }: P
       </>}
       {step === 3 && <>
         <h2>选择部署机器</h2>
-        <div className="guided-cache-machines">{machines.map(machine => <label key={machine.id}><input type="checkbox" checked={draft.rows.some(row => row.machineId === machine.id)} onChange={event => update({ rows: event.target.checked ? [...draft.rows, { ...newCacheRow(machine), capacity: Number(memberDefaults(profile?.parameters || {}).cache_size_mb || bulk.capacity), directory: String(memberDefaults(profile?.parameters || {}).cache_dir || bulk.directory), rdma: Boolean(memberDefaults(profile?.parameters || {}).use_rdma), rdmaDevice: String(memberDefaults(profile?.parameters || {}).rdma_device || ""), rdmaPort: Number(memberDefaults(profile?.parameters || {}).rdma_port || 1) }] : draft.rows.filter(row => row.machineId !== machine.id) })} />{machine.name} · {machine.address}</label>)}</div>
+        <div className="guided-cache-machines">{machines.map(machine => <label key={machine.id}><input type="checkbox" checked={draft.rows.some(row => row.machineId === machine.id)} onChange={event => update({ rows: event.target.checked ? [...draft.rows, { ...newCacheRow(machine), capacity: Number(memberDefaults(options).cache_size_mb || bulk.capacity), directory: String(memberDefaults(options).cache_dir || bulk.directory), rdma: Boolean(memberDefaults(options).use_rdma), rdmaDevice: String(memberDefaults(options).rdma_device || ""), rdmaPort: Number(memberDefaults(options).rdma_port || 1) }] : draft.rows.filter(row => row.machineId !== machine.id) })} />{machine.name} · {machine.address}</label>)}</div>
         <button onClick={() => onNavigate("#/start/cache/machine")}>先添加机器</button>
-        <details><summary>批量填写</summary><div className="guided-cache-grid"><label>统一执行用户<input value={bulk.user} onChange={e => setBulk({ ...bulk, user: e.target.value })} placeholder="留空保留各机器用户" /></label><label>每台节点数量<input type="number" min="1" value={bulk.count} onChange={e => setBulk({ ...bulk, count: Number(e.target.value) })} /></label><label>统一缓存基础目录<input value={bulk.directory} onChange={e => setBulk({ ...bulk, directory: e.target.value })} /></label><label>每节点容量（MiB）<input type="number" min="1" value={bulk.capacity} onChange={e => setBulk({ ...bulk, capacity: Number(e.target.value) })} /></label></div><button onClick={() => update({ rows: draft.rows.map(row => ({ ...row, count: bulk.count, capacity: bulk.capacity, ...(bulk.user ? { user: bulk.user } : {}), ...(bulk.directory ? { directory: bulk.directory } : {}) })) })}>应用到已选机器</button></details>
+        <details><summary>批量填写</summary><div className="guided-cache-grid"><label>统一执行用户<input value={bulk.user} onChange={e => setBulk({ ...bulk, user: e.target.value })} placeholder="留空保留各机器用户" /></label><label>每台节点数量<input type="number" min="1" value={bulk.count} onChange={e => setBulk({ ...bulk, count: Number(e.target.value) })} /></label><label>统一缓存基础目录<input value={bulk.directory} onChange={e => setBulk({ ...bulk, directory: e.target.value })} /></label><CapacityInput value={bulk.capacity} unit={bulk.capacityUnit} onChange={capacity => setBulk({ ...bulk, capacity })} onUnitChange={capacityUnit => setBulk({ ...bulk, capacityUnit })} /></div><button onClick={() => update({ rows: draft.rows.map(row => ({ ...row, count: bulk.count, capacity: bulk.capacity, capacityUnit: bulk.capacityUnit, ...(bulk.user ? { user: bulk.user } : {}), ...(bulk.directory ? { directory: bulk.directory } : {}) })) })}>应用到已选机器</button></details>
         {draft.rows.map(row => <fieldset className="guided-cache-machine" key={row.machineId}><legend>{machines.find(item => item.id === row.machineId)?.name || row.machineId}</legend><div className="guided-cache-grid">
-          <label>执行用户<input value={row.user} onChange={e => rowUpdate(row.machineId, { user: e.target.value })} /></label><label>节点数量<input type="number" min="1" value={row.count} onChange={e => rowUpdate(row.machineId, { count: Number(e.target.value) })} /></label><label>缓存基础目录<input value={row.directory} placeholder="/mnt/disk1/dingofs-cache" onChange={e => rowUpdate(row.machineId, { directory: e.target.value })} /></label><label>每节点容量（MiB）<input type="number" min="1" value={row.capacity} onChange={e => rowUpdate(row.machineId, { capacity: Number(e.target.value) })} /></label>
+          <label>执行用户<input value={row.user} onChange={e => rowUpdate(row.machineId, { user: e.target.value })} /></label><label>节点数量<input type="number" min="1" value={row.count} onChange={e => rowUpdate(row.machineId, { count: Number(e.target.value) })} /></label><label>缓存基础目录<input value={row.directory} placeholder="/mnt/disk1/dingofs-cache" onChange={e => rowUpdate(row.machineId, { directory: e.target.value })} /></label><CapacityInput value={row.capacity} unit={row.capacityUnit} onChange={capacity => rowUpdate(row.machineId, { capacity })} onUnitChange={capacityUnit => rowUpdate(row.machineId, { capacityUnit })} />
         </div><details><summary>高级选项</summary><div className="guided-cache-grid"><label>监听 IP<input value={row.listenIp} onChange={e => rowUpdate(row.machineId, { listenIp: e.target.value })} /></label><label>端口分配<select value={row.portMode} onChange={e => rowUpdate(row.machineId, { portMode: e.target.value as "auto" | "manual" })}><option value="auto">自动分配</option><option value="manual">手动指定起始端口</option></select></label>{row.portMode === "manual" && <label>起始端口<input type="number" value={row.port} onChange={e => rowUpdate(row.machineId, { port: Number(e.target.value) })} /></label>}{draft.source === "path" && <label>程序目录（留空使用统一目录）<input value={row.binaryDirectory} placeholder={draft.binaryDirectory} onChange={e => rowUpdate(row.machineId, { binaryDirectory: e.target.value })} /></label>}<label>RDMA<select value={row.rdma ? "on" : "off"} onChange={e => rowUpdate(row.machineId, { rdma: e.target.value === "on" })}><option value="off">关闭</option><option value="on">开启</option></select></label>{row.rdma && <><label>RDMA 设备<input value={row.rdmaDevice} onChange={e => rowUpdate(row.machineId, { rdmaDevice: e.target.value })} /></label><label>RDMA 端口<input type="number" min="1" max="255" value={row.rdmaPort} onChange={e => rowUpdate(row.machineId, { rdmaPort: Number(e.target.value) })} /></label></>}</div></details></fieldset>)}
         <p>{draft.rows.length} 台机器，共 {count} 个缓存节点，总配置容量 {Number((capacity / 1024).toFixed(2))} GiB。</p>
         <div className="getting-started-actions"><button onClick={() => setStep(2)}>上一步</button><button className="primary" onClick={() => { const problem = cacheDraftError(draft); if (problem) setError(problem); else { setError(""); setFinalName(formatFilesystemName(draft.name, draft.suffix, new Date())); setStep(4); } }}>下一步</button></div>
       </>}
       {step === 4 && <>
         <h2>确认并创建</h2><p>目标集群：{cluster?.external_name}</p><p>缓存组名称：{finalName}</p><p>程序：{sourceText}</p><p>缓存配置：{profile?.name || "默认参数"}</p>
-        <div className="guided-cache-table"><table><thead><tr><th>机器 / 用户</th><th>节点数量</th><th>缓存基础目录</th><th>每节点容量</th><th>程序目录</th></tr></thead><tbody>{draft.rows.map(row => <tr key={row.machineId}><td>{machines.find(item => item.id === row.machineId)?.name} / {row.user}</td><td>{row.count}</td><td>{row.directory}</td><td>{row.capacity} MiB</td><td>{draft.source === "path" ? row.binaryDirectory || draft.binaryDirectory : sourceText}</td></tr>)}</tbody></table></div>
+        <div className="guided-cache-table"><table><thead><tr><th>机器 / 用户</th><th>节点数量</th><th>缓存基础目录</th><th>每节点容量</th><th>程序目录</th></tr></thead><tbody>{draft.rows.map(row => <tr key={row.machineId}><td>{machines.find(item => item.id === row.machineId)?.name} / {row.user}</td><td>{row.count}</td><td>{row.directory}</td><td>{row.capacity / capacityFactors[row.capacityUnit || "MiB"]} {row.capacityUnit || "MiB"}</td><td>{draft.source === "path" ? row.binaryDirectory || draft.binaryDirectory : sourceText}</td></tr>)}</tbody></table></div>
         <p>全部 {count} 个节点加入同一缓存组。先准备并分发程序，检查所有机器的程序、目录和端口，通过后自动创建。</p>
         <div className="getting-started-actions"><button disabled={busy} onClick={() => setStep(3)}>返回修改</button><button className="primary" disabled={busy} onClick={() => void submit()}>{busy ? "提交中…" : "检查并创建缓存组"}</button></div>
       </>}

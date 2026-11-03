@@ -50,3 +50,32 @@ test("explicit binary directory can be overridden per machine", () => {
     rows: machines.map((machine, i) => ({ ...newCacheRow(machine), directory: "/cache", binaryDirectory: i ? "/custom/bin" : "" })) };
   expect(cacheMembers(draft).map(row => row.binary_directory)).toEqual(["/opt/cache", "/custom/bin"]);
 });
+
+test("bulk GiB capacity survives confirmation and is submitted as MiB", async () => {
+  setup();
+  await waitFor(() => expect(screen.getByRole("button", { name: "下一步" })).toBeEnabled());
+  fireEvent.click(screen.getByRole("button", { name: "下一步" }));
+  fireEvent.click(screen.getByRole("button", { name: "下一步" }));
+  fireEvent.click(screen.getByText("批量填写"));
+  fireEvent.change(screen.getAllByLabelText("容量单位")[0], { target: { value: "GiB" } });
+  fireEvent.change(screen.getAllByLabelText("每节点容量")[0], { target: { value: "1.5" } });
+  fireEvent.click(screen.getByRole("button", { name: "应用到已选机器" }));
+  expect(screen.getAllByLabelText("每节点容量")[1]).toHaveValue(1.5);
+  fireEvent.click(screen.getByRole("button", { name: "下一步" }));
+  expect(screen.getAllByText("1.5 GiB")).toHaveLength(2);
+  fireEvent.click(screen.getByRole("button", { name: "检查并创建缓存组" }));
+  await waitFor(() => expect(api).toHaveBeenCalledWith("/clusters/c/resource-operations", "POST", expect.objectContaining({
+    action: "cache.plan", parameters: expect.objectContaining({ members: expect.arrayContaining([expect.objectContaining({ cache_size_mb: 1536 })]) }),
+  })));
+});
+test("edited options persist in draft and reach cache planning request", async () => {
+  setup();
+  const saved = JSON.parse(sessionStorage.getItem("guided-cache-draft-u")!);
+  saved.options = { cache_expire_s: "90" };
+  cleanup(); sessionStorage.setItem("guided-cache-draft-u", JSON.stringify(saved));
+  render(<GuidedCacheFlow admin userId="u" route="#/start/cache" onNavigate={vi.fn()} onDirty={vi.fn()} />);
+  await confirm();
+  await waitFor(() => expect(api).toHaveBeenCalledWith("/clusters/c/resource-operations", "POST", expect.objectContaining({
+    action: "cache.plan", parameters: expect.objectContaining({ cache_options: { cache_expire_s: "90" } }),
+  })));
+});
