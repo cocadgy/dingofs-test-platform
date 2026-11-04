@@ -1,8 +1,17 @@
 .mount-scan { background: var(--surface, #fff); border: 1px solid #d7e3e5; border-radius: 12px; padding: 24px; margin: 20px 0; min-width: 0; }
 .mount-scan > p { color: #526c77; line-height: 1.7; }
-.mount-scan fieldset { border: 1px solid #d7e3e5; border-radius: 8px; padding: 12px 16px; }
-.mount-scan .mount-scan-machine { display: flex; align-items: center; gap: 10px; padding: 7px 0; }
-.mount-scan-machine input[type="checkbox"] { width: auto; margin: 0; flex: 0 0 auto; }
+.mount-scan fieldset { border: 1px solid #d7e3e5; border-radius: 10px; padding: 16px; min-width: 0; }
+.mount-scan legend { padding: 0 6px; font-weight: 600; }
+.mount-scan-machines { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 260px), 1fr)); gap: 10px; }
+.mount-scan .mount-scan-machine { display: flex; flex-direction: row; align-items: center; justify-content: flex-start; gap: 12px; min-width: 0; padding: 12px 14px; border: 1px solid #d7e3e5; border-radius: 8px; background: #f8fafb; cursor: pointer; text-align: left; }
+.mount-scan .mount-scan-machine:hover { border-color: #78aaa0; background: #f1f8f6; }
+.mount-scan .mount-scan-machine:has(input:checked) { border-color: #13866e; background: #eaf6f1; }
+.mount-scan .mount-scan-machine:focus-within { outline: 2px solid #13866e; outline-offset: 2px; }
+.mount-scan .mount-scan-machine:has(input:disabled:not(:checked)) { opacity: 0.55; cursor: not-allowed; }
+.mount-scan .mount-scan-machine input[type="checkbox"] { width: 16px; height: 16px; margin: 0; padding: 0; flex: 0 0 16px; cursor: inherit; }
+.mount-scan-machine-details { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.mount-scan-machine-details strong, .mount-scan-machine-details span { overflow-wrap: anywhere; }
+.mount-scan-machine-details span { color: #617985; font-size: 12px; font-weight: 400; }
 .mount-scan-host { border-top: 1px solid #d7e3e5; margin-top: 20px; padding-top: 12px; }
 .mount-scan-table { overflow-x: auto; }
 .mount-scan table { width: 100%; border-collapse: collapse; }

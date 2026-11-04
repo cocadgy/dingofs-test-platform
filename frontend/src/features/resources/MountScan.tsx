@@ -18,12 +18,17 @@ export function MountScan({ clusterId, snapshot, operations, execute, disabled, 
     <p>只读扫描，不纳管、不卸载、不重挂载。仅扫描所选机器当前可见的挂载命名空间，容器中的独立挂载可能不可见。</p>
     <fieldset disabled={disabled}>
       <legend>选择扫描机器（最多 20 台）</legend>
-      {machines.map((m) => <label key={m.id} className="mount-scan-machine">
-        <input type="checkbox" checked={validIds.includes(m.id)}
-          disabled={!validIds.includes(m.id) && validIds.length >= 20}
-          onChange={(e) => setSelected(e.target.checked ? [...validIds, m.id] : validIds.filter((id) => id !== m.id))} />
-        <span>{m.name}（{m.address}） · SSH 用户：{m.ssh_user}</span>
-      </label>)}
+      <div className="mount-scan-machines">
+        {machines.map((m) => <label key={m.id} className="mount-scan-machine">
+          <input type="checkbox" checked={validIds.includes(m.id)}
+            disabled={!validIds.includes(m.id) && validIds.length >= 20}
+            onChange={(e) => setSelected(e.target.checked ? [...validIds, m.id] : validIds.filter((id) => id !== m.id))} />
+          <span className="mount-scan-machine-details">
+            <strong>{m.name}（{m.address}）</strong>
+            <span>SSH 用户：{m.ssh_user}</span>
+          </span>
+        </label>)}
+      </div>
       {!machines.length && <p>暂无可扫描机器，请先配置机器 SSH 密码并确认管理权限。</p>}
     </fieldset>
     <p>以 root 只读核验客户端进程，必要时会提示 sudo 认证。表格中的“客户端用户”是进程实际运行用户。</p>
