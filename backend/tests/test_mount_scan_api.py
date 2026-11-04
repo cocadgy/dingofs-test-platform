@@ -19,7 +19,8 @@ def begin(admin, cluster, ids):
     })
 
 
-def test_unknown_cluster_residual_mount_can_be_unmounted_from_saved_scan(admin, app):
+@pytest.mark.parametrize('batch', [False, True, 'partial'])
+def test_unknown_cluster_residual_mount_can_be_unmounted_from_saved_scan(admin, app, batch):
     m, c, _ = linked(admin)
     calls = []
     kernel = dict(mount_id='42', device='0:53', root='/', mount_path='/mnt/dead',
@@ -32,10 +33,15 @@ def test_unknown_cluster_residual_mount_can_be_unmounted_from_saved_scan(admin, 
             data = dict(namespace='mnt:[1]', boot_id='boot-test', mounts=[dict(
                 mount_id='42', mount_path='/mnt/dead', cluster_match='unknown',
                 cleanup_allowed=True, kernel_mount=kernel)])
+            if batch:
+                data['mounts'].append(dict(data['mounts'][0], mount_id='43', mount_path='/mnt/dead2',
+                    kernel_mount=dict(kernel, mount_id='43', mount_path='/mnt/dead2')))
         else:
             assert req['action'] == 'mount.unmount_discovered'
-            assert req['record']['kernel_mount'] == kernel
-            data = dict(mount_path='/mnt/dead', residual_mount_removed=True)
+            assert req['record']['kernel_mount']['mount_id'] in ('42', '43')
+            if batch == 'partial' and req['record']['kernel_mount']['mount_id'] == '42':
+                raise ClusterExecutionError('connect_failed')
+            data = dict(mount_path=req['record']['mount_path'], residual_mount_removed=True)
         return ClusterCommandResult(ExecutionIdentity('root', '/root', ''),
             json.dumps(dict(state='succeeded', data=data, returncode=0)), '', 0)
     app.state.resource_transport = transport
@@ -47,11 +53,20 @@ def test_unknown_cluster_residual_mount_can_be_unmounted_from_saved_scan(admin, 
             request_id=str(uuid4()), base_revision=c['revision']))
     assert submit({**params, 'mount_id': '99'}).status_code == 422
     assert submit({**params, 'mount_path': '/other'}).status_code == 422
+    if batch:
+        params = dict(scan_operation_id=scan['id'], targets=[dict(machine_id=m['id'], mount_id=i) for i in ('42', '43')])
+        assert submit({**params, 'targets': []}).status_code == 422
+        assert submit({**params, 'targets': params['targets'] * 2}).status_code == 422
+        assert submit({**params, 'targets': [params['targets'][0], dict(machine_id=m['id'], mount_id='99')]}).status_code == 422
     response = submit(params)
     assert response.status_code == 202, response.text
     op = admin.get('/api/v1/resource-operations/' + response.json()['id']).json()
-    assert op['state'] == 'succeeded', op
-    assert len(calls) == 2
+    assert op['state'] == ('failed' if batch == 'partial' else 'succeeded'), op
+    assert len(calls) == (3 if batch else 2)
+    if batch:
+        assert [s['mount_id'] for s in op['result']['steps']] == ['42', '43']
+        assert op['result']['steps'][0]['failed'] == (batch == 'partial')
+        assert not op['result']['steps'][1]['failed']
 
 
 @pytest.mark.parametrize("failure", [False, "transport", "credential"])

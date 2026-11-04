@@ -9,11 +9,27 @@ export function MountScan({ clusterId, snapshot, operations, execute, disabled, 
   execute: Execute; disabled: boolean; error?: string;
 }) {
   const [selected, setSelected] = useState<string[]>([]);
+  const [selectedMounts, setSelectedMounts] = useState<string[]>([]);
   const action = snapshot.catalog.find((a) => a.action === "mount.scan");
   const unmountAction = snapshot.catalog.find((a) => a.action === "mount.unmount");
   const machines = snapshot.machines.filter((m) => m.can_manage && m.has_ssh_password);
   const validIds = selected.filter((id) => machines.some((m) => m.id === id));
   const operation = operations.find((op) => op.action === "mount.scan" && op.cluster_id === clusterId);
+  const keyFor = (machineId: string, mountId: string) => `${operation?.id}:${machineId}:${mountId}`;
+  const removed = (machineId: string, mountId: string) => operations.some(op =>
+    op.cluster_id === clusterId && op.action === "mount.unmount" && op.payload?.scan_operation_id === operation?.id && (
+      (op.state === "succeeded" && op.payload?.machine_id === machineId && op.payload?.mount_id === mountId)
+      || op.result?.steps?.some(s => s.machine_id === machineId && s.mount_id === mountId && s.failed === false)
+    ));
+  const candidates = (operation?.result?.steps || []).flatMap(step => {
+    const data = step.data as MountScanData | undefined;
+    if (step.failed || !step.machine_id || !Array.isArray(data?.mounts)) return [];
+    return data.mounts.filter(row => row.cleanup_allowed && !removed(step.machine_id!, row.mount_id)).map(row => ({
+      machine_id: step.machine_id!, mount_id: row.mount_id, path: row.mount_path,
+      host: `${step.machine_name}（${step.machine_address}）`, key: keyFor(step.machine_id!, row.mount_id),
+    }));
+  });
+  const chosen = candidates.filter(row => selectedMounts.includes(row.key));
   return <section className="mount-scan" aria-label="扫描已有挂载">
     <h3>扫描已有挂载</h3>
     <p>扫描已有挂载并保存当前集群的客户端记录，手动挂载的客户端也可在下方管理。容器中的独立挂载可能不可见。</p>
@@ -41,6 +57,20 @@ export function MountScan({ clusterId, snapshot, operations, execute, disabled, 
       {pendingStates.includes(operation.state) && <p role="status">扫描进行中；需要认证时，请在下方任务记录中完成认证。</p>}
       {operation.state === "failed" && <p role="alert">本次扫描存在失败，以下保留已完成机器的结果；请查看各步骤错误。</p>}
       {operation.message && !operation.result?.steps?.length && <p role="alert">{operation.message}</p>}
+      {unmountAction && candidates.length > 0 && <div className="mount-scan-batch">
+        <label><input type="checkbox" aria-label="全选可卸载的残留挂载" disabled={disabled}
+          checked={chosen.length === Math.min(candidates.length, 200)}
+          onChange={e => setSelectedMounts(e.target.checked ? candidates.slice(0, 200).map(row => row.key) : [])} />全选</label>
+        <span>已选择 {chosen.length} 项</span>
+        <button type="button" disabled={disabled || !chosen.length}
+          onClick={() => void execute({...unmountAction,
+            label: `批量卸载 ${chosen.length} 个残留挂载\n${chosen.map(row => `${row.host} ${row.path}`).join("\n")}`},
+            {scan_operation_id: operation.id, targets: chosen.map(({machine_id,mount_id}) => ({machine_id,mount_id}))})}>
+          批量卸载残留挂载
+        </button>
+        <button type="button" disabled={disabled || !chosen.length} onClick={() => setSelectedMounts([])}>清空选择</button>
+        <span className="muted">每批最多 200 项；逐项显示结果，失败项可重试。</span>
+      </div>}
       {(operation.result?.steps || []).map((step, index) => {
         const data = step.data as MountScanData | undefined;
         const rows = Array.isArray(data?.mounts) ? data.mounts : undefined;
@@ -52,17 +82,22 @@ export function MountScan({ clusterId, snapshot, operations, execute, disabled, 
             {rows?.length === 0 && <p>当前可见命名空间未发现 DingoFS 挂载。</p>}
             {!rows && <p role="alert">未返回有效扫描结果，请查看任务记录。</p>}
             {!!rows?.length && <div className="mount-scan-table"><table>
-              <thead><tr>{["文件系统 / 挂载路径", "客户端用户 / PID", "MDS 地址", "集群归属", "平台记录", "操作"].map((h) => <th key={h}>{h}</th>)}</tr></thead>
+              <thead><tr>{["选择", "文件系统 / 挂载路径", "客户端用户 / PID", "MDS 地址", "集群归属", "平台记录", "操作"].map((h) => <th key={h}>{h}</th>)}</tr></thead>
               <tbody>{rows.map((row) => <tr key={row.mount_id}>
+                <td className="mount-scan-select"><input type="checkbox" aria-label={`选择 ${step.machine_name} ${row.mount_path}`}
+                  checked={chosen.some(item => item.key === keyFor(step.machine_id || "", row.mount_id))}
+                  disabled={disabled || !unmountAction || !row.cleanup_allowed || !step.machine_id
+                    || removed(step.machine_id, row.mount_id)
+                    || (chosen.length >= 200 && !selectedMounts.includes(keyFor(step.machine_id, row.mount_id)))}
+                  onChange={e => { const key = keyFor(step.machine_id!, row.mount_id);
+                    setSelectedMounts(e.target.checked ? [...selectedMounts, key] : selectedMounts.filter(item => item !== key)); }} /></td>
                 <td><strong>{row.fs_name || "未识别"}</strong><div>{row.mount_path}</div></td>
                 <td>{row.client_user || "无法确认"}<div>PID：{row.pid ?? "未识别"}</div></td>
                 <td>{row.mds_addresses.length ? row.mds_addresses.map((a) => <div key={a}>{a}</div>) : "未识别"}</td>
                 <td>{({current:"当前集群",other:"其他集群",unknown:"无法确认"})[row.cluster_match]}<div className="muted">{row.reason}</div></td>
                 <td>{row.saved_resource_id ? "已保存为平台记录" : "未保存（请查看归属原因）"}</td>
                 <td>{row.cleanup_allowed && step.machine_id && unmountAction ? (
-                  operations.some(op => op.action === "mount.unmount" && op.state === "succeeded"
-                    && op.payload?.scan_operation_id === operation.id && op.payload?.machine_id === step.machine_id
-                    && op.payload?.mount_id === row.mount_id) ? <span>已卸载</span> :
+                  removed(step.machine_id, row.mount_id) ? <span>已卸载</span> :
                   <button type="button" disabled={disabled}
                     onClick={() => void execute({ ...unmountAction,
                       label: `卸载残留挂载：${step.machine_name}（${step.machine_address}） ${row.mount_path}` },

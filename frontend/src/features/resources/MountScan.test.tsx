@@ -5,6 +5,38 @@ import type { ResourceSnapshot, ResourceOperation, ResourceAction } from "./type
 
 afterEach(cleanup);
 
+test("selects residual mounts in one batch and excludes already unmounted rows", () => {
+  const execute = vi.fn();
+  const action: ResourceAction = {action:"mount.unmount",label:"卸载",section:"mount",mutating:true,fields:[]};
+  const op: ResourceOperation = {...result,state:"succeeded",result:{steps:[{
+    machine_id:"m1",machine_name:"129",machine_address:"172.30.14.129",data:{mounts:["42","43","44"].map(id => ({
+      mount_id:id,mount_path:`/mnt/${id}`,fs_name:"demo",pid:null,client_user:null,
+      mds_addresses:[],cluster_match:"unknown",reason:"已退出",cleanup_allowed:true,
+    }))},
+  }]}};
+  const done:ResourceOperation={id:"done",cluster_id:"c1",action:"mount.unmount",state:"succeeded",
+    payload:{scan_operation_id:"scan",machine_id:"m1",mount_id:"42"}};
+  const {rerender} = render(<MountScan clusterId="c1" snapshot={{...snapshot,catalog:[...snapshot.catalog,action]}}
+    operations={[done,op]} execute={execute} disabled={false} />);
+  expect(screen.getByRole("button",{name:"批量卸载残留挂载"})).toBeDisabled();
+  fireEvent.click(screen.getByRole("checkbox",{name:"全选可卸载的残留挂载"}));
+  expect(screen.getByText("已选择 2 项")).toBeVisible();
+  fireEvent.click(screen.getByRole("button",{name:"批量卸载残留挂载"}));
+  expect(execute).toHaveBeenCalledWith(expect.objectContaining({action:"mount.unmount"}),
+    {scan_operation_id:"scan",targets:[{machine_id:"m1",mount_id:"43"},{machine_id:"m1",mount_id:"44"}]});
+  const partial:ResourceOperation = {id:"batch",cluster_id:"c1",action:"mount.unmount",state:"failed",
+    payload:{scan_operation_id:"scan",targets:[{machine_id:"m1",mount_id:"43"},{machine_id:"m1",mount_id:"44"}]},
+    result:{steps:[{machine_id:"m1",mount_id:"43",failed:false},{machine_id:"m1",mount_id:"44",failed:true}]}};
+  rerender(<MountScan clusterId="c1" snapshot={{...snapshot,catalog:[...snapshot.catalog,action]}}
+    operations={[partial,done,op]} execute={execute} disabled={false} />);
+  expect(screen.getByRole("checkbox",{name:"选择 129 /mnt/43"})).toBeDisabled();
+  expect(screen.getByRole("checkbox",{name:"选择 129 /mnt/44"})).toBeEnabled();
+  expect(screen.getByText("已选择 1 项")).toBeVisible();
+  rerender(<MountScan clusterId="c1" snapshot={{...snapshot,catalog:[...snapshot.catalog,action]}}
+    operations={[{...op,id:"new-scan"},partial,done]} execute={execute} disabled={false} />);
+  expect(screen.getByText("已选择 0 项")).toBeVisible();
+});
+
 test("offers residual unmount by saved scan identity, not a caller supplied path", () => {
   const execute = vi.fn();
   const action: ResourceAction = {action:"mount.unmount",label:"卸载文件系统",section:"mount",mutating:true,fields:[]};

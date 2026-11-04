@@ -75,6 +75,12 @@ def step(db, actor, c, action, params, *, record=None, mid=None, user=None):
 
 def prepare(db, actor, c, action, p):
     if action == "mount.unmount" and "scan_operation_id" in p:
+        if "targets" in p:
+            work = []
+            for target in p["targets"]:
+                child, _ = prepare(db, actor, c, action, {"scan_operation_id": p["scan_operation_id"], **target})
+                work.extend(child)
+            return work, None
         scan = db.get(ResourceOperation, p["scan_operation_id"])
         if not scan or scan.cluster_id != c.id or scan.action != "mount.scan" or scan.state not in ("succeeded", "failed"):
             raise Problem(422, "scan_required", "请先扫描目标机器上的挂载点")

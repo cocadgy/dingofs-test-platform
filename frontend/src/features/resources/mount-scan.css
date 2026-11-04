@@ -16,6 +16,10 @@
 .mount-scan-table { overflow-x: auto; }
 .mount-scan table { width: 100%; border-collapse: collapse; }
 .mount-scan th, .mount-scan td { text-align: left; vertical-align: top; padding: 12px; border-bottom: 1px solid #e5ecee; overflow-wrap: anywhere; }
-.mount-scan td:first-child { width: 35%; }
+.mount-scan td:nth-child(2) { width: 35%; }
+.mount-scan .mount-scan-select { width: 36px; }
+.mount-scan-batch { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; padding: 12px 16px; background: #f1f7f7; border: 1px solid #d7e3e5; border-radius: 8px; }
+.mount-scan-batch label { display: flex; flex-direction: row; align-items: center; gap: 8px; margin: 0; }
+.mount-scan-batch input[type="checkbox"], .mount-scan-select input[type="checkbox"] { width: 16px; height: 16px; margin: 0; padding: 0; }
 .mount-scan td div { margin-top: 5px; }
 .mount-scan .muted { color: #627b85; font-size: 12px; }

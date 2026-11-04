@@ -57,6 +57,7 @@ export type ResourceOperation = {
       target_user?: string | null;
       fs_name?: string;
       member_id?: string;
+      mount_id?: string;
       message?: string | null;
       failed?: boolean;
       stdout?: string;

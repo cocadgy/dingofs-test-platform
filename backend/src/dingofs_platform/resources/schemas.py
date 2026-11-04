@@ -484,6 +484,19 @@ def validate(action_name, parameters):
         raise ValueError("unknown resource action")
     if action_name == "mount.unmount" and isinstance(parameters, dict) and "scan_operation_id" in parameters:
         import uuid
+        if "targets" in parameters:
+            targets = parameters["targets"]
+            if set(parameters) != {"scan_operation_id", "targets"} or not isinstance(targets, list) or not 1 <= len(targets) <= 200:
+                raise ValueError("请选择 1 至 200 个残留挂载")
+            normalized = []
+            for target in targets:
+                if not isinstance(target, dict) or set(target) != {"machine_id", "mount_id"}:
+                    raise ValueError("无效的挂载目标")
+                value = validate(action_name, {"scan_operation_id": parameters["scan_operation_id"], **target})
+                normalized.append({k: value[k] for k in ("machine_id", "mount_id")})
+            if len({(t["machine_id"], t["mount_id"]) for t in normalized}) != len(normalized):
+                raise ValueError("挂载目标不能重复")
+            return dict(scan_operation_id=str(uuid.UUID(parameters["scan_operation_id"])), targets=normalized)
         result = _fields([field("scan_operation_id", "扫描记录", required=True),
                           field("machine_id", "机器", required=True),
                           field("mount_id", "内核挂载 ID", required=True)], parameters)

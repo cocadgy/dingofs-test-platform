@@ -354,6 +354,12 @@ def run(request, oid, password=None, *, claimed=False):
                 result = {**(result or {"message": error, "returncode": None}),
                           "machine_id": work["machine_id"], "target_user": work["target_user"],
                           "failed": bool(error)}
+            if work["action"] == "mount.unmount_discovered":
+                result = {**(result or {"message": error, "returncode": None}),
+                          "machine_id": work["machine_id"], "machine_name": work["machine_name"],
+                          "machine_address": work.get("machine_address"), "target_user": work["target_user"],
+                          "mount_id": work["parameters"]["mount_id"],
+                          "mount_path": work["record"]["mount_path"], "failed": bool(error)}
             if op.action == "cache.stop" and work.get("member_id"):
                 result = {**(result or {"message": error, "returncode": None}),
                           "member_id": work["member_id"], "failed": bool(error)}
@@ -413,7 +419,8 @@ def run(request, oid, password=None, *, claimed=False):
                                   and result.get("remote_state") == "failed")
             known_mount_failure = (work.get("mount_batch") and error == "query_failed"
                                    and result and result.get("remote_state") == "failed")
-            if error and not (known_delete_failure or known_stop_failure or known_mount_failure or op.action == "mount.scan"):
+            if error and not (known_delete_failure or known_stop_failure or known_mount_failure or op.action == "mount.scan"
+                              or work["action"] == "mount.unmount_discovered"):
                 terminal(
                     db,
                     op,
