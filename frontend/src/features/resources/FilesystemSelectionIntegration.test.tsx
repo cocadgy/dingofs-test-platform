@@ -67,8 +67,8 @@ test("automatic list uses normal operation API; delete confirms the selected nam
   fireEvent.click(screen.getByRole("button", { name: "执行删除文件系统" }));
   await waitFor(() => expect(confirm).toHaveBeenCalledOnce());
   expect(confirm.mock.calls[0][0]).toContain("selected-fs");
+  await waitFor(() => expect(vi.mocked(api).mock.calls.filter((call) => call[1] === "POST")).toHaveLength(3));
   const posts = vi.mocked(api).mock.calls.filter((call) => call[1] === "POST");
-  expect(posts).toHaveLength(2);
   expect(posts[0][2]).toMatchObject({
     action: "fs.list",
     parameters: {},
@@ -79,4 +79,5 @@ test("automatic list uses normal operation API; delete confirms the selected nam
     parameters: { fs_name: "selected-fs" },
     confirmed: true,
   });
+  expect(posts[2][2]).toMatchObject({ action: "fs.list", parameters: {} });
 });

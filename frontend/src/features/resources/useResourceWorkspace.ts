@@ -209,6 +209,19 @@ export function useResourceWorkspace({
     refreshedCreations.current.add(key);
     void execute(query, {});
   }, [id, operation, canManage, active, snapshot, execute]);
+  useEffect(() => {
+    if (
+      !canManage || active || executing.current || !operation ||
+      !["fs.delete", "fs.delete_batch"].includes(operation.action) ||
+      !["succeeded", "failed", "cancelled", "interrupted"].includes(operation.state)
+    ) return;
+    const key = `${id}:${operation.id}`;
+    if (refreshedCreations.current.has(key)) return;
+    const query = snapshot?.catalog.find((item) => item.action === "fs.list");
+    if (!query) return;
+    refreshedCreations.current.add(key);
+    void execute(query, {});
+  }, [id, operation, canManage, active, snapshot, execute]);
   const operations = useMemo(() => {
     const records = operation
       ? [
