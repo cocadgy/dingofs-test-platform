@@ -45,6 +45,9 @@ export function ClusterResourcesPage({
           <p className="eyebrow">PLATFORM / CLUSTER RESOURCES</p>
           <h1>资源管理{cluster ? ` · ${cluster.external_name}` : ""}</h1>
           <p className="muted">管理当前集群的文件系统、缓存组和挂载点。</p>
+          {cluster && <p className="muted">
+            管理机器：{cluster.machine_name}（{cluster.machine_address}）
+          </p>}
         </div>
         <a className="button" href={`#/clusters/${encodeURIComponent(id)}`}>
           返回集群详情

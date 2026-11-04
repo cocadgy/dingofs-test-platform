@@ -30,6 +30,8 @@ test.each([
   async (admin, userId, archived, binding, allowed) => {
     vi.mocked(api).mockResolvedValue({
       external_name: "main-dingofs",
+      machine_name: "dingo126",
+      machine_address: "172.30.14.126",
       creator_id: "owner",
       revision: 1,
       archived,
@@ -41,6 +43,7 @@ test.each([
     expect(await screen.findByTestId("inventory")).toHaveTextContent(
       `main-dingofs:${allowed}`,
     );
+    expect(screen.getByText("管理机器：dingo126（172.30.14.126）")).toBeVisible();
     expect(screen.getByRole("link", { name: "返回集群详情" })).toHaveAttribute(
       "href",
       "#/clusters/cluster1",
