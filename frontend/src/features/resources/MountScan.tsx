@@ -15,7 +15,7 @@ export function MountScan({ clusterId, snapshot, operations, execute, disabled, 
   const operation = operations.find((op) => op.action === "mount.scan" && op.cluster_id === clusterId);
   return <section className="mount-scan" aria-label="扫描已有挂载">
     <h3>扫描已有挂载</h3>
-    <p>只读扫描，不纳管、不卸载、不重挂载。仅扫描所选机器当前可见的挂载命名空间，容器中的独立挂载可能不可见。</p>
+    <p>扫描已有挂载并保存当前集群的客户端记录，手动挂载的客户端也可在下方管理。容器中的独立挂载可能不可见。</p>
     <fieldset disabled={disabled}>
       <legend>选择扫描机器（最多 20 台）</legend>
       <div className="mount-scan-machines">
@@ -57,7 +57,7 @@ export function MountScan({ clusterId, snapshot, operations, execute, disabled, 
                 <td>{row.client_user || "无法确认"}<div>PID：{row.pid ?? "未识别"}</div></td>
                 <td>{row.mds_addresses.length ? row.mds_addresses.map((a) => <div key={a}>{a}</div>) : "未识别"}</td>
                 <td>{({current:"当前集群",other:"其他集群",unknown:"无法确认"})[row.cluster_match]}<div className="muted">{row.reason}</div></td>
-                <td>{row.saved_resource_id ? "已有平台记录" : "外部挂载（未纳管）"}</td>
+                <td>{row.saved_resource_id ? "已保存为平台记录" : "未保存（请查看归属原因）"}</td>
               </tr>)}</tbody>
             </table></div>}
           </>}

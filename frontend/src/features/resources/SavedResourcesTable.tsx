@@ -11,6 +11,7 @@ import {
 } from "./types";
 
 const shortcuts = {
+  filesystem: [],
   cache: [
     ["cache.stop", "平滑停止"],
     ["cache.force_stop", "强制停止"],

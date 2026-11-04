@@ -23,7 +23,8 @@ import uuid
 from pathlib import Path
 from .cache_binary import prepare_cache_binary, verify_cache_binary
 from .cache_directory import prepare_cache_directory
-from .mount_scan import scan_mounts
+from .mount_scan import scan_mounts, _scan_client, _scan_endpoints
+from .external_mount import external_mount_lifecycle, capture_external_mounts
 
 MAX_OUTPUT = 1024 * 1024
 # Each filesystem may contain 1024 pretty-printed hash bucket IDs. Even a
@@ -1445,8 +1446,11 @@ def main(req):
             if os.geteuid() != 0:
                 raise ValueError("扫描其他用户的客户端需 root 读取 proc 元数据，请完成 sudo 认证")
             state, data = "succeeded", scan_mounts(req["mds_addr"], req["record"].get("saved_mounts"))
+            data = capture_external_mounts(req, data, sys.modules[__name__])
         elif req["action"] == "cache.stop_external":
             state, data = stop_external_member(req)
+        elif req["action"].startswith("mount.") and req["record"].get("origin") == "external":
+            state, data = external_mount_lifecycle(req, sys.modules[__name__])
         elif req["action"] == "cache.wait_offline":
             state, data = wait_members_offline(req)
         elif req["action"] == "cache.plan":

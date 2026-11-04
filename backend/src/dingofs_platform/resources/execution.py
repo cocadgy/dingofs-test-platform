@@ -27,7 +27,7 @@ from dingofs_platform.errors import Problem
 from .models import ResourceOperation, ManagedResource
 from .views import ACTIVE, now, expire, operation_view
 from .safety import redact, product_failed
-from . import commands, port_planning, cache_images, cache_transfer
+from . import commands, port_planning, cache_images, cache_transfer, discovered
 from .bulk_create import finish_mount_batch
 from .remote_helper import FS_LIST_MAX_RESPONSE
 
@@ -242,6 +242,7 @@ def run(request, oid, password=None, *, claimed=False):
                 expected_home=work["expected_home"],
                 resource_script=script,
                 resource_requires_dingo=work["action"] not in ("cache.stop_external", "mount.scan")
+                and not (work["action"].startswith("mount.") and (work.get("record") or {}).get("origin") == "external")
                 and not work["action"].startswith(("trash.", "dirstat.")),
             )
             transport = getattr(
@@ -399,6 +400,9 @@ def run(request, oid, password=None, *, claimed=False):
                     {**member, "process_state": "unknown" if error else "running"}
                     if member["member_id"] == work["record"]["member_id"] else member
                     for member in resource.data["members"]]}
+            if result and not error:
+                discovered.persist(db, op, work, result)
+                discovered.deleted(db, op, work)
             if result:
                 op.result = {"steps": [*(op.result or {}).get("steps", []), result]}
             known_delete_failure = (op.action in ("fs.delete_batch", "cache.delete_batch", "cache.stop") and error == "query_failed"

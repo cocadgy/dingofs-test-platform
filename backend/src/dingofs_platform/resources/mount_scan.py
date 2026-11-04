@@ -119,8 +119,21 @@ def scan_mounts(mds_addr, saved=None, *, proc_root=Path("/proc"), max_mounts=100
                 except KeyError:
                     user = str(uid)
                 path, fs, endpoints = info
+                identity = {}
+                try:
+                    fields = _scan_read(p / "stat", 16384).rsplit(")", 1)[1].split()
+                    identity = dict(pid=int(entry.name), start_ticks=fields[19],
+                                    exe=os.readlink(p / "exe"), namespace=namespace)
+                except (OSError, ValueError, IndexError):
+                    pass
+                log_dir = ""
+                for i, arg in enumerate(argv):
+                    if arg.startswith("--log_dir="):
+                        log_dir = arg.split("=", 1)[1]
+                    elif arg == "--log_dir" and i + 1 < len(argv):
+                        log_dir = argv[i + 1]
                 candidates.setdefault(path.rstrip("/") or "/", []).append(
-                    (int(entry.name), user, fs, endpoints))
+                    (int(entry.name), user, fs, endpoints, identity, log_dir))
             except FileNotFoundError:
                 continue  # process exited during scan
             except (PermissionError, OSError, ValueError):
@@ -129,8 +142,12 @@ def scan_mounts(mds_addr, saved=None, *, proc_root=Path("/proc"), max_mounts=100
         matched = candidates.get(row["mount_path"], [])
         if len(matched) != 1:
             continue
-        pid, user, fs, endpoints = matched[0]
+        pid, user, fs, endpoints, identity, log_dir = matched[0]
         row.update(pid=pid, client_user=user, mds_addresses=endpoints)
+        if identity:
+            identity["mount_id"] = row["mount_id"]
+            row["identity"] = identity
+            row["log_dir"] = log_dir if log_dir.startswith("/") else ""
         if not endpoints or not fs or fs != row["fs_name"]:
             row["reason"] = "客户端参数缺失或文件系统名称与挂载记录不一致"
         else:

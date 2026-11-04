@@ -322,9 +322,14 @@ export function ResourceFields({
           <select required={field.required} disabled={disabled} value={unavailable ? "" : selected}
             onChange={e => onChange(field.key, e.target.value)}>
             <option value="">{action.action === "mount.unmount" ? "请选择已挂载的文件系统" : "请选择已保存资源"}</option>
-            {choices.map(resource => <option key={resource.id} value={resource.id}>
-              {resource.name} · {stateLabels[resource.state] || resource.state}
-            </option>)}
+            {choices.map(resource => {
+              const machine = machines.find(item => item.id === resource.data.machine_id);
+              return <option key={resource.id} value={resource.id}>
+                {resource.kind === "mount" && machine ? `${machine.name}（${machine.address}） · ` : ""}
+                {resource.kind === "mount" && resource.data.fs_name ? `${String(resource.data.fs_name)} · ` : ""}
+                {resource.name} · {stateLabels[resource.state] || resource.state}
+              </option>;
+            })}
           </select>
         </label>
         {unavailable && <p role="alert" className="error">所选挂载点不再是已挂载状态，请重新选择。</p>}

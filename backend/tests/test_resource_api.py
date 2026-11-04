@@ -649,7 +649,7 @@ def test_member_stop_failures_never_report_group_success(admin, app, runner, fai
         assert [s['failed'] for s in result['result']['steps'][:2]]==[True,False]
 
 
-def test_discovered_external_member_stops_and_deletes_without_managed_record(admin, app, runner):
+def test_discovered_external_member_is_saved_then_stopped_and_deleted(admin, app, runner):
     from dingofs_platform.inventory.models import Machine
     m,c,_=linked(admin)
     with app.state.session_factory.begin() as db:
@@ -667,7 +667,8 @@ def test_discovered_external_member_stops_and_deletes_without_managed_record(adm
     app.state.resource_transport=transport
     assert begin(admin,c,'cache.list').status_code==202
     inventory=admin.get('/api/v1/clusters/'+c['id']+'/resources').json()
-    assert inventory['resources']==[]
+    assert len(inventory['resources']) == 1
+    assert inventory['resources'][0]['data']['origin'] == 'external'
     assert inventory['cache_member_targets']['external']['can_stop'] is True
     response=begin(admin,c,'cache.stop',{'member_ids':['external']})
     assert response.status_code==202,response.text
@@ -677,7 +678,8 @@ def test_discovered_external_member_stops_and_deletes_without_managed_record(adm
     response=begin(admin,c,'cache.delete',{'member_id':'external'})
     assert response.status_code==202,response.text
     assert admin.get('/api/v1/resource-operations/'+response.json()['id']).json()['state']=='succeeded'
-    assert admin.get('/api/v1/clusters/'+c['id']+'/resources').json()['resources']==[]
+    saved = admin.get('/api/v1/clusters/'+c['id']+'/resources').json()['resources']
+    assert len(saved) == 1 and saved[0]['state'] == 'deleted'
 
 
 def test_changed_external_registration_aborts_before_any_process_stop(admin,app,runner):

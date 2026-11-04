@@ -37,7 +37,7 @@ export type ResourceMachine = {
 };
 export type SavedResource = {
   id: string;
-  kind: "cache" | "mount";
+  kind: "filesystem" | "cache" | "mount";
   name: string;
   state: string;
   data: Parameters;

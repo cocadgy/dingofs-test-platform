@@ -204,7 +204,8 @@ def build_script(action, parameters, mds_addr, resource_id, record=None, tool_ho
         "cache.plan",
         "cache.stop",
     } or (action == "cache.delete" and "resource_id" in p)
-    if lifecycle and (
+    external_mount = action.startswith("mount.") and isinstance(record, dict) and record.get("origin") == "external"
+    if lifecycle and not external_mount and (
         not isinstance(record, dict)
         or not record.get("state_dir")
         or not record.get("log_dir")
@@ -225,7 +226,9 @@ def build_script(action, parameters, mds_addr, resource_id, record=None, tool_ho
     directory_source = Path(__file__).with_name("cache_directory.py").read_text(encoding="utf-8")
     source = source.replace("from .cache_directory import prepare_cache_directory", directory_source)
     scan_source = Path(__file__).with_name("mount_scan.py").read_text(encoding="utf-8")
-    source = source.replace("from .mount_scan import scan_mounts", scan_source)
+    source = source.replace("from .mount_scan import scan_mounts, _scan_client, _scan_endpoints", scan_source)
+    external_source = Path(__file__).with_name("external_mount.py").read_text(encoding="utf-8")
+    source = source.replace("from .external_mount import external_mount_lifecycle, capture_external_mounts", external_source)
     return (
         "python3 -c "
         + shlex.quote(source)

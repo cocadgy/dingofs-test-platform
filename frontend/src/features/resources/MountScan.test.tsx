@@ -37,7 +37,7 @@ test("shows identity, results and machine failures without offering lifecycle ac
   expect(screen.getByText("当前集群")).toBeVisible();
   expect(screen.getAllByText(/扫描用户：root/)).toHaveLength(2);
   expect(screen.getByText("connect_failed")).toBeVisible();
-  expect(screen.getByText("外部挂载（未纳管）")).toBeVisible();
+  expect(screen.getByText("未保存（请查看归属原因）")).toBeVisible();
   expect(screen.queryByRole("button",{name:/卸载|纳管|重挂载/})).not.toBeInTheDocument();
 });
 

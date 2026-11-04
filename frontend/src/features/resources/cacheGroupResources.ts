@@ -69,8 +69,8 @@ export function cacheGroupResources(
             : undefined;
           const external = targets[row.id];
           return {
-            can_stop: Boolean(saved) || external?.can_stop === true,
-            stop_reason: saved
+            can_stop: Boolean(saved && record?.origin !== "external") || external?.can_stop === true,
+            stop_reason: saved && record?.origin !== "external"
               ? undefined
               : external?.reason || "请刷新列表以匹配成员机器资源",
             member_id: row.id,

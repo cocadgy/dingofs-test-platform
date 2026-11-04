@@ -82,7 +82,9 @@ def prepare(db, actor, c, action, p):
         for mid in p["machine_ids"]:
             records = {r.name: r.id for r in saved if r.data.get("machine_id") == mid}
             work.append(step(db, actor, c, action, {"machine_ids": [mid]},
-                             record={"saved_mounts": records}, mid=mid, user="root"))
+                             record={"saved_mounts": records, "cluster_id": c.id,
+                                     "external_mounts": [r.id for r in saved if r.data.get("origin") == "external"]},
+                             mid=mid, user="root"))
         return work, None
     if action in ("mount.unmount", "mount.delete") and ("resource_ids" in p or action == "mount.delete"):
         work = []
@@ -111,7 +113,7 @@ def prepare(db, actor, c, action, p):
         matches = {}
         for resource in resources:
             for member in resource.data.get("members", []):
-                if member.get("member_id") in p["member_ids"]:
+                if member.get("member_id") in p["member_ids"] and member.get("origin") != "external":
                     matches.setdefault(member["member_id"], []).append((resource, member))
         duplicates = [mid for mid in p["member_ids"] if len(matches.get(mid, [])) > 1]
         if duplicates:
@@ -125,6 +127,13 @@ def prepare(db, actor, c, action, p):
                 item = step(db, actor, c, "cache.stop_external", {"member_id": mid},
                             record={**target["record"], "force_stop": p.get("force", False)}, mid=target["machine_id"], user="root")
                 item["member_id"] = mid
+                saved = list(db.scalars(select(ManagedResource).where(
+                    ManagedResource.cluster_id == c.id, ManagedResource.kind == "cache",
+                    ManagedResource.state != "deleted")))
+                owners = [r for r in saved if r.data.get("origin") == "external"
+                          and any(m.get("member_id") == mid for m in r.data.get("members", []))]
+                if len(owners) == 1:
+                    item["resource_id"] = owners[0].id
                 work.append(item)
                 continue
             resource, member = matches[mid][0]
@@ -274,6 +283,14 @@ def prepare(db, actor, c, action, p):
             raise Problem(422, "invalid_resource", "请选择当前集群由平台管理的资源")
         if action == "mount.remount" and resource.state not in ("unmounted", "mounted"):
             raise Problem(409, "invalid_resource_state", "请先确认客户端处于已挂载或已卸载状态后再重新挂载")
+        if kind == "cache" and resource.data.get("origin") == "external":
+            ids = [m["member_id"] for m in resource.data.get("members", [])]
+            if not ids:
+                raise Problem(422, "empty_cache_group", "缓存组没有可操作的成员")
+            if action == "cache.stop":
+                return prepare(db, actor, c, action, {"member_ids": ids, "force": p.get("force", False)})
+            if action == "cache.delete":
+                return prepare(db, actor, c, "cache.delete_batch", {"member_ids": ids})
         rows = resource.data["members"] if kind == "cache" else [resource.data]
         return [
             step(

@@ -98,3 +98,19 @@ test("unmount submit becomes unavailable if the selected record is no longer mou
   expect(screen.getByRole("combobox", { name: "选择挂载点" })).toHaveValue("");
   expect(screen.getByRole("alert")).toHaveTextContent("不再是已挂载状态");
 });
+
+test("external mounts with the same path remain distinguishable by host", () => {
+  const action = { action: "mount.unmount", label: "卸载文件系统", section: "mount" as const, mutating: true,
+    fields: [{ key: "resource_id", label: "资源 ID", type: "text" as const, required: true }] };
+  const machines = [
+    { id: "m1", name: "126", address: "172.30.14.126", ssh_user: "jenkins", can_manage: true },
+    { id: "m2", name: "127", address: "172.30.14.127", ssh_user: "jenkins", can_manage: true },
+  ];
+  const resources = machines.map(machine => ({ id: machine.id, kind: "mount" as const,
+    name: "/mnt/dingofs", state: "mounted", created_at: "", data: {
+      origin: "external", fs_name: "manual", machine_id: machine.id,
+    } }));
+  render(<ResourceFields action={action} values={{}} machines={machines} resources={resources} disabled={false} onChange={vi.fn()} />);
+  expect(screen.getByRole("option", { name: /126（172.30.14.126）.*manual.*\/mnt\/dingofs/ })).toHaveValue("m1");
+  expect(screen.getByRole("option", { name: /127（172.30.14.127）.*manual.*\/mnt\/dingofs/ })).toHaveValue("m2");
+});
