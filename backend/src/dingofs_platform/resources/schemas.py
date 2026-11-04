@@ -254,6 +254,7 @@ ACTIONS = [
         ],
     ),
     action("mount.status", "检查挂载状态", "mount", False, [RESOURCE]),
+    action("mount.scan", "扫描已有挂载", "mount", False, [field("machine_ids", "扫描机器", "names", required=True)]),
 ]
 ACTIONS.append(action("cache.plan", "检查缓存成员端口", "cache", False,
     copy.deepcopy(next(item for item in ACTIONS if item["action"] == "cache.create")["fields"])))
@@ -497,6 +498,15 @@ def validate(action_name, parameters):
         return result
     if action_name in ("mount.unmount", "mount.delete") and isinstance(parameters, dict) and "resource_ids" in parameters:
         return _fields([field("resource_ids", "客户端名单", "names", required=True)], parameters)
+    if action_name == "mount.scan":
+        import uuid
+        result = _fields(INDEX[action_name]["fields"], parameters)
+        if len(result["machine_ids"]) > 20:
+            raise ValueError("machine_ids: 最多选择 20 台机器")
+        result["machine_ids"] = [str(uuid.UUID(mid)) for mid in result["machine_ids"]]
+        if len(set(result["machine_ids"])) != len(result["machine_ids"]):
+            raise ValueError("machine_ids: 机器不能重复")
+        return result
     specs = INDEX[action_name]["fields"]
     if action_name == "cache.delete" and isinstance(parameters, dict) and "resource_id" in parameters:
         # Existing saved operations still describe a managed group lifecycle.

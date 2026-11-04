@@ -22,7 +22,8 @@ def request(action, parameters, record=None):
 
 def test_catalog_contains_requested_operations_and_secret_fields():
     actions = {row["action"]: row for row in api().catalog()}
-    assert len(actions) == 33
+    assert len(actions) == 34
+    assert actions["mount.scan"]["mutating"] is False
     assert actions["mount.delete"]["mutating"] is True
     assert {"cache.leave", "cache.unlock", "cache.weight"} <= actions.keys()
     assert actions["cache.create"]["mutating"] is True

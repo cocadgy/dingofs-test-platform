@@ -1,3 +1,4 @@
+import { MountScan } from "./MountScan";
 import { BadouMascot } from "../../components/BadouMascot";
 import { useState } from "react";
 import { ResourceSectionForm } from "./ResourceSectionForm";
@@ -125,6 +126,9 @@ export function ClusterResources({
           />
           {sections.map((section) => (
             <div key={`${id}-${section.key}`} hidden={area !== section.key}>
+              {section.key === "mount" && <MountScan key={id} clusterId={id} snapshot={snapshot}
+                operations={operations} execute={execute} disabled={!canManage || active}
+                error={area === "mount" ? error : undefined} /> }
               <ResourceSectionForm
                 clusterId={id}
                 section={section}

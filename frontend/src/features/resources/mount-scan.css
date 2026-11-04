@@ -1,0 +1,12 @@
+.mount-scan { background: var(--surface, #fff); border: 1px solid #d7e3e5; border-radius: 12px; padding: 24px; margin: 20px 0; min-width: 0; }
+.mount-scan > p { color: #526c77; line-height: 1.7; }
+.mount-scan fieldset { border: 1px solid #d7e3e5; border-radius: 8px; padding: 12px 16px; }
+.mount-scan .mount-scan-machine { display: flex; align-items: center; gap: 10px; padding: 7px 0; }
+.mount-scan-machine input[type="checkbox"] { width: auto; margin: 0; flex: 0 0 auto; }
+.mount-scan-host { border-top: 1px solid #d7e3e5; margin-top: 20px; padding-top: 12px; }
+.mount-scan-table { overflow-x: auto; }
+.mount-scan table { width: 100%; border-collapse: collapse; }
+.mount-scan th, .mount-scan td { text-align: left; vertical-align: top; padding: 12px; border-bottom: 1px solid #e5ecee; overflow-wrap: anywhere; }
+.mount-scan td:first-child { width: 35%; }
+.mount-scan td div { margin-top: 5px; }
+.mount-scan .muted { color: #627b85; font-size: 12px; }

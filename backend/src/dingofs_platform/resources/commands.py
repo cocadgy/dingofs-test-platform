@@ -199,7 +199,7 @@ def build_script(action, parameters, mds_addr, resource_id, record=None, tool_ho
         )
     else:
         p = validate(action, parameters)
-    lifecycle = action.startswith("mount.") or action in {
+    lifecycle = (action.startswith("mount.") and action != "mount.scan") or action in {
         "cache.create",
         "cache.plan",
         "cache.stop",
@@ -224,6 +224,8 @@ def build_script(action, parameters, mds_addr, resource_id, record=None, tool_ho
     source = source.replace("from .cache_binary import prepare_cache_binary, verify_cache_binary", binary_source)
     directory_source = Path(__file__).with_name("cache_directory.py").read_text(encoding="utf-8")
     source = source.replace("from .cache_directory import prepare_cache_directory", directory_source)
+    scan_source = Path(__file__).with_name("mount_scan.py").read_text(encoding="utf-8")
+    source = source.replace("from .mount_scan import scan_mounts", scan_source)
     return (
         "python3 -c "
         + shlex.quote(source)

@@ -74,6 +74,16 @@ def step(db, actor, c, action, params, *, record=None, mid=None, user=None):
 
 
 def prepare(db, actor, c, action, p):
+    if action == "mount.scan":
+        work = []
+        saved = list(db.scalars(select(ManagedResource).where(
+            ManagedResource.cluster_id == c.id, ManagedResource.kind == "mount",
+            ManagedResource.state != "deleted")))
+        for mid in p["machine_ids"]:
+            records = {r.name: r.id for r in saved if r.data.get("machine_id") == mid}
+            work.append(step(db, actor, c, action, {"machine_ids": [mid]},
+                             record={"saved_mounts": records}, mid=mid, user="root"))
+        return work, None
     if action in ("mount.unmount", "mount.delete") and ("resource_ids" in p or action == "mount.delete"):
         work = []
         for rid in p.get("resource_ids", [p.get("resource_id")]):
@@ -478,6 +488,7 @@ def inventory(request, cid):
                     address=m.address,
                     ssh_user=m.ssh_user,
                     can_manage=can_manage(actor, m),
+                    has_ssh_password=bool(m.ssh_password_ciphertext),
                     rdma=machine_rdma_ports(m),
                 )
                 for m in db.scalars(

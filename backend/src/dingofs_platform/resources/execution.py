@@ -135,7 +135,7 @@ def run(request, oid, password=None, *, claimed=False):
                 terminal(db, op, "failed", "stale")
                 return
             if op.cursor >= len(op.steps):
-                failed = op.action in ("fs.delete_batch", "cache.delete_batch", "cache.stop", "mount.unmount", "mount.delete") and any(s.get("failed") for s in (op.result or {}).get("steps", []))
+                failed = op.action in ("fs.delete_batch", "cache.delete_batch", "cache.stop", "mount.unmount", "mount.delete", "mount.scan") and any(s.get("failed") for s in (op.result or {}).get("steps", []))
                 terminal(db, op, "failed" if failed else "succeeded", "batch_failed" if failed else None)
                 return
             work = deepcopy(op.steps[op.cursor])
@@ -171,6 +171,17 @@ def run(request, oid, password=None, *, claimed=False):
                     settings.ssh_known_hosts,
                 )
             except (Problem, ValueError, TypeError):
+                if op.action == "mount.scan":
+                    failure = dict(machine_id=work["machine_id"], target_user=work["target_user"],
+                                   failed=True, returncode=None,
+                                   message="保存的 SSH 凭据无法解密，请更新机器密码或检查平台密钥")
+                    op.result = {"steps": [*(op.result or {}).get("steps", []), failure]}
+                    op.cursor += 1
+                    op.auth_attempts = 0
+                    op.auth_account = None
+                    op.challenge_digest = None
+                    password = None
+                    continue
                 terminal(db, op, "failed", "credential_unavailable")
                 return
             secret_values = [login_password, password, *storage.values()]
@@ -230,7 +241,7 @@ def run(request, oid, password=None, *, claimed=False):
                 target_name,
                 expected_home=work["expected_home"],
                 resource_script=script,
-                resource_requires_dingo=work["action"] != "cache.stop_external"
+                resource_requires_dingo=work["action"] not in ("cache.stop_external", "mount.scan")
                 and not work["action"].startswith(("trash.", "dirstat.")),
             )
             transport = getattr(
@@ -338,6 +349,10 @@ def run(request, oid, password=None, *, claimed=False):
                 elif not error and op.action == "cache.plan":
                     error = "query_failed"
                     result = {**result, "message": "端口检查未返回有效端口，请重新检查", "returncode": 1}
+            if op.action == "mount.scan":
+                result = {**(result or {"message": error, "returncode": None}),
+                          "machine_id": work["machine_id"], "target_user": work["target_user"],
+                          "failed": bool(error)}
             if op.action == "cache.stop" and work.get("member_id"):
                 result = {**(result or {"message": error, "returncode": None}),
                           "member_id": work["member_id"], "failed": bool(error)}
@@ -394,7 +409,7 @@ def run(request, oid, password=None, *, claimed=False):
                                   and result.get("remote_state") == "failed")
             known_mount_failure = (work.get("mount_batch") and error == "query_failed"
                                    and result and result.get("remote_state") == "failed")
-            if error and not (known_delete_failure or known_stop_failure or known_mount_failure):
+            if error and not (known_delete_failure or known_stop_failure or known_mount_failure or op.action == "mount.scan"):
                 terminal(
                     db,
                     op,

@@ -69,7 +69,7 @@ def test_shared_operation_view_shows_detail_keys_without_private_access():
 
     timestamp = datetime.now(timezone.utc)
     op = SimpleNamespace(
-        id="detail", actor_id="creator", action="fs.get", state="succeeded",
+        id="detail", cluster_id="cluster", actor_id="creator", action="fs.get", state="succeeded",
         parameters={}, steps=[], cursor=0, error_code=None, resource_id=None,
         created_at=timestamp, expires_at=timestamp,
         result={"steps": [{"data": {"result": {"fs_info": {"extra": {

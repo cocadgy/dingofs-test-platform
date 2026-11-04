@@ -32,6 +32,7 @@ export type ResourceMachine = {
   address: string;
   ssh_user: string;
   can_manage: boolean;
+  has_ssh_password?: boolean;
   rdma?: { device: string; port: number; interfaces?: string[] }[] | null;
 };
 export type SavedResource = {
@@ -44,6 +45,7 @@ export type SavedResource = {
 };
 export type ResourceOperation = {
   id: string;
+  cluster_id?: string;
   action: string;
   state: string;
   payload?: Parameters;
@@ -74,6 +76,13 @@ export type ResourceOperation = {
   creator_id?: string;
   created_at?: string;
 };
+export type MountScanRow = {
+  mount_id: string; mount_path: string; fs_name: string; pid: number | null;
+  client_user: string | null; mds_addresses: string[];
+  cluster_match: "current" | "other" | "unknown"; reason: string;
+  saved_resource_id: string | null;
+};
+export type MountScanData = { mounts: MountScanRow[]; scanned_at: string; warnings?: string[] };
 export type CacheMemberTarget = {
   machine_id?: string | null;
   machine_name?: string | null;

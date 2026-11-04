@@ -90,6 +90,7 @@ def operation_view(db, op, *, private=False):
     machine = db.get(Machine, step.get("machine_id")) if step else None
     return dict(
         id=op.id,
+        cluster_id=op.cluster_id,
         creator_id=op.actor_id,
         action=op.action,
         state=op.state,

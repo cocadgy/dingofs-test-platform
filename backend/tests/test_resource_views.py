@@ -22,6 +22,7 @@ def operation(**overrides):
     timestamp = datetime(2026, 10, 9, tzinfo=timezone.utc)
     values = dict(
         id="operation-1",
+        cluster_id="cluster-1",
         actor_id="actor-1",
         action="fs.list",
         state="failed",

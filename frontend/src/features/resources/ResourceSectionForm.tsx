@@ -65,7 +65,7 @@ export function ResourceSectionForm({
   const [shortcutError, setShortcutError] = useState("");
   const actions = snapshot.catalog.filter(
     (action) =>
-      action.section === section.key && action.action !== "cache.plan",
+      action.section === section.key && !["cache.plan", "mount.scan"].includes(action.action),
   );
   const groups = [...new Set(actions.map((item) => actionGroup(item.action)))];
   const selectedGroup = groups.includes(group) ? group : groups[0];
