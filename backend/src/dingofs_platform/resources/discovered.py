@@ -142,6 +142,14 @@ def persist(db, op, work, result):
 
 def deleted(db, op, work):
     """Keep persisted inventories in step with successful MDS deletions."""
+    if work["action"] == "mount.unmount_discovered":
+        record = work["record"]
+        for resource in records(db, op.cluster_id, "mount"):
+            if (resource.id == record.get("saved_resource_id") and resource.name == record["mount_path"]
+                    and resource.data.get("machine_id") == work["machine_id"]):
+                resource.state = "unmounted"
+                resource.revision += 1
+        return
     if op.action in ("fs.delete", "fs.delete_batch"):
         name = work["parameters"]["fs_name"]
         for resource in records(db, op.cluster_id, "filesystem"):

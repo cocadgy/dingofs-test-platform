@@ -7,6 +7,8 @@ from dingofs_platform.resources import mount_scan as scan
 
 
 def proc(tmp_path, argv=None, *, source="DingoFS:demo", path="/mnt/demo", pid=123):
+    (tmp_path / "sys/kernel/random").mkdir(parents=True, exist_ok=True)
+    (tmp_path / "sys/kernel/random/boot_id").write_text("boot-test")
     (tmp_path / "self/ns").mkdir(parents=True, exist_ok=True)
     ns = tmp_path / "self/ns/mnt"
     if not ns.exists() and not ns.is_symlink():
@@ -31,6 +33,7 @@ def test_uri_matching_and_saved_record_are_read_only(tmp_path):
     assert row["cluster_match"] == "current"
     assert row["pid"] == 123 and row["saved_resource_id"] == "saved"
     assert row["fs_name"] == "demo" and row["client_user"]
+    assert not row["cleanup_allowed"]
     assert "hidden" not in json.dumps(data) and "argv" not in json.dumps(data)
     assert (root / "self/mountinfo").read_bytes() == before
 
@@ -49,6 +52,8 @@ def test_escaped_path_and_absent_process_remain_visible(tmp_path):
     row = scan.scan_mounts("a:6900", proc_root=proc(tmp_path, path=r"/mnt/a\040b"))["mounts"][0]
     assert row["mount_path"] == "/mnt/a b"
     assert row["cluster_match"] == "unknown" and row["reason"]
+    assert row["cleanup_allowed"]
+    assert row["kernel_mount"]["mount_path"] == "/mnt/a b"
 
 
 def test_ambiguous_processes_are_unknown(tmp_path):
@@ -57,6 +62,7 @@ def test_ambiguous_processes_are_unknown(tmp_path):
     proc(tmp_path, argv, pid=124)
     row = scan.scan_mounts("a:6900", proc_root=tmp_path)["mounts"][0]
     assert row["cluster_match"] == "unknown" and row["pid"] is None
+    assert not row["cleanup_allowed"]
 
 
 def test_unreadable_mount_table_is_failure_not_empty(tmp_path):

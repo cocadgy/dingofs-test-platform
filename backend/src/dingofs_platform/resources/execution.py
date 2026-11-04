@@ -241,7 +241,7 @@ def run(request, oid, password=None, *, claimed=False):
                 target_name,
                 expected_home=work["expected_home"],
                 resource_script=script,
-                resource_requires_dingo=work["action"] not in ("cache.stop_external", "mount.scan")
+                resource_requires_dingo=work["action"] not in ("cache.stop_external", "mount.scan", "mount.unmount_discovered")
                 and not (work["action"].startswith("mount.") and (work.get("record") or {}).get("origin") == "external")
                 and not work["action"].startswith(("trash.", "dirstat.")),
             )

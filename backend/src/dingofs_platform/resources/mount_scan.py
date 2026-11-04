@@ -73,6 +73,10 @@ def scan_mounts(mds_addr, saved=None, *, proc_root=Path("/proc"), max_mounts=100
         raise ValueError("当前集群 MDS 地址格式无效，不能确认挂载归属")
     root = Path(proc_root)
     namespace = os.readlink(root / "self/ns/mnt")
+    try:
+        boot_id = _scan_read(root / "sys/kernel/random/boot_id", 128).strip()
+    except OSError:
+        boot_id = None
     rows, seen = [], set()
     for line in _scan_read(root / "self/mountinfo", 4 * 1024 * 1024).splitlines():
         fields = line.split()
@@ -91,6 +95,9 @@ def scan_mounts(mds_addr, saved=None, *, proc_root=Path("/proc"), max_mounts=100
         fs = source[8:] if source.startswith("DingoFS:") else ""
         rows.append(dict(mount_id=fields[0], mount_path=path, fs_name=fs,
                          pid=None, client_user=None, mds_addresses=[],
+                         kernel_mount=dict(mount_id=fields[0], device=fields[2], root=fields[3],
+                                           mount_path=path, fs_type=fields[sep + 1], source=fields[sep + 2]),
+                         cleanup_allowed=False,
                          cluster_match="unknown", reason="未找到可唯一核验的客户端进程",
                          saved_resource_id=(saved or {}).get(path)))
     candidates = {}
@@ -140,6 +147,7 @@ def scan_mounts(mds_addr, saved=None, *, proc_root=Path("/proc"), max_mounts=100
                 unreadable += 1
     for row in rows:
         matched = candidates.get(row["mount_path"], [])
+        row["cleanup_allowed"] = not matched and bool(boot_id)
         if len(matched) != 1:
             continue
         pid, user, fs, endpoints, identity, log_dir = matched[0]
@@ -155,7 +163,7 @@ def scan_mounts(mds_addr, saved=None, *, proc_root=Path("/proc"), max_mounts=100
             row.update(cluster_match="current" if current else "other",
                        reason="MDS 地址集合一致" if current else "客户端 MDS 地址与当前集群不同")
     data = dict(mounts=rows, scanned_at=datetime.now(timezone.utc).isoformat(),
-                namespace=namespace, expected_mds=expected,
+                namespace=namespace, boot_id=boot_id, expected_mds=expected,
                 warnings=([f"{unreadable} 个进程信息不可读或参数无法识别，归属可能无法确认"] if unreadable else []))
     if len(json.dumps(data, ensure_ascii=True).encode()) > 1024 * 1024:
         raise ValueError("扫描结果超过大小上限（1 MiB），本次结果未返回")

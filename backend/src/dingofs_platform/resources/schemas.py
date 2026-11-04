@@ -482,6 +482,16 @@ def _fields(specs, parameters):
 def validate(action_name, parameters):
     if action_name not in INDEX:
         raise ValueError("unknown resource action")
+    if action_name == "mount.unmount" and isinstance(parameters, dict) and "scan_operation_id" in parameters:
+        import uuid
+        result = _fields([field("scan_operation_id", "扫描记录", required=True),
+                          field("machine_id", "机器", required=True),
+                          field("mount_id", "内核挂载 ID", required=True)], parameters)
+        for key in ("scan_operation_id", "machine_id"):
+            result[key] = str(uuid.UUID(result[key]))
+        if not re.fullmatch(r"[0-9]{1,20}", result["mount_id"]):
+            raise ValueError("mount_id: 无效的内核挂载 ID")
+        return result
     if action_name == "cache.create" and isinstance(parameters, dict) and "retry_operation_id" in parameters:
         import uuid
         result = _fields([field("retry_operation_id", "原创建任务", required=True)], parameters)

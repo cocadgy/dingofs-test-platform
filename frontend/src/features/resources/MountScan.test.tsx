@@ -1,9 +1,25 @@
 import { afterEach, expect, test, vi } from "vitest";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { MountScan } from "./MountScan";
-import type { ResourceSnapshot, ResourceOperation } from "./types";
+import type { ResourceSnapshot, ResourceOperation, ResourceAction } from "./types";
 
 afterEach(cleanup);
+
+test("offers residual unmount by saved scan identity, not a caller supplied path", () => {
+  const execute = vi.fn();
+  const action: ResourceAction = {action:"mount.unmount",label:"卸载文件系统",section:"mount",mutating:true,fields:[]};
+  const op: ResourceOperation = {...result, state:"succeeded", result:{steps:[{
+    machine_id:"m1", machine_name:"129", machine_address:"172.30.14.129", data:{mounts:[{
+      mount_id:"42",mount_path:"/mnt/dead",fs_name:"demo",pid:null,client_user:null,
+      mds_addresses:[],cluster_match:"unknown",reason:"客户端已退出",cleanup_allowed:true,
+    }]},
+  }]}};
+  render(<MountScan clusterId="c1" snapshot={{...snapshot,catalog:[...snapshot.catalog,action]}}
+    operations={[op]} execute={execute} disabled={false} />);
+  fireEvent.click(screen.getByRole("button",{name:"卸载残留挂载"}));
+  expect(execute).toHaveBeenCalledWith(expect.objectContaining({label:expect.stringContaining("/mnt/dead")}),
+    {scan_operation_id:"scan",machine_id:"m1",mount_id:"42"});
+});
 const snapshot: ResourceSnapshot = {
   catalog: [{action:"mount.scan", label:"扫描已有挂载", section:"mount", mutating:false, fields:[]}],
   resources:[], operations:[], machines:[

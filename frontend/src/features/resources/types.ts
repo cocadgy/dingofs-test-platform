@@ -81,6 +81,7 @@ export type MountScanRow = {
   client_user: string | null; mds_addresses: string[];
   cluster_match: "current" | "other" | "unknown"; reason: string;
   saved_resource_id: string | null;
+  cleanup_allowed?: boolean;
 };
 export type MountScanData = { mounts: MountScanRow[]; scanned_at: string; warnings?: string[] };
 export type CacheMemberTarget = {

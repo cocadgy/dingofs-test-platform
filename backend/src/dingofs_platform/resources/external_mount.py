@@ -8,6 +8,35 @@ import uuid
 from pathlib import Path
 
 
+def unmount_discovered(req, helper):
+    """Detach a scanned leftover FUSE mount without touching its dead endpoint."""
+    if os.geteuid() != 0:
+        raise ValueError("卸载残留挂载需要 sudo 认证")
+    record = req["record"]
+    if (os.readlink("/proc/self/ns/mnt") != record["namespace"]
+            or Path("/proc/sys/kernel/random/boot_id").read_text().strip() != record["boot_id"]):
+        raise ValueError("机器启动或挂载命名空间已变化，请重新扫描")
+    expected = record["kernel_mount"]
+    if expected.get("fs_type") != "fuse.dingofs" or expected.get("mount_path") != record["mount_path"]:
+        raise ValueError("不是已扫描的 DingoFS 挂载")
+    current = helper.mount_identity(record["mount_path"])
+    if current is None:
+        return "unmounted", {"mount_path": record["mount_path"], "already_absent": True}
+    if current != expected:
+        raise ValueError("该路径的挂载已被替换，请重新扫描后再操作")
+    fresh = helper.scan_mounts(req["mds_addr"])
+    rows = [r for r in fresh["mounts"] if r["mount_path"] == record["mount_path"]]
+    if len(rows) != 1 or rows[0].get("kernel_mount") != expected or not rows[0].get("cleanup_allowed"):
+        raise ValueError("挂载状态已变化或已识别到运行中的客户端，请重新扫描")
+    if helper.mount_identity(record["mount_path"]) != expected:
+        raise ValueError("挂载身份发生变化，请重新扫描")
+    # Never canonicalize or traverse the disconnected FUSE tree.
+    helper.run_command(["umount", "-i", "-l", "--no-canonicalize", "--", record["mount_path"]], timeout=30)
+    if helper.mount_identity(record["mount_path"]) is not None:
+        raise ValueError("卸载后该路径仍有挂载，请重新扫描确认")
+    return "unmounted", {"mount_path": record["mount_path"], "residual_mount_removed": True}
+
+
 def capture_external_mounts(req, data, helper):
     """Capture restart settings on the target before a later manual unmount."""
     cluster_id = req["record"]["cluster_id"]

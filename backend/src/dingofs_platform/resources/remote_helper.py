@@ -24,7 +24,7 @@ from pathlib import Path
 from .cache_binary import prepare_cache_binary, verify_cache_binary
 from .cache_directory import prepare_cache_directory
 from .mount_scan import scan_mounts, _scan_client, _scan_endpoints
-from .external_mount import external_mount_lifecycle, capture_external_mounts
+from .external_mount import external_mount_lifecycle, capture_external_mounts, unmount_discovered
 
 MAX_OUTPUT = 1024 * 1024
 # Each filesystem may contain 1024 pretty-printed hash bucket IDs. Even a
@@ -1449,6 +1449,8 @@ def main(req):
             data = capture_external_mounts(req, data, sys.modules[__name__])
         elif req["action"] == "cache.stop_external":
             state, data = stop_external_member(req)
+        elif req["action"] == "mount.unmount_discovered":
+            state, data = unmount_discovered(req, sys.modules[__name__])
         elif req["action"].startswith("mount.") and req["record"].get("origin") == "external":
             state, data = external_mount_lifecycle(req, sys.modules[__name__])
         elif req["action"] == "cache.wait_offline":

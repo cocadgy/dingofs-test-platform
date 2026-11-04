@@ -148,7 +148,11 @@ def build_script(action, parameters, mds_addr, resource_id, record=None, tool_ho
         or any(ord(c) < 32 for c in mds_addr)
     ):
         raise ValueError("invalid cluster MDS address")
-    if action == "cache.stop_external":
+    if action == "mount.unmount_discovered":
+        p = validate("mount.unmount", parameters)
+        if "scan_operation_id" not in p or not isinstance(record, dict) or not record.get("kernel_mount"):
+            raise ValueError("server-owned scanned mount identity is required")
+    elif action == "cache.stop_external":
         p = validate("cache.delete", parameters)
         if "member_id" not in p or not isinstance(record, dict) or record.get("member_id") != p["member_id"]:
             raise ValueError("server-owned external member record is required")
@@ -204,7 +208,7 @@ def build_script(action, parameters, mds_addr, resource_id, record=None, tool_ho
         "cache.plan",
         "cache.stop",
     } or (action == "cache.delete" and "resource_id" in p)
-    external_mount = action.startswith("mount.") and isinstance(record, dict) and record.get("origin") == "external"
+    external_mount = action == "mount.unmount_discovered" or (action.startswith("mount.") and isinstance(record, dict) and record.get("origin") == "external")
     if lifecycle and not external_mount and (
         not isinstance(record, dict)
         or not record.get("state_dir")
@@ -228,7 +232,7 @@ def build_script(action, parameters, mds_addr, resource_id, record=None, tool_ho
     scan_source = Path(__file__).with_name("mount_scan.py").read_text(encoding="utf-8")
     source = source.replace("from .mount_scan import scan_mounts, _scan_client, _scan_endpoints", scan_source)
     external_source = Path(__file__).with_name("external_mount.py").read_text(encoding="utf-8")
-    source = source.replace("from .external_mount import external_mount_lifecycle, capture_external_mounts", external_source)
+    source = source.replace("from .external_mount import external_mount_lifecycle, capture_external_mounts, unmount_discovered", external_source)
     return (
         "python3 -c "
         + shlex.quote(source)

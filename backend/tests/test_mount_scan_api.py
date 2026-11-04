@@ -19,6 +19,41 @@ def begin(admin, cluster, ids):
     })
 
 
+def test_unknown_cluster_residual_mount_can_be_unmounted_from_saved_scan(admin, app):
+    m, c, _ = linked(admin)
+    calls = []
+    kernel = dict(mount_id='42', device='0:53', root='/', mount_path='/mnt/dead',
+                  fs_type='fuse.dingofs', source='DingoFS:demo')
+    def transport(config, cmd, **kw):
+        req = json.loads(shlex.split(cmd.resource_script)[-1])
+        calls.append(req)
+        assert cmd.target_user == 'root' and not cmd.resource_requires_dingo
+        if req['action'] == 'mount.scan':
+            data = dict(namespace='mnt:[1]', boot_id='boot-test', mounts=[dict(
+                mount_id='42', mount_path='/mnt/dead', cluster_match='unknown',
+                cleanup_allowed=True, kernel_mount=kernel)])
+        else:
+            assert req['action'] == 'mount.unmount_discovered'
+            assert req['record']['kernel_mount'] == kernel
+            data = dict(mount_path='/mnt/dead', residual_mount_removed=True)
+        return ClusterCommandResult(ExecutionIdentity('root', '/root', ''),
+            json.dumps(dict(state='succeeded', data=data, returncode=0)), '', 0)
+    app.state.resource_transport = transport
+    scan = begin(admin, c, [m['id']]).json()
+    params = dict(scan_operation_id=scan['id'], machine_id=m['id'], mount_id='42')
+    def submit(p):
+        return admin.post(f'/api/v1/clusters/{c["id"]}/resource-operations', json=dict(
+            action='mount.unmount', parameters=p, confirmed=True,
+            request_id=str(uuid4()), base_revision=c['revision']))
+    assert submit({**params, 'mount_id': '99'}).status_code == 422
+    assert submit({**params, 'mount_path': '/other'}).status_code == 422
+    response = submit(params)
+    assert response.status_code == 202, response.text
+    op = admin.get('/api/v1/resource-operations/' + response.json()['id']).json()
+    assert op['state'] == 'succeeded', op
+    assert len(calls) == 2
+
+
 @pytest.mark.parametrize("failure", [False, "transport", "credential"])
 def test_scan_keeps_each_machine_result_without_creating_resources(admin, app, failure):
     m, c, _ = linked(admin)

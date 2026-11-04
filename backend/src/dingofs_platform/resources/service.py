@@ -74,6 +74,29 @@ def step(db, actor, c, action, params, *, record=None, mid=None, user=None):
 
 
 def prepare(db, actor, c, action, p):
+    if action == "mount.unmount" and "scan_operation_id" in p:
+        scan = db.get(ResourceOperation, p["scan_operation_id"])
+        if not scan or scan.cluster_id != c.id or scan.action != "mount.scan" or scan.state not in ("succeeded", "failed"):
+            raise Problem(422, "scan_required", "请先扫描目标机器上的挂载点")
+        results = [s for s in (scan.result or {}).get("steps", [])
+                   if s.get("machine_id") == p["machine_id"] and not s.get("failed")]
+        if len(results) != 1:
+            raise Problem(422, "invalid_scan_target", "该机器没有成功的扫描记录，请重新扫描")
+        data = results[0].get("data") or {}
+        rows = data.get("mounts", [])
+        selected = [r for r in rows if r.get("mount_id") == p["mount_id"]]
+        if len(selected) != 1 or not selected[0].get("cleanup_allowed"):
+            raise Problem(422, "invalid_scan_target", "该记录不支持残留挂载卸载，请重新扫描")
+        row = selected[0]
+        if len([r for r in rows if r.get("mount_path") == row["mount_path"]]) != 1:
+            raise Problem(422, "ambiguous_mount", "该路径存在多层挂载，无法唯一确认待卸载目标")
+        record = dict(mount_path=row["mount_path"], kernel_mount=row.get("kernel_mount"),
+                      namespace=data.get("namespace"), boot_id=data.get("boot_id"),
+                      saved_resource_id=row.get("saved_resource_id"))
+        if not record["kernel_mount"] or not record["namespace"] or not record["boot_id"]:
+            raise Problem(422, "scan_required", "扫描记录缺少内核身份信息，请重新扫描")
+        return [step(db, actor, c, "mount.unmount_discovered", p, record=record,
+                     mid=p["machine_id"], user="root")], None
     if action == "mount.scan":
         work = []
         saved = list(db.scalars(select(ManagedResource).where(
