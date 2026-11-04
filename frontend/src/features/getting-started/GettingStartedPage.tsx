@@ -50,7 +50,17 @@ export function GettingStartedPage({ route, onNavigate, onDirty, admin = false, 
           <select id="start-action" value={action} onChange={(event) => setAction(event.target.value)}>
             {actions.map(([value, label]) => <option key={value} value={value}>{label}</option>)}
           </select>
-          <button className="primary" type="button" onClick={() => action === "machine" ? onNavigate("#/start/machine") : action === "cluster" ? onNavigate("#/start/cluster") : action === "filesystem" ? onNavigate("#/start/filesystem") : action === "cache" ? onNavigate("#/start/cache") : setComingSoon(true)}>下一步</button>
+          <button className="primary" type="button" onClick={() => {
+            if (action === "cache") {
+              const key = "guided-cache-draft-" + (userId || "");
+              sessionStorage.removeItem(key);
+              sessionStorage.removeItem(key + "-operation");
+              onNavigate("#/start/cache");
+            } else if (action === "machine") onNavigate("#/start/machine");
+            else if (action === "cluster") onNavigate("#/start/cluster");
+            else if (action === "filesystem") onNavigate("#/start/filesystem");
+            else setComingSoon(true);
+          }}>下一步</button>
         </div>
       )}
     </section>

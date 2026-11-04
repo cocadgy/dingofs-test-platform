@@ -2,7 +2,7 @@ import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, expect, test, vi } from "vitest";
 import { GettingStartedPage } from "./GettingStartedPage";
 
-afterEach(cleanup);
+afterEach(() => { cleanup(); sessionStorage.clear(); });
 
 test("lists seven guided actions and opens machine onboarding", () => {
   const navigate = vi.fn();
@@ -19,13 +19,17 @@ test("future actions have an explicit coming-soon state", () => {
   render(<GettingStartedPage route="chooser" onNavigate={vi.fn()} onDirty={vi.fn()} />);
   fireEvent.change(screen.getByLabelText("想做什么"), { target: { value: "mount" } });
   fireEvent.click(screen.getByRole("button", { name: "下一步" }));
-  expect(screen.getByText("即将支持")).toBeInTheDocument();
+  expect(screen.getByText("即将支持")).toBeTruthy();
 });
 
 test("cache action opens the implemented wizard", () => {
   const navigate = vi.fn();
-  render(<GettingStartedPage route="chooser" onNavigate={navigate} onDirty={vi.fn()} />);
+  sessionStorage.setItem("guided-cache-draft-u", JSON.stringify({ name: "old" }));
+  sessionStorage.setItem("guided-cache-draft-u-operation", "completed-job");
+  render(<GettingStartedPage route="chooser" userId="u" onNavigate={navigate} onDirty={vi.fn()} />);
   fireEvent.change(screen.getByLabelText("想做什么"), { target: { value: "cache" } });
   fireEvent.click(screen.getByRole("button", { name: "下一步" }));
   expect(navigate).toHaveBeenCalledWith("#/start/cache");
+  expect(sessionStorage.getItem("guided-cache-draft-u")).toBeNull();
+  expect(sessionStorage.getItem("guided-cache-draft-u-operation")).toBeNull();
 });
