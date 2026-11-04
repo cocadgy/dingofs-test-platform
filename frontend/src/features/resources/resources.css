@@ -55,6 +55,20 @@
 .resource-checkbox input {
   width: auto;
 }
+.resource-match-option {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 8px;
+  margin: 8px 0;
+}
+.resource-match-option input[type="checkbox"] {
+  flex: 0 0 16px;
+  width: 16px;
+  height: 16px;
+  margin: 0;
+}
 .resource-members,
 .resource-member {
   min-width: 0;

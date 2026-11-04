@@ -883,7 +883,7 @@ export function ResourceSectionForm({
                     排除指定字符。例：vdbench*。不支持花括号展开或扩展通配符。
                   </p>
                   {matches.map((name) => (
-                    <label key={name} style={{ display: "block" }}>
+                    <label key={name} className="resource-match-option">
                       <input
                         type="checkbox"
                         disabled={disabled || listPending}
