@@ -1,7 +1,7 @@
 import type { ResourceOperation } from "./types";
 
 export const visibleFilesystemName = (name: unknown) =>
-  typeof name !== "string" || !name.includes("DELETED");
+  typeof name !== "string" || !name.includes("DELETE");
 
 export const selectsFilesystem = (action: string) =>
   action === "mount.create" ||

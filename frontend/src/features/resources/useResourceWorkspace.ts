@@ -38,6 +38,7 @@ export function useResourceWorkspace({
   const executing = useRef(false);
   const completed = useRef("");
   const refreshedCreations = useRef(new Set<string>());
+  const entryQueries = useRef(new Set<string>());
   const loadSequence = useRef(0);
   const operationVersion = useRef(0);
   const load = useCallback(async () => {
@@ -67,6 +68,7 @@ export function useResourceWorkspace({
   }, [id]);
   useEffect(() => {
     live.current = true;
+    entryQueries.current.clear();
     setSnapshot(undefined);
     setOperation(undefined);
     setError("");
@@ -150,6 +152,7 @@ export function useResourceWorkspace({
     )
       return;
     executing.current = true;
+    entryQueries.current.add(action.action);
     setBusy(true);
     setError("");
     onSubmitted?.();
@@ -222,6 +225,19 @@ export function useResourceWorkspace({
     refreshedCreations.current.add(key);
     void execute(query, {});
   }, [id, operation, canManage, active, snapshot, execute]);
+  useEffect(() => {
+    if (!canManage || active || executing.current || !snapshot) return;
+    let cancelled = false;
+    // Let an existing form entry query claim fs.list first. Both paths share
+    // the synchronous execution guard, so queries cannot race one another.
+    queueMicrotask(() => {
+      if (cancelled || executing.current) return;
+      const action = ["fs.list", "cache.list"].find((name) => !entryQueries.current.has(name));
+      const query = snapshot.catalog.find((item) => item.action === action);
+      if (query) void execute(query, {});
+    });
+    return () => { cancelled = true; };
+  }, [id, snapshot, canManage, active, execute]);
   const operations = useMemo(() => {
     const records = operation
       ? [

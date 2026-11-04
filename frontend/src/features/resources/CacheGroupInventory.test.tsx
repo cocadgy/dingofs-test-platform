@@ -106,8 +106,8 @@ test("actual stopped groups replace failed or deleted local creation records", (
   ).toBeDisabled();
 });
 
-test("cache navigation counts discovered groups instead of local attempts", () => {
-  render(
+test("cache navigation excludes stopped groups after a fresh query", () => {
+  const view = render(
     <ResourceNavigation
       area="cache"
       snapshot={snapshot()}
@@ -115,8 +115,11 @@ test("cache navigation counts discovered groups instead of local attempts", () =
       onChange={vi.fn()}
     />,
   );
+  const fresh = snapshot();
+  fresh.operations[0].id = "new-query";
+  view.rerender(<ResourceNavigation area="cache" snapshot={fresh} operationCount={1} onChange={vi.fn()} />);
   expect(screen.getByRole("button", { name: /缓存组/ })).toHaveTextContent(
-    "30",
+    "缓存组0",
   );
 });
 

@@ -22,6 +22,8 @@ test.each(["fs.delete", "fs.delete_batch"])(
       id: "cluster", name: "cluster", revision: 1, canManage: true,
     }));
     await waitFor(() => expect(result.current.snapshot).toBeDefined());
+    await waitFor(() => expect(result.current.active).toBe(false));
+    vi.mocked(api).mockClear(); // Ignore the fresh inventory query on page entry.
     act(() => result.current.accept({ id: "delete", action, state: "running" }));
     expect(vi.mocked(api).mock.calls.filter(call => call[1] === "POST")).toHaveLength(0);
     act(() => result.current.accept({ id: "delete", action, state: "succeeded" }));

@@ -1,4 +1,6 @@
 import { cacheGroupResources } from "./cacheGroupResources";
+import { useRef } from "react";
+import { filesystemOptions, visibleFilesystemName } from "./filesystemOptions";
 import type { ResourceSnapshot } from "./types";
 import { sections, type ResourceArea } from "./workspace";
 
@@ -13,10 +15,35 @@ export function ResourceNavigation({
   operationCount: number;
   onChange: (area: ResourceArea) => void;
 }) {
-  let cacheCount: number | string = "—";
-  const latest = snapshot.operations.find(
-    (item) => item.action === "cache.list",
+  // Never present a previous visit's successful query as current inventory.
+  const historical = useRef(new Set(snapshot.operations.map((item) => item.id)));
+  const fresh = (action: string) => snapshot.operations.find(
+    (item) => item.action === action && !historical.current.has(item.id),
   );
+  let filesystemCount: number | string = "—";
+  let mountCount: number | string = "—";
+  const filesystems = fresh("fs.list");
+  if (filesystems?.state === "succeeded") {
+    try {
+      filesystemCount = filesystemOptions(filesystems).length;
+      for (const step of filesystems.result?.steps || []) {
+        const data = step.data ?? (step.stdout ? JSON.parse(step.stdout) : undefined);
+        const rows = Array.isArray(data) ? data : (data?.result ?? data)?.fs_infos;
+        if (!Array.isArray(rows)) continue;
+        let total = 0;
+        for (const row of rows) {
+          if (!visibleFilesystemName(row.fs_name)) continue;
+          const mounts = row.mount_points ?? row.mountPoints ?? [];
+          if (!Array.isArray(mounts)) throw new Error("Invalid mount points");
+          total += mounts.length;
+        }
+        mountCount = total;
+        break;
+      }
+    } catch { /* Unknown is not zero; never fall back to saved records. */ }
+  }
+  let cacheCount: number | string = "—";
+  const latest = fresh("cache.list");
   if (latest?.state === "succeeded") {
     try {
       cacheCount = cacheGroupResources(
@@ -24,7 +51,7 @@ export function ResourceNavigation({
         snapshot.resources,
         undefined,
         snapshot.operations,
-      ).length;
+      ).filter((group) => Number(group.data.online_count) > 0).length;
     } catch {
       /* A malformed query must not become a count of local attempts. */
     }
@@ -45,17 +72,13 @@ export function ResourceNavigation({
           onClick={() => onChange(item.key as ResourceArea)}
         >
           {item.label}
-          {item.key !== "filesystem" && (
-            <span>
+            <span title={item.key === "mount" ? "集群当前返回的挂载点数量（MDS 注册信息）" : item.key === "cache" ? "至少有一个在线成员的缓存组" : undefined}>
               {item.key === "history"
                 ? operationCount
                 : item.key === "cache"
                   ? cacheCount
-                  : snapshot.resources.filter(
-                      (resource) => resource.kind === item.key,
-                    ).length}
+                  : item.key === "filesystem" ? filesystemCount : mountCount}
             </span>
-          )}
         </button>
       ))}
     </nav>
