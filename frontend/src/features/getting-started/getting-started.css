@@ -65,6 +65,11 @@
 .guided-capacity-field { display: grid; gap: 8px; min-width: 0; }
 .guided-capacity-input { display: grid; grid-template-columns: minmax(0, 1fr) 90px; gap: 8px; }
 .guided-cache-parameters { display: grid; gap: 16px; min-width: 0; }
+.guided-cache-parameters .guided-template-save { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 10px; }
+.guided-template-save > label { flex: 0 1 240px; min-width: 0; }
+.guided-template-save input, .guided-template-save > button { box-sizing: border-box; height: 40px; }
+.guided-template-save > button { flex: 0 0 auto; align-self: flex-end; white-space: nowrap; }
+@media (max-width: 480px) { .guided-template-save > label { flex: 1 1 140px; } }
 .guided-cache-parameters .cache-parameter-editor > details { padding: 16px; margin-top: 16px; border: 1px solid var(--border, #d9e4e6); border-radius: 8px; }
 .guided-cache-parameters .cache-parameter-editor > details > summary { cursor: pointer; margin-bottom: 12px; }
 .guided-cache-parameters .cache-parameter-table { min-width: 0; width: 100%; table-layout: fixed; }

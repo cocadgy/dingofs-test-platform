@@ -32,7 +32,7 @@ export function GuidedCacheParameters({ catalog, profiles, profileId, values, sa
     </select></label>
     <p className="muted">修改仅用于本次创建，不覆盖模板。此处修改仅影响当前机器。</p>
     <CacheParameterEditor tool={tool} catalog={catalog} values={values} creation collapsible commonContent={commonContent} hideMemberFields={!!commonContent} disabled={busy} onChange={onChange} />
-    <div className="getting-started-actions"><label>新模板名称<input value={name} maxLength={120} disabled={busy} onChange={e => setName(e.target.value)} /></label><button disabled={busy || !name.trim()} onClick={() => void save()}>{busy ? "保存中…" : "另存为模板"}</button></div>
+    <div className="getting-started-actions guided-template-save"><label>新模板名称<input value={name} maxLength={120} disabled={busy} onChange={e => setName(e.target.value)} /></label><button disabled={busy || !name.trim()} onClick={() => void save()}>{busy ? "保存中…" : "另存为模板"}</button></div>
     {message && <p role="status">{message}</p>}
   </div>;
 }
