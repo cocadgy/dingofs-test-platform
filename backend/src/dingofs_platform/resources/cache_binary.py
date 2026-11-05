@@ -42,15 +42,21 @@ def cache_file_digest(path):
     return digest.hexdigest()
 
 
-def inspect_cache_binary(path, expected_commit=""):
+def inspect_cache_binary(path, expected_commit="", component="dingo-cache"):
     path = Path(path).resolve(strict=True)
     if not path.is_file() or not os.access(path, os.X_OK):
-        raise ValueError("dingo-cache 文件不存在或不可执行：" + str(path))
+        raise ValueError(component + " 文件不存在或不可执行：" + str(path))
     result = subprocess.run([str(path), "--version"], stdout=subprocess.PIPE,
                             stderr=subprocess.STDOUT, timeout=15)
-    version = result.stdout.decode(errors="replace").strip()[:2048]
-    if result.returncode != 0 or not version:
-        raise ValueError("无法运行 dingo-cache 或读取版本：" + version)
+    output = result.stdout.decode(errors="replace").strip()
+    version = output[:2048]
+    # This client release returns EXIT_FAILURE after printing --version.
+    # Accept only its complete, known version format, never arbitrary error output.
+    client_version_exit = component == "dingo-client" and result.returncode == 1 and re.fullmatch(
+        r"v\d+\.\d+(?:\.\d+)?(?:[-.][A-Za-z0-9]+)*, ci/cd build-[A-Za-z0-9._/-]+:[0-9a-fA-F]{7,40} \+ (?:release|debug)", output
+    ) is not None
+    if (result.returncode != 0 and not client_version_exit) or not version:
+        raise ValueError("无法运行 " + component + " 或读取版本（退出码 " + str(result.returncode) + "）：" + version)
     if expected_commit and not re.search(r"(?<![0-9a-f])" + re.escape(expected_commit) + r"[0-9a-f]*", version.lower()):
         raise ValueError("下载程序的版本与指定 commit 不一致：" + version)
     return {"path": str(path), "sha256": cache_file_digest(path), "version": version}
@@ -87,7 +93,7 @@ def prepare_cache_binary(record, component="dingo-cache"):
                 if cache_file_digest(temporary) != expected:
                     raise ValueError("TAG 程序校验失败，不会使用其他版本")
                 temporary.chmod(0o700)
-                inspect_cache_binary(temporary)
+                inspect_cache_binary(temporary, "", component)
                 os.replace(temporary, path)
                 temporary = None
             finally:
@@ -128,20 +134,21 @@ def prepare_cache_binary(record, component="dingo-cache"):
             entries = json.loads(installed.read_text())
             active = [item for item in entries if item.get("name") == component and item.get("active")]
             if len(active) != 1:
-                raise ValueError("未找到唯一的默认 dingo-cache，请先安装并设置默认版本")
+                raise ValueError("未找到唯一的默认 " + component + "，请先安装并设置默认版本")
             path = Path(active[0]["path"]) / component
         except (OSError, KeyError, TypeError) as exc:
-            raise ValueError("无法读取当前执行用户的默认 dingo-cache：" + str(exc)) from exc
+            raise ValueError("无法读取当前执行用户的默认 " + component + "：" + str(exc)) from exc
     else:
         raise ValueError("无效的程序来源")
-    return {**inspect_cache_binary(path, commit), "source": source, "commit": commit,
+    return {**inspect_cache_binary(path, commit, component), "component": component, "source": source, "commit": commit,
             **({"tag": record["binary_tag"], "digest": record["binary_digest"]} if source == "tag" else {})}
 
 
 def verify_cache_binary(info):
     path = info.get("path", "")
+    component = "dingo-client" if info.get("component") == "dingo-client" else "dingo-cache"
     if not os.path.isabs(path) or not os.access(path, os.X_OK):
-        raise ValueError("已检查的 dingo-cache 不存在或不可执行，请重新检查")
+        raise ValueError("已检查的 " + component + " 不存在或不可执行，请重新检查")
     if cache_file_digest(path) != info.get("sha256"):
-        raise ValueError("dingo-cache 在检查后发生变化，请重新检查")
+        raise ValueError(component + " 在检查后发生变化，请重新检查")
     return path
