@@ -56,23 +56,25 @@ def inspect_cache_binary(path, expected_commit=""):
     return {"path": str(path), "sha256": cache_file_digest(path), "version": version}
 
 
-def prepare_cache_binary(record):
+def prepare_cache_binary(record, component="dingo-cache"):
+    if component not in ("dingo-cache", "dingo-client"):
+        raise ValueError("无效的程序类型")
     source = record.get("binary_source", "default")
     commit = ""
     if source == "path":
         directory = record.get("binary_directory", "")
         if not directory.startswith("/") or ".." in Path(directory).parts:
             raise ValueError("请填写程序所在目录的绝对路径")
-        path = Path(directory) / "dingo-cache"
+        path = Path(directory) / component
     elif source == "tag":
         digest = record.get("binary_digest", "")
         uploaded = record.get("binary_upload") or {}
         expected = uploaded.get("sha256", "")
         if not re.fullmatch(r"sha256:[0-9a-f]{64}", digest) or not re.fullmatch(r"[0-9a-f]{64}", expected):
             raise ValueError("TAG 程序尚未完成平台分发或校验信息无效")
-        root = Path.home() / ".local/share/dingofs-platform/cache-binaries" / digest.split(":")[1]
+        root = Path.home() / ".local/share/dingofs-platform" / ("client-binaries" if component == "dingo-client" else "cache-binaries") / digest.split(":")[1]
         root.mkdir(parents=True, exist_ok=True, mode=0o700)
-        path = root / "dingo-cache"
+        path = root / component
         if not path.is_file() or cache_file_digest(path) != expected:
             source_path = Path(uploaded.get("path", ""))
             if not source_path.is_file():
@@ -92,6 +94,8 @@ def prepare_cache_binary(record):
                 if temporary is not None:
                     temporary.unlink(missing_ok=True)
     elif source == "commit":
+        if component != "dingo-cache":
+            raise ValueError("客户端请选择镜像 TAG")
         artifact = resolve_cache_commit(record.get("binary_commit", ""))
         commit = artifact["commit"]
         root = Path.home() / ".local/share/dingofs-platform/cache-binaries" / commit
@@ -122,10 +126,10 @@ def prepare_cache_binary(record):
         installed = Path.home() / ".dingo/components/installed.json"
         try:
             entries = json.loads(installed.read_text())
-            active = [item for item in entries if item.get("name") == "dingo-cache" and item.get("active")]
+            active = [item for item in entries if item.get("name") == component and item.get("active")]
             if len(active) != 1:
                 raise ValueError("未找到唯一的默认 dingo-cache，请先安装并设置默认版本")
-            path = Path(active[0]["path"]) / "dingo-cache"
+            path = Path(active[0]["path"]) / component
         except (OSError, KeyError, TypeError) as exc:
             raise ValueError("无法读取当前执行用户的默认 dingo-cache：" + str(exc)) from exc
     else:

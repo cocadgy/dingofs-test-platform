@@ -236,6 +236,11 @@ ACTIONS = [
             field("mount_profile_id", "挂载配置", default=""),
             field("mount_profile_revision", "挂载配置版本", "integer", default=0),
             field("mount_options", "客户端参数", "mount_options", default={}),
+            field("log_directory", "日志基础目录", default=""),
+            field("binary_source", "程序来源", default="", options=["", "default", "tag", "path"]),
+            field("binary_tag", "镜像 TAG", default=""),
+            field("binary_digest", "镜像摘要", default=""),
+            field("binary_directory", "程序所在目录", default=""),
         ]
         + RDMA,
     ),
@@ -258,6 +263,7 @@ ACTIONS = [
 ]
 ACTIONS.append(action("cache.plan", "检查缓存成员端口", "cache", False,
     copy.deepcopy(next(item for item in ACTIONS if item["action"] == "cache.create")["fields"])))
+ACTIONS.append(action("mount.plan", "检查挂载计划", "mount", False, []))
 INDEX = {item["action"]: item for item in ACTIONS}
 
 
@@ -476,12 +482,39 @@ def _fields(specs, parameters):
         raise ValueError("cache_profile_id: 配置与版本必须同时提供")
     if result.get("use_rdma") and not result.get("rdma_device"):
         raise ValueError("rdma_device: required when RDMA is enabled")
+    if result.get("log_directory"):
+        result["log_directory"] = _string("cache_dir", result["log_directory"])
     return result
 
 
 def validate(action_name, parameters):
     if action_name not in INDEX:
         raise ValueError("unknown resource action")
+    if action_name == "mount.plan":
+        if not isinstance(parameters, dict) or set(parameters) != {"fs_name", "clients"}:
+            raise ValueError("挂载计划需要文件系统及客户端列表")
+        clients = parameters["clients"]
+        if not isinstance(clients, list) or not 1 <= len(clients) <= 100:
+            raise ValueError("请选择 1 至 100 个客户端配置")
+        fs_name = _fields([FS], {"fs_name": parameters["fs_name"]})["fs_name"]
+        rows = []
+        for row in clients:
+            if not isinstance(row, dict) or "fs_name" in row:
+                raise ValueError("一个挂载计划只能选择一个文件系统")
+            normalized = validate("mount.create", {**row, "fs_name": fs_name})
+            if normalized.get("count", 1) > 1000:
+                raise ValueError("每批最多 1000 个客户端")
+            rows.append(normalized)
+        if sum(row.get("count", 1) for row in rows) > 1000:
+            raise ValueError("每批最多 1000 个客户端")
+        return {"fs_name": fs_name, "clients": rows}
+    if action_name == "mount.create" and isinstance(parameters, dict):
+        for key in ("plan_id", "retry_operation_id"):
+            if key in parameters:
+                import uuid
+                result = _fields([field(key, "挂载任务", required=True)], parameters)
+                result[key] = str(uuid.UUID(result[key]))
+                return result
     if action_name == "mount.unmount" and isinstance(parameters, dict) and "scan_operation_id" in parameters:
         import uuid
         if "targets" in parameters:

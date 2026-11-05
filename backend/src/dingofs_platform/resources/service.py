@@ -74,6 +74,12 @@ def step(db, actor, c, action, params, *, record=None, mid=None, user=None):
 
 
 def prepare(db, actor, c, action, p):
+    if action == "mount.plan":
+        from . import mount_planning
+        return mount_planning.prepare(db, actor, c, p)
+    if action == "mount.create" and ("plan_id" in p or "retry_operation_id" in p):
+        from . import mount_planning
+        return mount_planning.consume(db, actor, c, p.get("plan_id") or p["retry_operation_id"], retry="retry_operation_id" in p)
     if action == "mount.unmount" and "scan_operation_id" in p:
         if "targets" in p:
             work = []
@@ -259,6 +265,8 @@ def prepare(db, actor, c, action, p):
         else:
             root = "/tmp/dingofs-platform-resources-" + p["target_user"] + root
             data = dict(p, state_dir=root, log_dir=root + "/logs")
+            if p.get("log_directory"):
+                data["log_dir"] = p["log_directory"].rstrip("/") + "/" + rid
             name, kind = p["mount_path"], "mount"
             work = [
                 step(
@@ -280,7 +288,7 @@ def prepare(db, actor, c, action, p):
                     ManagedResource.cluster_id == c.id,
                     ManagedResource.kind == "mount",
                     ManagedResource.name == name,
-                    ManagedResource.state.notin_(("deleted", "unmounted", "not_started")),
+                    ManagedResource.state.notin_(("deleted", "unmounted", "not_started", "planned")),
                 )
             )
             for existing in rows:

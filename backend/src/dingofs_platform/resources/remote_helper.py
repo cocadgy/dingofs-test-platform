@@ -650,11 +650,12 @@ def rdma_flags(record):
 
 def mount_argv(req):
     r = req["record"]
+    if r.get("binary_source") and not r.get("binary_info"):
+        raise ValueError("指定程序来源需要先完成挂载检查")
+    prefix = ([verify_cache_binary(r["binary_info"]), "--fuse_mount_options=default_permissions,allow_other"]
+              if r.get("binary_info") else ["dingo", "fs", "mount", "--allow_other"])
     argv = [
-        "dingo",
-        "fs",
-        "mount",
-        "--allow_other",
+        *prefix,
         "mds://" + req["mds_addr"] + "/" + r["fs_name"],
         r["mount_path"],
         "--log_dir=" + r["log_dir"],
@@ -950,16 +951,37 @@ def port_busy(port):
     return False
 
 
+def prepare_mount_directories(req):
+    r = req['record']
+    # Initialize ownership before creating children; never create managed
+    # state ancestors using the public cache-directory permission policy.
+    with OwnedState(r['state_dir'], req['resource_id'] + ':mount', create=True):
+        pass
+    os.close(open_directory(r['log_dir'], create=True, private=True))
+    cache_dir = r.get('mount_options', {}).get('cache_dir')
+    if cache_dir:
+        if cache_dir.startswith(r['state_dir'].rstrip('/') + '/'):
+            os.close(open_directory(cache_dir, create=True, private=True))
+        else:
+            prepare_cache_directory(cache_dir)
+
+
 def select_mount_port(req):
     """Choose a free client dummy-server port on the mount target host."""
+    checked = req["record"].get("checked_port")
+    if checked is not None:
+        if not 1 <= int(checked) <= 65535 or port_busy(int(checked)):
+            raise ValueError("检查时分配的客户端端口已被占用，请重新检查")
+        return int(checked)
+    reserved = set(req["record"].get("reserved_ports", []))
     options = req["record"].get("mount_options", {})
     preferred = int(options.get("vfs_dummy_server_port", 10000))
     if not 1 <= preferred <= 65535:
         raise ValueError("vfs_dummy_server_port must be in [1, 65535]")
-    if not port_busy(preferred):
+    if preferred not in reserved and not port_busy(preferred):
         return preferred
     for candidate in range(10000, 20000):
-        if not port_busy(candidate):
+        if candidate not in reserved and not port_busy(candidate):
             return candidate
     raise ValueError("客户端自动端口范围 10000–19999 已无可用端口")
 
@@ -1244,11 +1266,13 @@ def lifecycle(req):
             # Recover a process that was started before an interrupted SSH reply.
             recovered = find_process(req) if state.get("launch_started") else None
             if not recovered:
+                if mount_start and state.get("launch_started") and not state.get("launch_failed"):
+                    raise ValueError("上次客户端启动状态尚未确认，不会重复启动，请检查客户端进程")
                 if action == "cache.create" and not state.get("launch_started"):
                     r["listen_port"] = select_cache_port(req)
                     state["listen_port"] = r["listen_port"]
                     store.save(state)
-                if mount_start and not state.get("launch_started"):
+                if mount_start and (not state.get("launch_started") or state.get("launch_failed")):
                     port = select_mount_port(req)
                     r["mount_options"] = {**r.get("mount_options", {}),
                                           "vfs_dummy_server_port": str(port)}
@@ -1264,7 +1288,7 @@ def lifecycle(req):
                                 )
                 finally:
                     os.close(target_fd)
-                state.update(launch_started=True, state="starting")
+                state.update(launch_started=True, launch_failed=False, state="starting")
                 store.save(state)
                 launched = _launch(
                     req,
@@ -1455,6 +1479,20 @@ def main(req):
             state, data = external_mount_lifecycle(req, sys.modules[__name__])
         elif req["action"] == "cache.wait_offline":
             state, data = wait_members_offline(req)
+        elif req["action"] == "mount.plan":
+            r = req["record"]
+            info = prepare_cache_binary({**r, "binary_source": r.get("binary_source") or "default"}, component="dingo-client")
+            if mounted(r["mount_path"]):
+                raise ValueError("目标目录已经挂载，不会覆盖已有客户端")
+            prepare_cache_directory(r["mount_path"])
+            with os.scandir(r["mount_path"]) as entries:
+                if next(entries, None) is not None:
+                    raise ValueError("挂载目录必须为空")
+            prepare_mount_directories(req)
+            run_command(["dingo", "fs", "query", "--fsname", r["fs_name"], "--mdsaddr", req["mds_addr"], "--format", "json"], require_json=True)
+            if r.get("cache_group") and not any(m.get("group_name") == r["cache_group"] and m.get("state") in (1, "1", "CacheGroupMemberStateOnline") for m in member_list(req)):
+                raise ValueError("所选缓存组没有在线成员，请重新选择")
+            state, data = "planned", {"binary_info": info, "effective_port": select_mount_port(req), "mount_path": r["mount_path"]}
         elif req["action"] == "cache.plan":
             if req["record"].get("binary_source"):
                 req["record"]["binary_info"] = prepare_cache_binary(req["record"])

@@ -1,4 +1,5 @@
 import { GuidedCacheFlow } from "./GuidedCacheFlow";
+import { GuidedMountFlow } from "./GuidedMountFlow";
 import { useState } from "react";
 import { GuidedMachineForm } from "./GuidedMachineForm";
 import { GuidedFilesystemFlow } from "./GuidedFilesystemFlow";
@@ -17,7 +18,7 @@ const actions = [
 ] as const;
 
 export function GettingStartedPage({ route, onNavigate, onDirty, admin = false, userId }: {
-  route: "chooser" | "machine" | "cluster" | "cluster-machine" | "filesystem" | "filesystem-storage" | "cache";
+  route: "chooser" | "machine" | "cluster" | "cluster-machine" | "filesystem" | "filesystem-storage" | "cache" | "mount";
   onNavigate: (hash: string) => void;
   onDirty: (dirty: boolean) => void;
   admin?: boolean;
@@ -27,6 +28,7 @@ export function GettingStartedPage({ route, onNavigate, onDirty, admin = false, 
   const [comingSoon, setComingSoon] = useState(false);
   const [newMachineId, setNewMachineId] = useState<string>();
   const [importedIds, setImportedIds] = useState<string[]>([]);
+  if (route === "mount") return <GuidedMountFlow key={userId} admin={admin} userId={userId} route={window.location.hash} onNavigate={onNavigate} onDirty={onDirty} />;
   if (route === "cache") return <GuidedCacheFlow admin={admin} userId={userId} route={window.location.hash} onNavigate={onNavigate} onDirty={onDirty} />;
   if (route === "filesystem") return <section className="getting-started"><p className="eyebrow">GETTING STARTED / FILESYSTEM</p><h1>创建文件系统</h1><GuidedFilesystemFlow admin={admin} userId={userId} onNavigate={onNavigate} onDirty={onDirty} /></section>;
   if (route === "filesystem-storage") return <section className="getting-started"><p className="eyebrow">GETTING STARTED / FILESYSTEM / STORAGE</p><h1>添加存储配置</h1><button type="button" onClick={() => onNavigate("#/start/filesystem")}>返回创建文件系统</button><StorageProfilesPage onDirty={onDirty} onCreated={(id) => { const saved = JSON.parse(sessionStorage.getItem("guided-filesystem-draft") || "{}"); sessionStorage.setItem("guided-filesystem-draft", JSON.stringify({ ...saved, storageId: id })); sessionStorage.setItem("guided-filesystem-storage-return", "1"); onNavigate("#/start/filesystem"); }} /></section>;
@@ -51,7 +53,11 @@ export function GettingStartedPage({ route, onNavigate, onDirty, admin = false, 
             {actions.map(([value, label]) => <option key={value} value={value}>{label}</option>)}
           </select>
           <button className="primary" type="button" onClick={() => {
-            if (action === "cache") {
+            if (action === "mount") {
+              const key = "guided-mount-draft-" + (userId || "");
+              for (const suffix of ["", "-operation", "-request"]) sessionStorage.removeItem(key + suffix);
+              onNavigate("#/start/mount");
+            } else if (action === "cache") {
               const key = "guided-cache-draft-" + (userId || "");
               sessionStorage.removeItem(key);
               sessionStorage.removeItem(key + "-operation");

@@ -134,10 +134,10 @@ class CheckedReader:
         return data
 
 
-def extract_binary(archive, destination, check=lambda: None):
+def extract_binary(archive, destination, check=lambda: None, binary_path=BINARY):
     """Read regular bytes only, respecting ancestor whiteouts; never extractall."""
     found, masked = False, False
-    parts = BINARY.split("/")
+    parts = binary_path.split("/")
     whiteouts = {"/".join(parts[:i] + [".wh." + parts[i]]) for i in range(len(parts))}
     whiteouts |= {"/".join(parts[:i] + [".wh..wh..opq"]) for i in range(len(parts))}
     ancestors = {"/".join(parts[:i]) for i in range(1, len(parts))}
@@ -154,7 +154,7 @@ def extract_binary(archive, destination, check=lambda: None):
             name = member.name.removeprefix("./").rstrip("/")
             if name in whiteouts or name in ancestors and not member.isdir():
                 masked = True
-            if name != BINARY:
+            if name != binary_path:
                 continue
             if not member.isfile() or not 0 < member.size <= MAX_BINARY:
                 raise ValueError("镜像内 dingo-cache 必须是大小有效的普通文件")
@@ -179,7 +179,10 @@ def file_digest(path, check=lambda: None):
     return result.hexdigest()
 
 
-def ensure_cached(digest, root, cancelled, deadline):
+def ensure_cached(digest, root, cancelled, deadline, component="dingo-cache"):
+    if component not in ("dingo-cache", "dingo-client"):
+        raise ValueError("无效的程序类型")
+    binary_path = BINARY if component == "dingo-cache" else "dingofs/client/sbin/dingo-client"
     if not DIGEST.fullmatch(digest):
         raise ValueError("请选择有效的镜像 TAG")
     def check():
@@ -188,7 +191,7 @@ def ensure_cached(digest, root, cancelled, deadline):
         if time.monotonic() >= deadline:
             raise ValueError("程序下载或分发超时，请重试")
     check()
-    root = Path(root)
+    root = Path(root) if component == "dingo-cache" else Path(root) / "client"
     root.mkdir(parents=True, exist_ok=True)
     key = digest.split(":")[1]
     folder = root / key
@@ -201,7 +204,7 @@ def ensure_cached(digest, root, cancelled, deadline):
                 break
             except BlockingIOError:
                 time.sleep(0.2)
-        binary, metadata = folder / "dingo-cache", folder / "metadata.json"
+        binary, metadata = folder / component, folder / "metadata.json"
         if binary.is_file() and metadata.is_file():
             info = json.loads(metadata.read_text())
             if info.get("digest") == digest and info.get("sha256") == file_digest(binary, check):
@@ -215,11 +218,11 @@ def ensure_cached(digest, root, cancelled, deadline):
         if not layers or len(layers) > 128 or sum(item["size"] for item in layers) > MAX_TOTAL:
             raise ValueError("镜像层数量或总大小超出限制")
         with tempfile.TemporaryDirectory(prefix="prepare-", dir=folder) as staging:
-            layer_path, target = Path(staging) / "layer", Path(staging) / "dingo-cache"
+            layer_path, target = Path(staging) / "layer", Path(staging) / component
             for layer in reversed(layers):
                 check()
                 registry.download(layer, layer_path, check)
-                status = extract_binary(layer_path, target, check)
+                status = extract_binary(layer_path, target, check, binary_path=binary_path)
                 layer_path.unlink()
                 if status == "masked":
                     break
@@ -237,4 +240,4 @@ def ensure_cached(digest, root, cancelled, deadline):
                 meta.write_text(json.dumps(info))
                 os.replace(meta, metadata)
                 return {**info, "path": str(binary)}
-        raise ValueError("所选 TAG 不包含 " + BINARY + "，不会使用其他版本")
+        raise ValueError("所选 TAG 不包含 " + binary_path + "，不会使用其他版本")

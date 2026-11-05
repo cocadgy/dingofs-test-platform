@@ -3,7 +3,8 @@ import { api } from "../../api/client";
 import { CacheParameterEditor } from "../cache-profiles/CacheParameterEditor";
 import type { CacheCatalog, CacheOptions, CacheProfile } from "../cache-profiles/types";
 
-export function GuidedCacheParameters({ catalog, profiles, profileId, values, saveValues, commonContent, onChange, onLoad, onSaved }: {
+export function GuidedCacheParameters({ catalog, profiles, profileId, values, saveValues, commonContent, onChange, onLoad, onSaved, tool = "dingo-cache" }: {
+  tool?: "dingo-cache" | "dingo-client";
   catalog: CacheCatalog; profiles: CacheProfile[]; profileId: string; values: CacheOptions;
   saveValues?: CacheOptions; commonContent?: ReactNode;
   onChange: (values: CacheOptions) => void; onLoad: (profile?: CacheProfile) => void; onSaved: (profile: CacheProfile) => void;
@@ -18,7 +19,7 @@ export function GuidedCacheParameters({ catalog, profiles, profileId, values, sa
     try {
       const allowed = new Set(catalog.fields.filter(f => !f.managed && f.name !== "id").map(f => f.name));
       const parameters = Object.fromEntries(Object.entries(saveValues ?? values).filter(([key]) => allowed.has(key)));
-      const saved = await api<CacheProfile>("/cache-profiles", "POST", { name: name.trim(), description: "", enabled: true, parameters });
+      const saved = await api<CacheProfile>(tool === "dingo-client" ? "/mount-profiles" : "/cache-profiles", "POST", { name: name.trim(), description: "", enabled: true, parameters });
       onSaved(saved); setName(""); setMessage("模板已保存；已有模板未被覆盖。");
     } catch (e) { setMessage((e as Error).message); }
     finally { setBusy(false); }
@@ -30,7 +31,7 @@ export function GuidedCacheParameters({ catalog, profiles, profileId, values, sa
       {profiles.map(p => <option key={p.id} value={p.id} disabled={!p.enabled}>{p.name}</option>)}
     </select></label>
     <p className="muted">修改仅用于本次创建，不覆盖模板。此处修改仅影响当前机器。</p>
-    <CacheParameterEditor catalog={catalog} values={values} creation collapsible commonContent={commonContent} hideMemberFields={!!commonContent} disabled={busy} onChange={onChange} />
+    <CacheParameterEditor tool={tool} catalog={catalog} values={values} creation collapsible commonContent={commonContent} hideMemberFields={!!commonContent} disabled={busy} onChange={onChange} />
     <div className="getting-started-actions"><label>新模板名称<input value={name} maxLength={120} disabled={busy} onChange={e => setName(e.target.value)} /></label><button disabled={busy || !name.trim()} onClick={() => void save()}>{busy ? "保存中…" : "另存为模板"}</button></div>
     {message && <p role="status">{message}</p>}
   </div>;

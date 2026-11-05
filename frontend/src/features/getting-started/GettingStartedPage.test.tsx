@@ -17,7 +17,7 @@ test("lists seven guided actions and opens machine onboarding", () => {
 
 test("future actions have an explicit coming-soon state", () => {
   render(<GettingStartedPage route="chooser" onNavigate={vi.fn()} onDirty={vi.fn()} />);
-  fireEvent.change(screen.getByLabelText("想做什么"), { target: { value: "mount" } });
+  fireEvent.change(screen.getByLabelText("想做什么"), { target: { value: "functional" } });
   fireEvent.click(screen.getByRole("button", { name: "下一步" }));
   expect(screen.getByText("即将支持")).toBeTruthy();
 });

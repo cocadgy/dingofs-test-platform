@@ -19,7 +19,8 @@ function readDraft(): Draft {
   } catch { /* Ignore an invalid previous draft. */ }
   return { clusterId: "", fsName: "", suffix: "none", storageId: "", partition: "hash" };
 }
-export function GuidedFilesystemFlow({ admin, userId, onNavigate, onDirty }: {
+export function GuidedFilesystemFlow({ admin, userId, onNavigate, onDirty, onCreated }: {
+  onCreated?: (clusterId: string, fsName: string) => void;
   admin: boolean;
   userId?: string;
   onNavigate: (hash: string) => void;
@@ -139,6 +140,7 @@ export function GuidedFilesystemFlow({ admin, userId, onNavigate, onDirty }: {
     {step === "result" && operation && <>
       <h2>{operation.state === "succeeded" ? "文件系统创建成功" : "文件系统创建进度"}</h2>
       <ResourceOperationView operation={operation} label="创建文件系统" canManage onChange={setOperation} />
+      {operation.state === "succeeded" && onCreated && <button className="primary" onClick={() => onCreated(draft.clusterId, confirmedName)}>继续挂载此文件系统</button>}
       {operation.state === "succeeded" && <div className="getting-started-actions"><button className="primary" type="button" onClick={() => onNavigate(`#/clusters/${encodeURIComponent(draft.clusterId)}/resources`)}>查看文件系统</button><button type="button" onClick={() => onNavigate(`#/clusters/${encodeURIComponent(draft.clusterId)}/resources`)}>前往资源管理并挂载</button></div>}
       {["failed", "cancelled", "interrupted", "unknown"].includes(operation.state) && <div className="getting-started-actions"><button type="button" onClick={() => onNavigate(`#/clusters/${encodeURIComponent(draft.clusterId)}/resources`)}>查看资源操作</button><button type="button" onClick={() => setStep("details")}>返回修改</button></div>}
     </>}

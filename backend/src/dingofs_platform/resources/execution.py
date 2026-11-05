@@ -64,6 +64,8 @@ def valid(db, op):
 
 
 def terminal(db, op, state, code=None):
+    from .mount_planning import finish
+    finish(db, op, state)
     op.state, op.error_code = state, code
     op.secret_ciphertext = None
     op.challenge_digest = None
@@ -115,7 +117,7 @@ def run(request, oid, password=None, *, claimed=False):
         if not valid(db, op):
             terminal(db, op, "failed", "stale")
             return
-        if op.action == "cache.plan" and any(step.get("record", {}).get("binary_source") == "tag" for step in op.steps):
+        if op.action in ("cache.plan", "mount.plan") and any(step.get("record", {}).get("binary_source") == "tag" for step in op.steps):
             operation_timeout = max(operation_timeout, 3600)
             deadline = time.monotonic() + operation_timeout
         op.state = "running"
@@ -139,6 +141,12 @@ def run(request, oid, password=None, *, claimed=False):
                 terminal(db, op, "failed" if failed else "succeeded", "batch_failed" if failed else None)
                 return
             work = deepcopy(op.steps[op.cursor])
+            if work['action'] == 'mount.plan':
+                work['record']['reserved_ports'] = [
+                    step['record']['checked_port'] for step in op.steps[:op.cursor]
+                    if step.get('machine_id') == work.get('machine_id')
+                    and step.get('record', {}).get('checked_port') is not None
+                ]
             if work["action"] in ("cache.plan", "cache.create"):
                 work["record"]["reserved_ports"] = sorted(port_planning.reserved_ports(db, work["record"]))
             if work["action"] == "cache.wait_offline":
@@ -210,11 +218,12 @@ def run(request, oid, password=None, *, claimed=False):
         transfer_stack = ExitStack()
         distributed_key = None
         try:
-            if work["action"] == "cache.plan" and work["record"].get("binary_source") == "tag":
+            if work["action"] in ("cache.plan", "mount.plan") and work["record"].get("binary_source") == "tag":
                 image_digest = work["record"]["binary_digest"]
                 if image_digest not in artifacts:
                     root = Path(os.environ.get("PLATFORM_CACHE_BINARY_DIR", str(Path.home() / ".cache/dingofs-platform/cache-binaries")))
-                    artifacts[image_digest] = cache_images.ensure_cached(image_digest, root, cancelled, deadline)
+                    artifacts[image_digest] = cache_images.ensure_cached(image_digest, root, cancelled, deadline,
+                        **({"component": "dingo-client"} if work["action"] == "mount.plan" else {}))
                 artifact = artifacts[image_digest]
                 distributed_key = (work["machine_id"], work["target_user"], image_digest)
                 if distributed_key in distributed:
@@ -332,6 +341,13 @@ def run(request, oid, password=None, *, claimed=False):
                 op.challenge_digest = digest(op.lease_token)
                 op.expires_at = now() + timedelta(seconds=settings.cluster_auth_seconds)
                 return
+            if result and op.action == "mount.plan" and not error:
+                from .mount_planning import store_check
+                try:
+                    store_check(db, op, cursor, result.get("data") or {})
+                except ValueError as exc:
+                    error = "query_failed"
+                    result = {**result, "message": str(exc), "returncode": 1}
             if result and op.action in ("cache.plan", "cache.create"):
                 data = result.get("data") or {}
                 if op.action == "cache.plan" and not error and work["record"].get("binary_source"):

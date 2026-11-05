@@ -148,7 +148,9 @@ def build_script(action, parameters, mds_addr, resource_id, record=None, tool_ho
         or any(ord(c) < 32 for c in mds_addr)
     ):
         raise ValueError("invalid cluster MDS address")
-    if action == "mount.unmount_discovered":
+    if action == "mount.plan":
+        p = validate("mount.create", parameters)
+    elif action == "mount.unmount_discovered":
         p = validate("mount.unmount", parameters)
         if "scan_operation_id" not in p or not isinstance(record, dict) or not record.get("kernel_mount"):
             raise ValueError("server-owned scanned mount identity is required")

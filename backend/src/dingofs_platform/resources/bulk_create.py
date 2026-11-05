@@ -42,7 +42,7 @@ def finish_mount_batch(db, op):
                     resource.state = "unknown"
                     resource.revision += 1
         return
-    if op.action != 'mount.create' or op.parameters.get('count', 1) <= 1:
+    if op.action != 'mount.create' or not any(work.get('batch_index') for work in op.steps):
         return
     for index, work in enumerate(op.steps):
         resource = db.get(ManagedResource, work.get('resource_id'))
