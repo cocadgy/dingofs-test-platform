@@ -16,6 +16,7 @@ export type FilesystemOption = { name: string; id?: number };
 
 export function filesystemOptions(
   operation: ResourceOperation,
+  order: 'name' | 'newest' = 'name',
 ): FilesystemOption[] {
   for (const step of operation.result?.steps || []) {
     let data = step.data;
@@ -39,6 +40,7 @@ export function filesystemOptions(
     )
       throw new Error("文件系统列表中缺少有效名称，请刷新重试。");
     const options = new Map<string, FilesystemOption>();
+    const creationTimes = new Map<string, number>();
     for (const row of rows.filter((row) =>
       visibleFilesystemName(row.fs_name),
     )) {
@@ -59,8 +61,14 @@ export function filesystemOptions(
           "文件系统列表中存在重名且 ID 不一致的记录，请刷新重试。",
         );
       options.set(option.name, option);
+      const rawTime = row.create_time_s;
+      const time = typeof rawTime === 'number' || typeof rawTime === 'string'
+        ? Number(rawTime) : NaN;
+      creationTimes.set(option.name, Number.isFinite(time) && time > 0 ? time : 0);
     }
-    return [...options.values()].sort((a, b) => a.name.localeCompare(b.name));
+    return [...options.values()].sort((a, b) =>
+      (order === 'newest' ? creationTimes.get(b.name)! - creationTimes.get(a.name)! : 0)
+      || a.name.localeCompare(b.name));
   }
   throw new Error("无法识别文件系统列表结果，请查看操作记录并刷新重试。");
 }

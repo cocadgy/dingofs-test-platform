@@ -39,7 +39,7 @@ export function GuidedMountFlow({ admin, userId, route, onNavigate, onDirty }: P
   const profiles = (snapshot?.mount_profiles || []).filter(p => p.enabled);
   const active = busy || !!operation && pendingStates.includes(operation.state) || !!query && pendingStates.includes(query.state);
   let filesystems: string[] = [], groups: ReturnType<typeof cacheGroupResources> = [];
-  try { if (fsQuery?.state === 'succeeded') filesystems = filesystemOptions(fsQuery).map(f => f.name); } catch { /* failed parsing blocks Next */ }
+  try { if (fsQuery?.state === 'succeeded') filesystems = filesystemOptions(fsQuery, 'newest').map(f => f.name); } catch { /* failed parsing blocks Next */ }
   try { if (cacheQuery?.state === 'succeeded') groups = cacheGroupResources(cacheQuery, snapshot?.resources || []); } catch { /* refresh remains available */ }
   const update = (patch: Partial<MountDraft>) => { setDraft(d => ({ ...d, ...patch })); setError(''); };
   const rowUpdate = (id: string, patch: Partial<MountRow>) => setDraft(d => ({ ...d, rows: d.rows.map(r => r.machineId === id ? { ...r, ...patch } : r) }));
