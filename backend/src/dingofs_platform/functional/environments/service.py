@@ -96,20 +96,23 @@ def sync_predefined(db, root):
         key=(item.source_file,item.key)
         row=current.get(key)
         display=dict(base=item.base,source_file_sha=item.source_file_sha,storage_file_sha=item.storage_file_sha,mds_addresses=item.mds_addresses,client_hosts=item.client_hosts,
-                     storage_type=item.storage_type,client_count=item.client_count,cache_count=item.cache_count,template=item.template,issue=item.issue)
+                     storage_type=item.storage_type,client_count=item.client_count,cache_count=item.cache_count,template=item.template,issue=item.issue,
+                     descriptor=item.descriptor.model_dump(mode='json'))
         if row is None:
             row=Profile(name=item.key,source_kind='predefined',source_file=item.source_file,
                         source_key=item.key,source_digest=item.source_digest,settings={},display=display,
                         enabled=item.runnable,validation='source_only' if item.runnable else ('template' if item.template else 'needs_completion'))
             db.add(row);created+=1
-        elif row.source_digest!=item.source_digest or row.deleted:
+        elif (row.source_digest!=item.source_digest or row.deleted
+              or row.validation=='source_missing' or row.enabled!=item.runnable
+              or (row.display or {}).get('template')!=item.template):
             row.source_digest=item.source_digest;row.display=display;row.deleted=False
             row.enabled=item.runnable;row.validation='needs_validation' if item.runnable else ('template' if item.template else 'needs_completion')
             row.revision+=1;updated+=1
         elif row.display != display:
             row.display=display
     for key,row in current.items():
-        if key not in keys and not row.deleted:
+        if key not in keys and not row.deleted and row.validation!='source_missing':
             row.enabled=False;row.validation='source_missing';row.revision+=1;updated+=1
     db.flush()
     return {'total':len(descriptors),'created':created,'updated':updated}

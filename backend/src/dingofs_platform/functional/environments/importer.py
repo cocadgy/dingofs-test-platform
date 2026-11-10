@@ -3,11 +3,12 @@ from __future__ import annotations
 
 from copy import deepcopy
 from dataclasses import dataclass
-from hashlib import sha256
-import json
 from pathlib import Path
 
 from ruamel.yaml import YAML
+
+from ..contracts import EnvironmentDescriptor
+from ..source_bridge import inspect_source
 
 _yaml = YAML(typ="safe")
 
@@ -23,11 +24,12 @@ class PresetDescriptor:
     mds_addresses: tuple[str, ...]
     client_hosts: tuple[str, ...]
     storage_type: str
-    client_count: int
-    cache_count: int
+    client_count: int | None
+    cache_count: int | None
     template: bool
     runnable: bool
     issue: str | None
+    descriptor: EnvironmentDescriptor
 
 
 def _merge(base: dict, override: dict, *, root: bool = True) -> dict:
@@ -52,6 +54,12 @@ def _merge(base: dict, override: dict, *, root: bool = True) -> dict:
 
 
 def read_predefined(root: Path):
+    """Legacy copy-settings/lease compatibility only; never used by guided scan.
+
+    Task9b must replace this duplicated resolver with a framework-owned portable
+    settings projection retaining inherited flags and unexpanded cache counts.
+    EnvironmentDescriptor intentionally cannot reconstruct those settings.
+    """
     root = Path(root)
     sources: dict[str, tuple[Path, dict]] = {}
     for path in sorted(root.glob("*.yaml")):
@@ -107,31 +115,63 @@ def read_predefined(root: Path):
 
 
 def scan_predefined(root: Path) -> list[PresetDescriptor]:
+    """Enumerate metadata locally; resolve only through the trusted framework.
+
+    ``root`` must be the server-configured checkout's conf/env directory.
+    ``runnable`` retains the legacy source-completeness meaning; compatibility
+    with selected cases and remote execution still require guided preflight.
+    """
     root = Path(root)
-    sources, resolved, issues = read_predefined(root)
-    referenced = {raw.get("base") for _, raw in sources.values() if raw.get("base")}
-    storage_file = root.parent / "storage.yaml"
-    storage_digest = sha256(storage_file.read_bytes()).hexdigest() if storage_file.is_file() else ""
+    if root.name != 'env' or root.parent.name != 'conf' or '..' in root.parts:
+        raise ValueError('invalid environment source directory')
+    trusted = root.parent.parent.resolve()
+    if not root.resolve().is_relative_to(trusted):
+        raise ValueError('invalid environment source directory')
+    root = trusted / 'conf/env'
+    sources: dict[str, tuple[Path, str | None]] = {}
+    for path in sorted(root.glob('*.yaml')):
+        try:
+            if not path.resolve().is_relative_to(trusted) or not path.is_file() or path.stat().st_size > 1024 * 1024:
+                raise ValueError
+            document = _yaml.load(path.read_text()) or {}
+            if not isinstance(document, dict):
+                raise ValueError
+            for key, raw in document.items():
+                if not isinstance(key, str) or not isinstance(raw, dict):
+                    raise ValueError
+                base = raw.get('base')
+                if base is not None and not isinstance(base, str):
+                    raise ValueError
+                if key in sources:
+                    raise ValueError('duplicate environment name')
+                sources[key] = (path, base)
+        except Exception as exc:
+            if isinstance(exc, ValueError) and str(exc) == 'duplicate environment name':
+                raise ValueError('duplicate environment name') from None
+            raise ValueError('invalid environment source') from None
+    referenced = {base for _, base in sources.values() if base}
     descriptors: list[PresetDescriptor] = []
     for key in sorted(sources):
-        path, raw = sources[key]
-        value = resolved[key]
-        clients = value.get("clients") or value.get("hosts") or []
-        if not isinstance(clients, list):
-            raise ValueError(f"invalid clients for {key}")
-        mds = str(value.get("mds_addr") or "")
-        addresses = tuple(item.strip() for item in mds.split(",") if item.strip())
-        hosts = tuple(sorted({str(item.get("host")) for item in clients if isinstance(item, dict) and item.get("host")}))
-        storage = value.get("storage") or {}
-        storage_type = str(storage.get("storage_type") or "") if isinstance(storage, dict) else ""
-        effective_json = json.dumps(value, sort_keys=True, ensure_ascii=False, default=str)
-        digest = sha256((effective_json + storage_digest).encode()).hexdigest()
-        count = sum(max(1, int(item.get("client_count") or 1)) for item in clients if isinstance(item, dict))
-        cache_count = sum(max(1, int(item.get("remote_cache_count") or 1)) for item in value.get("remote_caches", []) if isinstance(item, dict))
+        path, base = sources[key]
+        value = inspect_source(trusted, key, {})
+        hosts = tuple(sorted({target.host for target in value.targets if target.role == 'client'}))
         template = key in referenced
-        descriptors.append(PresetDescriptor(key, path.name, raw.get("base"), digest,
-                                             sha256(path.read_bytes()).hexdigest(), storage_digest,
-                                             addresses, hosts, storage_type, count, cache_count,
-                                             template, bool(addresses and clients and storage_type and not template and key not in issues),
-                                             issues.get(key)))
+        issues = list(value.issues)
+        if template:
+            issues.append('environment is an inheritance template')
+        if not value.mds_addresses:
+            issues.append('MDS addresses are missing')
+        if not hosts or not value.client_count:
+            issues.append('client configuration is missing or unknown')
+        if not value.storage_type:
+            issues.append('storage configuration is missing')
+        descriptors.append(PresetDescriptor(
+            key=key, source_file=path.name, base=base, source_digest=value.digest,
+            source_file_sha=value.source_manifest.get(path.relative_to(trusted).as_posix(), ''),
+            storage_file_sha=value.source_manifest.get('conf/storage.yaml', ''),
+            mds_addresses=tuple(value.mds_addresses), client_hosts=hosts,
+            storage_type=value.storage_type or '', client_count=value.client_count,
+            cache_count=value.cache_count, template=template, runnable=not issues,
+            issue='; '.join(issues) or None, descriptor=value,
+        ))
     return descriptors

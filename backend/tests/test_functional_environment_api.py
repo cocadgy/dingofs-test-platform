@@ -1,9 +1,11 @@
 from pathlib import Path
 from conftest import linked
+from functional_source_fixture import copy_trusted_protocol
 
 URL='/api/v1/functional/environments'
 
 def test_sync_is_idempotent_and_presets_have_no_secrets(admin, app, tmp_path):
+    copy_trusted_protocol(tmp_path)
     root=tmp_path/'conf'/'env';root.mkdir(parents=True)
     (root/'one.yaml').write_text('env_base:\n  run_as_user: root/supersecret\n  mds_addr: 10.0.0.1:6900\n  storage: {storage_type: s3}\n  clients: [{host: node, mount_path: /mnt/x}]\n')
     app.state.settings.functional_source_root=root.parent.parent/'testcases'
@@ -42,6 +44,7 @@ def test_member_cannot_use_another_users_machine_or_sync(admin, app):
     assert admin.post(URL,json=body).status_code==403
 
 def test_predefined_source_change_updates_revision_without_secret(admin, app, tmp_path):
+    copy_trusted_protocol(tmp_path)
     root=tmp_path/'conf'/'env';root.mkdir(parents=True)
     path=root/'source.yaml'
     path.write_text('env_example:\n  mds_addr: 10.0.0.1:6900\n  clients: [{host: node}]\n  storage: {storage_type: s3}\n  run_as_user: root/private-a\n')
@@ -55,6 +58,7 @@ def test_predefined_source_change_updates_revision_without_secret(admin, app, tm
     assert 'private-b' not in str(updated)
 
 def test_duplicate_name_copy_and_missing_source(admin,app,tmp_path):
+    copy_trusted_protocol(tmp_path)
     machine,cluster,_=linked(admin)
     root=tmp_path/'conf'/'env';root.mkdir(parents=True)
     source=root/'one.yaml'
@@ -95,6 +99,7 @@ def test_custom_environment_rejects_unknown_member_machine(admin,app):
     assert '客户端或缓存成员机器不可用' in result.text
 
 def test_copy_settings_preserve_inherited_members_without_credentials(admin,app,tmp_path):
+    copy_trusted_protocol(tmp_path)
     root=tmp_path/'conf'/'env';root.mkdir(parents=True)
     (root/'source.yaml').write_text('''base:
   run_as_user: root/private-password

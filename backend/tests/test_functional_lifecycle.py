@@ -1,12 +1,14 @@
 """API and worker lifecycle checks use the isolated test database only."""
 import pytest
 from conftest import linked
+from functional_source_fixture import copy_trusted_protocol
 from dingofs_platform.functional.catalog import catalogue
 from dingofs_platform.functional.models import FunctionalRun
 from dingofs_platform.inventory.models import Cluster
 
 @pytest.fixture
 def ready(admin,app,tmp_path):
+    copy_trusted_protocol(tmp_path)
     machine,cluster,_=linked(admin)
     root=tmp_path/'testcases'/'basic_file_operation';root.mkdir(parents=True)
     for name in ('a','b'):(root/(name+'.yaml')).write_text('case_name: '+name+'\nsteps: []\n')
