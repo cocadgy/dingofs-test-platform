@@ -140,3 +140,52 @@ def test_descriptor_identity_and_manifest_are_validated(trusted_source, monkeypa
         monkeypatch.setattr(source_bridge, '_run_inspector', lambda *args: json.dumps({**valid, **mutation}).encode())
         with pytest.raises(ValueError, match='invalid inspector response'):
             inspect(trusted_source)
+
+
+def test_portable_projection_uses_parser_and_preserves_distinct_cache_groups(trusted_source):
+    from dingofs_platform.functional import source_bridge
+    assert hasattr(source_bridge, 'project_source'), 'authoritative portable projection is missing'
+    path = trusted_source / 'conf/env/base.yaml'
+    path.write_text(path.read_text().replace('remote_cache_count: 3', '''remote_cache_count: 3
+      remote_cache_conf: {--cache_size_mb: 4096, --mds_addrs: old, --secret: do-not-leak}
+    - host: cache.test
+      remote_cache_count: 2
+      remote_cache_conf: {--cache_size_mb: 4096}'''))
+    value = source_bridge.project_source(trusted_source, 'env_Original')
+    assert [item['remote_cache_count'] for item in value['settings']['remote_caches']] == [3, 2]
+    assert value['settings']['clients'][0]['client_count'] == 2
+    assert value['settings']['clients'][0]['mount_path'] == '/mnt/original'
+    assert value['settings']['clients'][0]['machine_id'] == ''
+    assert value['settings']['remote_caches'][0]['remote_cache_conf'] == {'--cache_size_mb': 4096}
+    assert 'do-not-leak' not in json.dumps(value)
+    assert 'password-do-not-display' not in json.dumps(value)
+    assert value['execution']['user'] == 'worker'
+    assert value['execution']['clients'][0]['host'] == 'client.test'
+
+
+def test_portable_projection_filters_malicious_flags_and_values(trusted_source):
+    from dingofs_platform.functional import source_bridge
+    assert hasattr(source_bridge, 'project_source'), 'authoritative portable projection is missing'
+    path = trusted_source / 'conf/env/base.yaml'
+    path.write_text(path.read_text().replace('client_count: 2', '''client_count: 2
+      client_conf: {--safe: true, --password: TOPSECRET, --nested: {secret: TOPSECRET}, --unsafe: "$(TOPSECRET)", --access_key: TOPSECRET}'''))
+    value = source_bridge.project_source(trusted_source, 'env_Original')
+    assert value['settings']['clients'][0]['client_conf'] == {'--safe': True}
+    assert 'TOPSECRET' not in json.dumps(value)
+
+
+def test_portable_values_cannot_echo_known_source_credentials(trusted_source):
+    path = trusted_source / 'conf/env/base.yaml'
+    path.write_text(path.read_text().replace('client_count: 2',
+        'client_count: 2\n      client_conf: {--innocent: password-do-not-display}'))
+    from dingofs_platform.functional.source_bridge import project_source
+    value = project_source(trusted_source, 'env_Original')
+    assert 'password-do-not-display' not in json.dumps(value)
+
+
+def test_real_fixed_policy_dependency_is_available_to_inspector(trusted_source):
+    cases = trusted_source / 'testcases/client_test_cases'
+    cases.mkdir(parents=True)
+    (cases / 'fixture.yaml').write_text('case_name: fixed\nsteps: []\n')
+    descriptor = inspect(trusted_source, {'client': ['testcases/client_test_cases/fixture.yaml']})
+    assert 'client' in descriptor.modules

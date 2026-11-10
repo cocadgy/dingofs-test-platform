@@ -26,7 +26,7 @@ from dingofs_platform.inventory.ssh_transport import SSHConfig
 from .catalog import catalogue,validate_selection
 from .manager import now
 from .models import FunctionalRun,ACTIVE
-from .schemas import RunInput, RunInputV2
+from .schemas import RunInput, RunInputV2, RunSpec
 from . import submission  # noqa: F401 register guided persistence metadata
 from .report_redaction import redact_report
 from .environments.models import FunctionalEnvironmentProfile
@@ -35,6 +35,18 @@ from .environments.service import member_machine_ids, validate_settings
 from .drafts import Draft
 
 router=APIRouter(prefix='/api/v1/functional',tags=['functional'])
+
+
+@router.post('/preflight')
+def guided_preflight(payload: RunSpec, request: Request, user=Depends(current_user)):
+    if not request.app.state.settings.functional_guided_enabled:
+        raise Problem(503, 'guided_runs_disabled', '引导功能测试尚未启用')
+    from .preflight import resolve_submission, preflight
+    with get_db(request) as db, db.begin():
+        db.info['functional_settings'] = request.app.state.settings
+        db.info['functional_preflight_transport'] = getattr(request.app.state, 'functional_preflight_transport', None)
+        actor = actor_in_transaction(db, request)
+        return preflight(db, actor, resolve_submission(db, actor, payload))
 
 def catalog_path(request):
     return request.app.state.settings.functional_source_root

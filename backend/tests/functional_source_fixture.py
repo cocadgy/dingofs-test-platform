@@ -20,6 +20,7 @@ def copy_trusted_protocol(root: Path) -> None:
         'src/config/environment_contracts.py', 'src/test_runner/__init__.py',
         'src/test_runner/models.py', 'src/test_runner/functional_contracts.py',
         'src/test_runner/functional_capabilities.py', 'src/test_runner/owned_workloads.py',
+        'src/test_runner/fixed_policy.py',
     ):
         destination = root / relative
         destination.parent.mkdir(parents=True, exist_ok=True)

@@ -229,11 +229,6 @@ def legacy_functional_requests(db, cluster_id, machine_id, snapshot, source_root
         if strict and not source_bound:
             raise Problem(422, 'target_unresolved', '框架目标描述器尚未绑定并校验远端源版本')
         return functional_requests(db, cluster_id, machine_id, descriptors, actor=actor)
-    # Task9 may supply trusted framework descriptors above. The legacy parser
-    # intentionally supports only the ordinary client/cache shape below; it
-    # cannot infer arbitrary status hosts, chaos targets or override semantics.
-    if set(snapshot.get('selected', {})) & {'fault', 'mds_manage', 'hot_upgrade', 'cache_node', 'large_scale_cache'}:
-        raise Problem(422, 'target_unresolved', '特殊模块需要框架目标描述器，请使用引导预检')
     profile = snapshot.get('environment_profile_snapshot') or {}
     if strict and profile.get('kind') != 'custom' and not (
             profile.get('kind') == 'predefined' and profile.get('source_file')
@@ -243,6 +238,8 @@ def legacy_functional_requests(db, cluster_id, machine_id, snapshot, source_root
     targets = []
     complete = False
     if profile.get('kind') == 'custom':
+        if set(snapshot.get('selected', {})) & {'fault', 'mds_manage', 'hot_upgrade', 'cache_node', 'large_scale_cache'}:
+            raise Problem(422, 'target_unresolved', '特殊模块需要框架目标描述器，请使用引导预检')
         from dingofs_platform.functional.environments.service import member_machine_ids
         for mid in member_machine_ids(profile['settings'], profile['machine_id']):
             machine = db.get(Machine, mid)
@@ -251,27 +248,19 @@ def legacy_functional_requests(db, cluster_id, machine_id, snapshot, source_root
             targets.append({'host': machine.address, 'mutates': True})
         complete = bool(targets)
     elif source_root:
-        from dingofs_platform.functional.environments.importer import read_predefined
-        _, resolved, _ = read_predefined(Path(source_root).parent / 'conf/env')
-        raw = resolved.get(snapshot.get('env_name'))
-        if raw:
-            allowed = {'base', 'clients', 'hosts', 'remote_caches', 'mds_addr', 'storage',
-                       'ssh_user', 'ssh_password', 'client_count', 'remote_cache_count',
-                       'replace_clients', 'replace_remote_caches'}
-            member_fields = {'host', 'user', 'ssh_user', 'ssh_password', 'ssh_port', 'port',
-                             'client_count', 'remote_cache_count', 'fs_name', 'mount_path',
-                             'client_conf', 'remote_cache_conf', 'log_dir', 'cache_dir'}
-            if set(raw) - allowed or raw.get('base'):
-                raise Problem(422, 'target_unresolved', '旧环境含未支持的目标配置，请使用引导预检')
-            for collection in ('clients', 'hosts', 'remote_caches'):
-                members = raw.get(collection, [])
-                if not isinstance(members, list):
-                    raise Problem(422, 'target_unresolved', '旧环境目标集合无效')
-                for member in members:
-                    if not isinstance(member, dict) or set(member) - member_fields or not member.get('host'):
-                        raise Problem(422, 'target_unresolved', '旧环境成员含未支持的目标配置，请使用引导预检')
-                    targets.append({'host': member['host'], 'mutates': True})
-            complete = bool(targets)
+        from dingofs_platform.functional.source_bridge import inspect_source
+        from dingofs_platform.functional.catalog import MODULE_DIRS
+        try:
+            modules = {module: [f'testcases/{MODULE_DIRS[module]}/{case}' for case in cases]
+                       for module, cases in snapshot.get('selected', {}).items()}
+            descriptor = inspect_source(Path(source_root).parent, snapshot.get('env_name'), modules)
+        except (ValueError, KeyError):
+            raise Problem(422, 'target_unresolved', '可信框架目标描述器不可用，请重新预检') from None
+        if descriptor.issues or not descriptor.targets or any(not c.available for c in descriptor.modules.values()):
+            raise Problem(422, 'target_unresolved', '环境或用例目标不完整，请重新预检')
+        # A local source summary is never proof of the remote pinned runtime.
+        return legacy_functional_requests(db, cluster_id, machine_id, snapshot, actor=actor,
+            strict=strict, descriptors=[descriptor.model_dump(mode='json')], source_bound=source_bound)
     if strict and not complete:
         raise Problem(422, 'target_unresolved', '旧任务缺少可验证的写入目标，请重新选择并验证测试环境')
     return functional_requests(db, cluster_id, machine_id, [{'targets': targets}], actor=actor)

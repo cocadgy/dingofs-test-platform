@@ -57,14 +57,14 @@ def _relative(value: str) -> bool:
             and '..' not in PurePosixPath(value).parts)
 
 
-def _run_inspector(root: Path, request: bytes) -> bytes:
+def _run_inspector(root: Path, request: bytes, *, bootstrap: str = _BOOTSTRAP) -> bytes:
     """Drain both pipes incrementally; kill/reap on timeout or either I/O limit."""
     deadline = time.monotonic() + INSPECT_TIMEOUT_SECONDS
     output = bytearray()
     total = 0
     try:
         with subprocess.Popen(
-            [sys.executable, '-I', '-B', '-c', _BOOTSTRAP, str(root)],
+            [sys.executable, '-I', '-B', '-c', bootstrap, str(root)],
             cwd=root, env={'PATH': os.defpath, 'LANG': 'C.UTF-8'},
             stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
         ) as process:
@@ -162,3 +162,123 @@ def inspect_source(source_root: Path, env_name: str, modules: dict[str, list[str
     except (OSError, RuntimeError, TypeError, ValueError, ValidationError):
         raise ValueError('invalid inspector response') from None
     return descriptor
+
+
+# Reuse the exact parser and guard, emitting only explicit allowlisted scalars.
+# Expanded cache entries retain their source count and per-host running index.
+# Consume contiguous blocks; equality never merges independent source groups.
+_PROJECTION = _BOOTSTRAP.rsplit("runpy.run_module(", 1)[0] + r'''
+import json, re, hmac
+from dataclasses import asdict
+from src.config.env_parser import parse_environment
+request = json.load(sys.stdin)
+env = parse_environment(request['env_name'], conf_dir=request['source_root'] + '/conf')
+if env is None: raise ValueError('missing environment')
+sensitive = [env.run_as_user.partition('/')[2]]
+if env.storage and env.storage.s3: sensitive.extend((env.storage.s3.s3_ak, env.storage.s3.s3_sk))
+if env.storage and env.storage.rados: sensitive.append(env.storage.rados.rados_key)
+sensitive = [value for value in sensitive if value]
+omitted = False
+def flags(raw):
+    global omitted
+    result = {}
+    for key, value in raw.items():
+        if (not isinstance(key, str) or not re.fullmatch(r'--[A-Za-z][A-Za-z0-9_]*', key)
+            or key == '--mds_addrs' or re.search(r'(^|_)(password|secret|token|credential|key|ak|sk)(_|$)', key[2:].lower())
+            or type(value) not in (str, int, bool)
+            or isinstance(value, str) and (len(value) > 2048 or any(c in value for c in '\r\n\x00;|&$`')
+                                          or any(secret in value for secret in sensitive))):
+            omitted = True
+        else: result[key] = value
+    return result
+clients = [{'machine_id': '', 'client_count': c.client_count,
+            'mount_path': c.mount_path or '/tmp/dingofs-functional',
+            'fs_name': c.fs_name or 'platform-test', 'client_conf': flags(c.client_conf)} for c in env.clients]
+caches = []
+position = 0
+indices = {}
+while position < len(env.remote_caches):
+    first = env.remote_caches[position]
+    count = first.remote_cache_count
+    if type(count) is not int or not 1 <= count <= 1000: raise ValueError('invalid cache group')
+    block = env.remote_caches[position:position + count]
+    start = indices.get(first.host, 0)
+    if len(block) != count or any(asdict(c) != asdict(first) or c._index != start + i for i,c in enumerate(block)):
+        raise ValueError('ambiguous cache expansion')
+    indices[first.host] = start + count
+    caches.append({'machine_id': '', 'remote_cache_count': count, 'remote_cache_conf': flags(first.remote_cache_conf)})
+    position += count
+user, separator, secret = env.run_as_user.partition('/')
+storage = env.storage
+storage_ready = bool(storage and (
+    storage.storage_type == 's3' and storage.s3 and all((storage.s3.s3_ak, storage.s3.s3_sk, storage.s3.s3_endpoint, storage.s3.s3_bucketname))
+    or storage.storage_type == 'rados' and storage.rados and all((storage.rados.rados_username, storage.rados.rados_key, storage.rados.rados_mon, storage.rados.rados_poolname))))
+execution = {'user': user.strip(), 'declared_ssh_user': env.ssh_user,
+    'source_auth_present': bool(separator and secret or env.ssh_identity_file), 'storage_ready': storage_ready,
+    'authentication_mode': 'key' if env.ssh_identity_file else ('password' if separator and secret else 'missing'),
+    'authentication_matches': bool(not env.ssh_identity_file and separator and secret and request.get('authentication') and all(
+        item['user'] == user.strip() and hmac.compare_digest(item['value'].encode(), secret.encode())
+        for item in request.get('authentication', []))),
+    'command_host': env.host or env.mds_addr.split(',')[0].rsplit(':', 1)[0],
+    'dingo': env.dingo_tool_path or (env.clients[0].dingo_tool_path if env.clients else '') or '/usr/local/bin/dingo',
+    'clients': [{'host': c.host, 'fs_name': c.fs_name, 'mount_path': c.mount_path,
+                 'binary': c.client_bin_path, 'count': c.client_count,
+                 'paths': [p for p in [c.client_conf.get('--cache_dir', ''), c.client_conf.get('--log_dir', ''), *c.client_cache_dirs] if p],
+                 'port': int(c.client_conf.get('--vfs_dummy_server_port', 11000))} for c in env.clients],
+    'caches': [{'host': c.host, 'binary': c.cache_bin_path,
+                'paths': [p for p in [c.remote_cache_conf.get('--cache_dir', ''), c.remote_cache_conf.get('--log_dir', ''), *c.remote_cache_dirs] if p],
+                'port': int(c.remote_cache_conf.get('--listen_port', 8000))} for c in env.remote_caches]}
+result = json.dumps({'version': 1, 'settings': {'mount_root': clients[0]['mount_path'] if clients else '/tmp/dingofs-functional',
+    'fs_prefix': clients[0]['fs_name'] if clients else 'platform-test', 'clients': clients, 'remote_caches': caches, 'binaries': {}},
+    'execution': execution, 'omitted': omitted})
+if any(secret in result for secret in sensitive): raise ValueError('unsafe projection value')
+print(result)
+'''
+
+
+def project_source(source_root: Path, env_name: str, *, authentication: list[dict] | None = None) -> dict:
+    """Secret-free portable settings and per-host prerequisites from one parser.
+
+    Never expose the raw resolved YAML or parser object to the API process.
+    Source is rehashed across both inspections to refuse concurrent drift.
+    """
+    before = inspect_source(source_root, env_name, {})
+    if before.issues:
+        raise ValueError('environment projection is unavailable')
+    root = Path(source_root).resolve(strict=True)
+    request = json.dumps({'source_root': str(root), 'env_name': env_name, 'authentication': authentication}).encode()
+    if len(request) > MAX_REQUEST_BYTES:
+        raise ValueError('inspection request limit exceeded')
+    try:
+        value = json.loads(_run_inspector(root, request, bootstrap=_PROJECTION))
+        from .environments.service import validate_settings
+        # Validate with temporary rebinding; public copies intentionally have no machine IDs.
+        settings = value['settings']
+        rebound = {**settings, **{key: [{**item, 'machine_id': 'unbound'} for item in settings[key]]
+                                for key in ('clients', 'remote_caches')}}
+        if not settings['clients']:
+            rebound.pop('clients')
+        validate_settings(rebound)
+        execution = value['execution']
+        if (value.keys() != {'version', 'settings', 'execution', 'omitted'} or value['version'] != 1
+                or type(value['omitted']) is not bool
+                or execution.keys() != {'user', 'declared_ssh_user', 'source_auth_present', 'authentication_mode', 'authentication_matches', 'storage_ready',
+                                        'command_host', 'dingo', 'clients', 'caches'}
+                or not all(isinstance(execution[k], str) for k in ('user', 'declared_ssh_user', 'command_host', 'dingo'))
+                or not all(type(execution[k]) is bool for k in ('source_auth_present', 'authentication_matches', 'storage_ready'))):
+            raise ValueError
+        if execution['authentication_mode'] not in ('password', 'key', 'missing'):
+            raise ValueError
+        for kind in ('clients', 'caches'):
+            for item in execution[kind]:
+                expected = {'host', 'binary', 'paths', 'port'} | ({'fs_name', 'mount_path', 'count'} if kind == 'clients' else set())
+                if (item.keys() != expected or not all(isinstance(item[k], str) for k in expected - {'paths', 'port', 'count'})
+                        or not isinstance(item['paths'], list) or not all(isinstance(p, str) for p in item['paths'])
+                        or type(item['port']) is not int or not 1 <= item['port'] <= 65535
+                        or kind == 'clients' and (type(item['count']) is not int or not 1 <= item['count'] <= 1000)):
+                    raise ValueError
+        if inspect_source(root, env_name, {}).digest != before.digest:
+            raise ValueError
+    except Exception:
+        raise ValueError('invalid environment projection') from None
+    return {**value, 'source_manifest': before.source_manifest, 'digest': before.digest}

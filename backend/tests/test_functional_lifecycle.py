@@ -24,6 +24,17 @@ def ready(admin,app,tmp_path):
         sync_predefined(db, env_root)
         profile=db.scalar(select(FunctionalEnvironmentProfile).where(FunctionalEnvironmentProfile.source_key=='env_test'))
         profile_id, profile_revision=profile.id, profile.revision
+    # General lifecycle assertions use the supported custom path. Local preset
+    # YAML hashes alone must no longer masquerade as a verified remote runtime.
+    storage=admin.post('/api/v1/storage-profiles',json={'name':'lifecycle-storage','storage_type':'s3',
+        'parameters':{'s3_ak':'fixture-ak','s3_sk':'fixture-sk','s3_endpoint':'http://s3','s3_bucketname':'bucket'},
+        'enabled':True,'description':''})
+    assert storage.status_code==201,storage.text
+    custom=admin.post('/api/v1/functional/environments',json={'name':'lifecycle-custom','cluster_id':cluster['id'],
+        'machine_id':machine['id'],'storage_profile_id':storage.json()['id'],
+        'settings':{'mount_root':'/tmp/functional','fs_prefix':'test'},'enabled':True})
+    assert custom.status_code==201,custom.text
+    profile_id,profile_revision=custom.json()['id'],custom.json()['revision']
     payload={'name':'lifecycle','cluster_id':cluster['id'],
              'environment_profile_id':profile_id,'environment_profile_revision':profile_revision,
              'selected':{'basic_file_operation':['a.yaml','b.yaml']},'catalog_digest':catalogue(root.parent)['digest']}
@@ -94,7 +105,7 @@ def test_legacy_completion_without_recovery_requires_attention(admin, app, ready
     row = create(admin, ready)
     class Done:
         def __init__(self, config): pass
-        def start(self, payload): return {'root':'/tmp/functional-job'}
+        def start(self, payload, env_yaml, secrets): return {'root':'/tmp/functional-job'}
         def poll(self, id, cancel): return {'state':'success', 'result':{'cases':[]}}
     app.state.functional_transport = Done
     app.state.functional_manager.process(row['id'])

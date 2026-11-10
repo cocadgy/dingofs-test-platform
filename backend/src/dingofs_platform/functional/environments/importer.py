@@ -1,7 +1,6 @@
 """Read predefined integration environments without persisting their secrets."""
 from __future__ import annotations
 
-from copy import deepcopy
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -30,88 +29,6 @@ class PresetDescriptor:
     runnable: bool
     issue: str | None
     descriptor: EnvironmentDescriptor
-
-
-def _merge(base: dict, override: dict, *, root: bool = True) -> dict:
-    result = deepcopy(base)
-    if root:
-        for name in ("client_count", "remote_cache_count"):
-            result.pop(name, None)
-    for name, value in override.items():
-        if isinstance(value, dict) and isinstance(result.get(name), dict):
-            result[name] = _merge(result[name], value, root=False)
-        elif isinstance(value, list) and isinstance(result.get(name), list):
-            parent = result[name]
-            result[name] = [
-                _merge(parent[index], item, root=False)
-                if index < len(parent) and isinstance(parent[index], dict) and isinstance(item, dict)
-                else deepcopy(item)
-                for index, item in enumerate(value)
-            ]
-        else:
-            result[name] = deepcopy(value)
-    return result
-
-
-def read_predefined(root: Path):
-    """Legacy copy-settings/lease compatibility only; never used by guided scan.
-
-    Task9b must replace this duplicated resolver with a framework-owned portable
-    settings projection retaining inherited flags and unexpanded cache counts.
-    EnvironmentDescriptor intentionally cannot reconstruct those settings.
-    """
-    root = Path(root)
-    sources: dict[str, tuple[Path, dict]] = {}
-    for path in sorted(root.glob("*.yaml")):
-        if path.is_symlink() or not path.is_file():
-            continue
-        try:
-            document = _yaml.load(path.read_text()) or {}
-        except Exception as exc:
-            raise ValueError(f"invalid YAML in {path.name}: {exc}") from exc
-        if not isinstance(document, dict):
-            raise ValueError(f"invalid environment document: {path.name}")
-        for key, raw in document.items():
-            if not isinstance(key, str) or not isinstance(raw, dict):
-                raise ValueError(f"invalid environment entry in {path.name}: {key}")
-            if key in sources:
-                raise ValueError(f"Duplicate environment name: {key}")
-            sources[key] = (path, raw)
-
-    resolved: dict[str, dict] = {}
-    issues: dict[str, str] = {}
-
-    def resolve(key: str, ancestors: tuple[str, ...] = ()) -> dict:
-        if key in ancestors:
-            raise ValueError("environment inheritance cycle: " + " -> ".join((*ancestors, key)))
-        if key in resolved:
-            return resolved[key]
-        if key not in sources:
-            raise ValueError(f"missing environment base: {key}")
-        raw = sources[key][1]
-        base = raw.get("base")
-        if base is not None and not isinstance(base, str):
-            raise ValueError(f"invalid base for {key}")
-        if base:
-            parent=resolve(base, (*ancestors, key))
-            if base in issues:issues[key]='base environment is not runnable'
-            for collection in ('clients','remote_caches'):
-                if collection in raw and len(parent.get(collection,[]))!=len(raw[collection]) and raw.get('replace_'+collection) is not True:
-                    issues[key]=f'array length mismatch: {collection}'
-            value=_merge(parent,raw)
-            if 'hosts' in raw:
-                for collection in ('clients','remote_caches'):
-                    if collection not in raw:value[collection]=[]
-        else:value=deepcopy(raw)
-        for collection in ("clients", "remote_caches"):
-            if raw.get("replace_" + collection) is True:
-                value[collection] = deepcopy(raw.get(collection, []))
-        resolved[key] = value
-        return value
-
-    for key in sources:
-        resolve(key)
-    return sources, resolved, issues
 
 
 def scan_predefined(root: Path) -> list[PresetDescriptor]:
