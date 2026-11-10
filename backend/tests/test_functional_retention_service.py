@@ -107,3 +107,20 @@ def test_cache_probe_queries_frozen_control_then_original_member_host(admin, app
         row.kind, row.name, row.host, row.port = 'cache', 'cache-one', 'member.test', 12000
         assert probe_resource(db, actor, parent, child, row)['status'] == 'present'
     assert calls == ['192.0.2.1', '192.0.2.2']
+
+
+def test_orphan_mount_absent_in_current_namespace_without_history_keeps_all_leases(admin, app, ready):
+    run_id, keys = retained(admin, app, ready)
+    with app.state.session_factory.begin() as db:
+        row = db.scalar(select(FunctionalResource).where(FunctionalResource.resource_id == 'resource-0'))
+        row.kind, row.name, row.path = 'mount', 'owned-fs', '/mnt/owned'
+        row.remote_identity = {'id': 123, 'target': '/mnt/owned', 'source': 'DingoFS:owned-fs',
+            'fstype': 'fuse.dingofs', 'process': {'pid': 12, 'start_time': '34', 'exe': '/opt/dingo-client',
+                'fs_name': 'owned-fs', 'mds_addr': 'node1.test:6900', 'mount_path': '/mnt/owned'}}
+        acquire_leases(db, 'resource:unrelated-owner', [LeaseRequest('machine:unrelated')])
+    # The original process may have ended while its orphan mount lives elsewhere.
+    evidence = verify(app, run_id, {'resource-0': 'absent', 'resource-1': 'absent'})
+    assert evidence.remaining_resources == frozenset(keys)
+    with app.state.session_factory() as db:
+        assert all(row.released_at is None for row in db.scalars(select(OperationLease)))
+        assert db.scalar(select(FunctionalResource).where(FunctionalResource.resource_id == 'resource-0')).phase == 'unknown'

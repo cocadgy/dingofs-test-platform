@@ -119,6 +119,10 @@ def run(request, oid, password=None, *, claimed=False):
         op = db.get(ResourceOperation, oid)
         if not op or op.state != ("running" if claimed else "pending"):
             return
+        cleanup_context = op.parameters.get('_functional_cleanup')
+        if cleanup_context:
+            from dingofs_platform.functional.retention_cleanup import lock_cleanup_owner, revalidate_cleanup_exception
+            lock_cleanup_owner(db, cleanup_context)
         try:
             retry_root = verified_retry_root(db, op.cluster_id, op.action, op.parameters, op.actor_id,
                                              current_operation_id=op.id)
@@ -143,11 +147,10 @@ def run(request, oid, password=None, *, claimed=False):
         if not valid(db, op):
             terminal(db, op, "failed", "stale")
             return
-        cleanup_context = op.parameters.get('_functional_cleanup')
         if cleanup_context:
-            from dingofs_platform.functional.retention_cleanup import revalidate_cleanup_exception
             try:
-                revalidate_cleanup_exception(db, db.get(User, op.actor_id), cleanup_context, op.steps, requests)
+                revalidate_cleanup_exception(db, db.get(User, op.actor_id), cleanup_context, op.steps, requests,
+                                             operation_id=op.id)
             except Problem as exc:
                 terminal(db, op, 'failed', exc.code)
                 return
@@ -168,6 +171,8 @@ def run(request, oid, password=None, *, claimed=False):
         with get_db(request) as db, db.begin():
             db.info['functional_settings'] = settings
             db.info['functional_retention_transport'] = getattr(request.app.state, 'functional_retention_transport', None)
+            if cleanup_context:
+                lock_cleanup_owner(db, cleanup_context)
             lock_keys(db, requests)
             lock_inventory(db)
             op = db.get(ResourceOperation, oid)
@@ -189,7 +194,8 @@ def run(request, oid, password=None, *, claimed=False):
             work = deepcopy(op.steps[op.cursor])
             if cleanup_context:
                 try:
-                    revalidate_cleanup_exception(db, db.get(User, op.actor_id), cleanup_context, op.steps, requests)
+                    revalidate_cleanup_exception(db, db.get(User, op.actor_id), cleanup_context, op.steps, requests,
+                                                 operation_id=op.id)
                 except Problem as exc:
                     terminal(db, op, 'failed', exc.code)
                     return
@@ -385,6 +391,8 @@ def run(request, oid, password=None, *, claimed=False):
             password = None
             secret_values.clear()
         with get_db(request) as db, db.begin():
+            if cleanup_context:
+                lock_cleanup_owner(db, cleanup_context)
             lock_keys(db, requests)
             lock_inventory(db)
             op = db.get(ResourceOperation, oid)
@@ -521,10 +529,23 @@ def owned(db, request, oid):
     return op
 
 
+def prelock_cleanup_operation(db, request, oid):
+    """Cleanup-only entrypoints follow account -> full owner union -> inventory."""
+    op = db.get(ResourceOperation, oid)
+    if not op or not op.parameters.get('_functional_cleanup'):
+        return
+    actor = actor_in_transaction(db, request)
+    if op.actor_id != actor.id:
+        raise Problem(404, "not_found", "操作不存在或不属于当前用户")
+    from dingofs_platform.functional.retention_cleanup import lock_cleanup_owner
+    lock_cleanup_owner(db, op.parameters['_functional_cleanup'])
+
+
 def authenticate(request, oid, challenge, password, tasks):
     if any(c in password for c in ("\n", "\r", "\x00")):
         raise Problem(422, "invalid_password", "密码不能包含换行或空字符")
     with get_db(request) as db, db.begin():
+        prelock_cleanup_operation(db, request, oid)
         lock_inventory(db)
         op = owned(db, request, oid)
         if (
@@ -550,6 +571,7 @@ def authenticate(request, oid, challenge, password, tasks):
 
 def cancel(request, oid):
     with get_db(request) as db, db.begin():
+        prelock_cleanup_operation(db, request, oid)
         lock_inventory(db)
         op = owned(db, request, oid)
         if op.state in ACTIVE:

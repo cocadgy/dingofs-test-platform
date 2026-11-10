@@ -47,6 +47,7 @@ def create(
 @router.get("/resource-operations/{id}")
 def operation(id: str, request: Request, user=Depends(current_user)):
     with get_db(request) as db, db.begin():
+        execution.prelock_cleanup_operation(db, request, id)
         lock_inventory(db)
         return operation_view(db, execution.owned(db, request, id), private=True)
 

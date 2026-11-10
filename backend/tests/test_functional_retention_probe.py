@@ -48,6 +48,11 @@ def test_absent_mount_or_cache_requires_both_registration_and_process_absence(mo
     import subprocess
     from dingofs_platform.functional import retention_probe as module
     row = request(kind)
+    if kind == 'mount':
+        import os
+        from pathlib import Path
+        row['mount_scope'] = {'namespace': os.readlink('/proc/self/ns/mnt'),
+                             'boot_id': Path('/proc/sys/kernel/random/boot_id').read_text().strip()}
     def run(argv, **kwargs):
         if argv[0] == 'findmnt':
             assert argv == ['findmnt', '--json', '--mountpoint', '/tmp/test-exact', '--output', 'ID,TARGET,SOURCE,FSTYPE']
@@ -110,3 +115,19 @@ def test_missing_registration_does_not_hide_live_original_process_with_changed_a
     row['registration'] = {'members': []}
     row['expected_identity'] = {'process': {'pid': 123, 'start': '456', 'exe': '/opt/dingo-cache', 'member_id': 'exact'}}
     assert module.probe(row)['status'] == 'unknown'
+
+
+@pytest.mark.parametrize('proof,want', [(None, 'unknown'), ('namespace', 'unknown'), ('boot', 'unknown'), ('same', 'absent')])
+def test_mount_absence_requires_previously_bound_namespace_and_boot(monkeypatch, proof, want):
+    import os
+    from pathlib import Path
+    from dingofs_platform.functional import retention_probe as module
+    row = request('mount')
+    current = {'namespace': os.readlink('/proc/self/ns/mnt'),
+               'boot_id': Path('/proc/sys/kernel/random/boot_id').read_text().strip()}
+    if proof:
+        row['mount_scope'] = {**current, **({'namespace': 'mnt:[other]'} if proof == 'namespace' else
+                                          {'boot_id': 'other-boot'} if proof == 'boot' else {})}
+    monkeypatch.setattr(module.subprocess, 'run', lambda *args, **kwargs: SimpleNamespace(returncode=1, stdout='', stderr=''))
+    monkeypatch.setattr(module, 'processes', lambda *args: [])
+    assert module.probe(row)['status'] == want

@@ -188,6 +188,13 @@ def probe(request):
             identity = mount_identity(request)
             response['namespace'] = os.readlink('/proc/self/ns/mnt')
             response['boot_id'] = Path('/proc/sys/kernel/random/boot_id').read_text().strip()
+            if identity is None:
+                if request.get('mount_scope') != {key: response[key] for key in ('namespace', 'boot_id')}:
+                    raise ValueError('original mount namespace is unverified')
+            else:
+                response['process_namespace'] = os.readlink('/proc/' + str(identity['process']['pid']) + '/ns/mnt')
+                if response['process_namespace'] != response['namespace']:
+                    raise ValueError('mount process namespace changed')
         elif request['kind'] == 'cache':
             identity = cache_identity(request)
         else:

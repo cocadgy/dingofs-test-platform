@@ -9,7 +9,7 @@ def resource_request(row):
             'target': {key: getattr(row, key) for key in TARGET_FIELDS}}
 
 
-def checked_resource_phase(row, observed):
+def checked_resource_phase(row, observed, *, mount_scope=None):
     if not isinstance(observed, dict) or not row.remote_identity:
         return 'unknown'
     if any(observed.get(key) != value for key, value in resource_request(row).items()):
@@ -21,6 +21,9 @@ def checked_resource_phase(row, observed):
     if row.kind == 'directory' and row.remote_identity.get('filesystem_relative'):
         return 'unknown'
     if observed.get('status') == 'absent' and observed.get('identity') is None:
+        if row.kind == 'mount' and (not mount_scope or
+                mount_scope != {key: observed.get(key) for key in ('namespace', 'boot_id')}):
+            return 'unknown'
         return 'removed' if row.owned else 'unknown'
     if observed.get('status') == 'present' and observed.get('identity') == row.remote_identity:
         return 'retained' if row.owned else 'active'
@@ -28,6 +31,33 @@ def checked_resource_phase(row, observed):
             and observed.get('identity') == {**row.remote_identity, 'process': None}):
         return 'retained'  # Registration still exists; process exit is not cleanup.
     return 'unknown'
+
+
+def verified_mount_scope(db, parent, resource):
+    """Only a completed exact saved-unmount may establish otherwise missing history."""
+    from sqlalchemy import select
+    from dingofs_platform.resources.models import ResourceOperation
+    if resource.kind != 'mount':
+        return None
+    scopes = set()
+    for op in db.scalars(select(ResourceOperation).where(ResourceOperation.action == 'mount.unmount',
+                         ResourceOperation.state == 'succeeded')):
+        context = op.parameters.get('_functional_cleanup', {})
+        scope = context.get('mount_scope') or {}
+        steps = (op.result or {}).get('steps') or []
+        if (context.get('run_id') == parent.id and context.get('child_id') == resource.child_id
+                and context.get('resource_id') == resource.resource_id and context.get('kind') == 'mount'
+                and context.get('identity') == resource.remote_identity
+                and context.get('target') == resource_request(resource)['target']
+                and len(op.steps) == 1 and op.steps == context.get('steps')
+                and op.steps[0].get('action') == 'mount.unmount' and op.cursor == 1
+                and len(steps) == 1 and steps[0].get('remote_ended') is True
+                and all(isinstance(scope.get(k), str) and scope[k] for k in ('namespace', 'boot_id'))):
+            scopes.add((scope['namespace'], scope['boot_id']))
+    if len(scopes) == 1:
+        namespace, boot_id = scopes.pop()
+        return {'namespace': namespace, 'boot_id': boot_id}
+    return None
 
 
 def child_ended(child):
@@ -72,6 +102,8 @@ def probe_resource(db, actor, parent, child, resource):
     config = SSHConfig(machine.address, machine.ssh_port, machine.ssh_user,
         decrypt_password(machine.ssh_password_ciphertext, settings.credential_encryption_key))
     payload = {**resource_request(resource), 'dingo': child.environment_snapshot.get('programs', {}).get('dingo') or '/usr/local/bin/dingo'}
+    if resource.kind == 'mount':
+        payload['mount_scope'] = verified_mount_scope(db, parent, resource)
     transport = db.info.get('functional_retention_transport')
     def invoke(connection, request, function):
         code = 'REQUEST=' + repr(request) + '\n' + Path(retention_probe.__file__).read_text() + '\nprint(json.dumps(' + function + '(REQUEST)))\n'
@@ -105,17 +137,22 @@ def cleanup_operation_ended(op):
         all(step.get('remote_ended') is True for step in result['steps']))
 
 
-def cleanup_in_progress(db, run_id):
+def cleanup_in_progress(db, run_id, *, child_id=None, resource_id=None, exclude_operation_id=None):
     from sqlalchemy import select
     from dingofs_platform.resources.models import ResourceOperation
     operations = list(db.scalars(select(ResourceOperation)))
-    related = {op.id for op in operations if op.parameters.get('_functional_cleanup', {}).get('run_id') == run_id}
+    related = set()
+    for op in operations:
+        context = op.parameters.get('_functional_cleanup', {})
+        if (context.get('run_id') == run_id and (child_id is None or context.get('child_id') == child_id)
+                and (resource_id is None or context.get('resource_id') == resource_id)):
+            related.add(op.id)
     while True:
         descendants = {op.id for op in operations if op.parameters.get('retry_operation_id') in related}
         if descendants <= related:
             break
         related.update(descendants)
-    return any(op.id in related and not cleanup_operation_ended(op) for op in operations)
+    return any(op.id in related and op.id != exclude_operation_id and not cleanup_operation_ended(op) for op in operations)
 
 
 def verify_retained_resources(db, actor, run_id):
@@ -148,7 +185,8 @@ def verify_retained_resources(db, actor, run_id):
             continue  # An authoritative persisted removal is already verified.
         try:
             observed = probe_resource(db, actor, parent, by_id[resource.child_id], resource)
-            resource.phase = checked_resource_phase(resource, observed)
+            resource.phase = checked_resource_phase(resource, observed,
+                mount_scope=verified_mount_scope(db, parent, resource))
         except Exception:
             resource.phase = 'unknown'
     unresolved = any(r.phase in ('intent', 'retained', 'unknown') or r.owned and r.phase == 'active' for r in resources)

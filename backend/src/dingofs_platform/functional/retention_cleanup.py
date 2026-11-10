@@ -4,6 +4,18 @@ from copy import deepcopy
 ALLOWED_ACTIONS = frozenset(('fs.delete', 'mount.unmount', 'cache.stop', 'cache.delete'))
 
 
+def lock_cleanup_owner(db, context):
+    """Take the entire functional lease union before any business-row locks."""
+    from sqlalchemy import select
+    from dingofs_platform.operations.models import OperationLease
+    from dingofs_platform.operations.leases import lock_keys, LeaseRequest
+    from dingofs_platform.auth.users import lock_accounts
+    lock_accounts(db)
+    keys = list(db.scalars(select(OperationLease.key).where(
+        OperationLease.owner == 'functional:' + context['run_id'], OperationLease.released_at.is_(None))))
+    lock_keys(db, [LeaseRequest(key) for key in keys])
+
+
 def control_step_matches(work, binding):
     connection = binding.get('control_connection') or []
     return (len(connection) == 3 and work.get('machine_id') == binding.get('machine_id')
@@ -62,7 +74,7 @@ def matches_cleanup_step(resource, work, routes, *, binding=None, namespace=None
     return False
 
 
-def _authorize(db, actor, parent, child, resource, work, requests):
+def _authorize(db, actor, parent, child, resource, work, requests, *, mount_scope=None, operation_id=None):
     from datetime import datetime, timezone
     from sqlalchemy import select
     from dingofs_platform.inventory.permissions import require_manage
@@ -81,7 +93,16 @@ def _authorize(db, actor, parent, child, resource, work, requests):
                                  OperationLease.released_at.is_(None))))
     if not {r.key for r in requests} <= keys or check_conflicts(db, requests, owner):
         return False
+    if retention.cleanup_in_progress(db, parent.id, child_id=child.id, resource_id=resource.resource_id,
+                                     exclude_operation_id=operation_id):
+        return False
     observed = retention.probe_resource(db, actor, parent, child, resource)
+    if resource.kind == 'mount':
+        current_scope = {key: observed.get(key) for key in ('namespace', 'boot_id')}
+        if (not all(isinstance(value, str) and value for value in current_scope.values())
+                or observed.get('process_namespace') != current_scope['namespace']
+                or mount_scope is not None and mount_scope != current_scope):
+            return False
     if not matches_cleanup_step(resource, work, binding.get('resolved_targets', []), binding=binding,
                                 namespace=observed.get('namespace'), boot_id=observed.get('boot_id')):
         return False
@@ -109,7 +130,7 @@ def _authorize(db, actor, parent, child, resource, work, requests):
     authorize_retained_cleanup(db, owner, evidence, child_id=child.id, resource_id=resource.resource_id,
         kind=resource.kind, remote_identity=resource.remote_identity,
         target={key: getattr(resource, key) for key in retention.TARGET_FIELDS})
-    return True
+    return observed
 
 
 def resolve_cleanup_exception(db, actor, cluster, action, parameters, requests):
@@ -164,30 +185,42 @@ def resolve_cleanup_exception(db, actor, cluster, action, parameters, requests):
             return None
         resource = matches[0]
         child = db.get(FunctionalModuleRun, resource.child_id)
-        if not _authorize(db, actor, parent, child, resource, step, requests):
+        observed = _authorize(db, actor, parent, child, resource, step, requests)
+        if not observed:
             return None
         context = {'run_id': parent.id, 'child_id': child.id, 'resource_id': resource.resource_id,
                    'kind': resource.kind, 'identity': deepcopy(resource.remote_identity), 'step': deepcopy(step),
+                   'target': {key: getattr(resource, key) for key in ('cluster', 'host', 'user', 'name', 'path', 'port')},
                    'steps': deepcopy(steps), 'managed_resource_id': managed_resource.id if managed_resource else None}
+        if resource.kind == 'mount':
+            context['mount_scope'] = {key: observed[key] for key in ('namespace', 'boot_id')}
         return context, steps
     except Exception:
         return None
 
 
-def revalidate_cleanup_exception(db, actor, context, steps, requests):
+def revalidate_cleanup_exception(db, actor, context, steps, requests, *, operation_id=None):
     from sqlalchemy import select
     from dingofs_platform.errors import Problem
     from .models import FunctionalRun, FunctionalModuleRun, FunctionalResource
     try:
+        if operation_id is not None:
+            from dingofs_platform.resources.models import ResourceOperation
+            operation = db.get(ResourceOperation, operation_id)
+            if not operation or operation.parameters.get('_functional_cleanup') != context or operation.steps != steps:
+                raise ValueError('cleanup operation changed')
         parent = db.get(FunctionalRun, context['run_id'])
         child = db.get(FunctionalModuleRun, context['child_id'])
         resource = db.scalar(select(FunctionalResource).where(FunctionalResource.child_id == context['child_id'],
                              FunctionalResource.resource_id == context['resource_id']))
         if (not parent or not child or not resource or child.run_id != parent.id
                 or resource.kind != context['kind'] or resource.remote_identity != context['identity']
+                or context.get('target') != {key: getattr(resource, key) for key in ('cluster', 'host', 'user', 'name', 'path', 'port')}
                 or steps != context['steps'] or steps[-1] != context['step']
                 or not validate_control_steps(db, actor, steps, parent.snapshot.get('runtime_binding', {}))
-                or not _authorize(db, actor, parent, child, resource, steps[-1], requests)):
+                or resource.kind == 'mount' and not context.get('mount_scope')
+                or not _authorize(db, actor, parent, child, resource, steps[-1], requests,
+                                  mount_scope=context.get('mount_scope'), operation_id=operation_id)):
             raise ValueError('cleanup identity changed')
     except Exception:
         raise Problem(409, 'cleanup_not_verified', '残留清理目标或身份已改变，请重新复核') from None

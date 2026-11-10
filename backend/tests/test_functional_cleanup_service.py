@@ -23,7 +23,8 @@ def setup(admin, app, ready):
 def live(monkeypatch):
     from dingofs_platform.functional import retention
     def probe(db, actor, parent, child, row):
-        return {**retention.resource_request(row), 'status': 'present', 'identity': row.remote_identity}
+        return {**retention.resource_request(row), 'status': 'present', 'identity': row.remote_identity,
+                'namespace': 'mnt:[123]', 'process_namespace': 'mnt:[123]', 'boot_id': 'boot-123'}
     monkeypatch.setattr(retention, 'probe_resource', probe)
 
 

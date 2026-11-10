@@ -122,7 +122,8 @@ def test_saved_external_mount_uses_only_bound_root_adapter(admin, app, ready, ru
             saved.data = {**saved.data, 'client_user': 'another'}
     def probe(db, actor, parent, child, row):
         return {**retention.resource_request(row), 'status': 'present', 'identity': row.remote_identity,
-                'namespace': 'mnt:[999]' if changed == 'namespace' else 'mnt:[123]'}
+                'namespace': 'mnt:[999]' if changed == 'namespace' else 'mnt:[123]',
+                'process_namespace': 'mnt:[123]', 'boot_id': 'boot-123'}
     monkeypatch.setattr(retention, 'probe_resource', probe)
     response = begin(admin, cluster, 'mount.unmount', params)
     assert response.status_code == (409 if changed else 202), response.text
@@ -194,6 +195,215 @@ def test_batch_mount_schema_never_uses_single_resource_cleanup_exception(admin, 
     response = begin(admin, cluster, 'mount.unmount', {'resource_ids': [params['resource_id']]})
     assert response.status_code == 409, response.text
     assert not runner
+
+
+@pytest.mark.parametrize('changed', [None, 'namespace', 'boot_id'])
+def test_saved_unmount_freezes_live_scope_and_only_matching_scope_can_release(admin, app, ready, runner, monkeypatch, changed):
+    from dingofs_platform.functional import retention
+    run_id, keys, cluster, params = target(admin, app, ready, 'mount.unmount')
+    live(monkeypatch)
+    response = begin(admin, cluster, 'mount.unmount', params)
+    assert response.status_code == 202, response.text
+    with app.state.session_factory() as db:
+        context = db.get(ResourceOperation, response.json()['id']).parameters['_functional_cleanup']
+        assert context['mount_scope'] == {'namespace': 'mnt:[123]', 'boot_id': 'boot-123'}
+    def absent(db, actor, parent, child, row):
+        return {**retention.resource_request(row), 'status': 'absent', 'identity': None,
+                'namespace': 'mnt:[other]' if changed == 'namespace' else 'mnt:[123]',
+                'boot_id': 'another-boot' if changed == 'boot_id' else 'boot-123'}
+    monkeypatch.setattr(retention, 'probe_resource', absent)
+    verified = admin.post('/api/v1/functional/runs/' + run_id + '/resources/verify')
+    assert verified.status_code == 200, verified.text
+    assert bool(verified.json()['remaining_resources']) is bool(changed)
+
+
+@pytest.mark.parametrize('prior_state,result,want', [
+    ('pending', {}, 409), ('running', {}, 409), ('interrupted', {}, 409),
+    ('failed', {}, 409), ('failed', {'zero_start': True}, 202),
+])
+def test_distinct_requests_cannot_bypass_durable_exact_object_cleanup_guard(admin, app, ready, monkeypatch, prior_state, result, want):
+    from dingofs_platform.resources import execution
+    _, _, cluster, params = target(admin, app, ready, 'fs.delete')
+    live(monkeypatch)
+    monkeypatch.setattr(execution, 'run', lambda *args, **kwargs: None)
+    first = begin(admin, cluster, 'fs.delete', params)
+    assert first.status_code == 202, first.text
+    with app.state.session_factory.begin() as db:
+        previous = db.get(ResourceOperation, first.json()['id'])
+        previous.state, previous.result = prior_state, result
+    second = begin(admin, cluster, 'fs.delete', params)
+    assert second.status_code == want, second.text
+    if want == 409:
+        assert second.json()['code'] == 'operation_conflict'
+
+
+def clone_operation(db, previous, *, parameters=None, state='interrupted'):
+    from copy import deepcopy
+    retry = ResourceOperation(actor_id=previous.actor_id, session_id=previous.session_id,
+        cluster_id=previous.cluster_id, cluster_revision=previous.cluster_revision, action=previous.action,
+        request_id='distinct-operation', request_digest='distinct-operation',
+        parameters=deepcopy(previous.parameters) if parameters is None else parameters,
+        steps=deepcopy(previous.steps), state=state, lease_token='distinct-token', expires_at=previous.expires_at,
+        result={})
+    db.add(retry)
+    db.flush()
+    return retry
+
+
+def test_unknown_retry_descendant_blocks_new_exact_object_admission(admin, app, ready, monkeypatch):
+    from dingofs_platform.resources import execution
+    _, _, cluster, params = target(admin, app, ready, 'fs.delete')
+    live(monkeypatch)
+    monkeypatch.setattr(execution, 'run', lambda *args, **kwargs: None)
+    first = begin(admin, cluster, 'fs.delete', params)
+    assert first.status_code == 202, first.text
+    with app.state.session_factory.begin() as db:
+        previous = db.get(ResourceOperation, first.json()['id'])
+        previous.state, previous.result = 'failed', {'zero_start': True}
+        clone_operation(db, previous, parameters={'retry_operation_id': previous.id})
+    second = begin(admin, cluster, 'fs.delete', params)
+    assert second.status_code == 409 and second.json()['code'] == 'operation_conflict', second.text
+
+
+def test_dispatch_rechecks_other_unknown_exact_cleanup_without_releasing_any_owner(admin, app, ready, runner, monkeypatch):
+    from dingofs_platform.resources import execution
+    from dingofs_platform.operations.leases import acquire_leases, LeaseRequest
+    run_id, keys, cluster, params = target(admin, app, ready, 'fs.delete')
+    live(monkeypatch)
+    execute = execution.run
+    monkeypatch.setattr(execution, 'run', lambda *args, **kwargs: None)
+    first = begin(admin, cluster, 'fs.delete', params)
+    assert first.status_code == 202, first.text
+    with app.state.session_factory.begin() as db:
+        previous = db.get(ResourceOperation, first.json()['id'])
+        clone_operation(db, previous)
+        acquire_leases(db, 'resource:unrelated-owner', [LeaseRequest('machine:unrelated')])
+    execute(SimpleNamespace(app=app, state=SimpleNamespace()), first.json()['id'])
+    value = admin.get('/api/v1/resource-operations/' + first.json()['id']).json()
+    assert value['state'] == 'failed' and value['error_code'] == 'cleanup_not_verified', value
+    assert not runner
+    with app.state.session_factory() as db:
+        assert all(row.released_at is None for row in db.scalars(select(OperationLease)))
+
+
+def test_worker_prelocks_full_functional_owner_union_before_every_inventory_lock(admin, app, ready, runner, monkeypatch):
+    from dingofs_platform.resources import execution
+    from dingofs_platform.operations import leases
+    run_id, keys, cluster, params = target(admin, app, ready, 'fs.delete')
+    live(monkeypatch)
+    execute = execution.run
+    monkeypatch.setattr(execution, 'run', lambda *args, **kwargs: None)
+    first = begin(admin, cluster, 'fs.delete', params)
+    assert first.status_code == 202, first.text
+    full_keys = {*keys, 'machine:another-original-target'}
+    with app.state.session_factory.begin() as db:
+        leases.acquire_leases(db, 'functional:' + run_id, [leases.LeaseRequest('machine:another-original-target')])
+    lock_keys, inventory = leases.lock_keys, execution.lock_inventory
+    events = []
+    def keys_before_business(db, requests):
+        if full_keys <= {request.key for request in requests}:
+            db.info['full_owner_prelocked'] = True
+            events.append('full-owner')
+        return lock_keys(db, requests)
+    def inventory_after_union(db):
+        assert db.info.get('full_owner_prelocked'), 'inventory locked before full functional-owner lease union'
+        events.append('inventory')
+        return inventory(db)
+    monkeypatch.setattr(leases, 'lock_keys', keys_before_business)
+    monkeypatch.setattr(execution, 'lock_keys', keys_before_business)
+    monkeypatch.setattr(execution, 'lock_inventory', inventory_after_union)
+    execute(SimpleNamespace(app=app, state=SimpleNamespace()), first.json()['id'])
+    assert events.count('inventory') >= 3
+    assert runner and admin.get('/api/v1/resource-operations/' + first.json()['id']).json()['state'] == 'succeeded'
+
+
+def test_saved_mount_scope_is_rechecked_before_dispatch(admin, app, ready, runner, monkeypatch):
+    from dingofs_platform.resources import execution
+    from dingofs_platform.functional import retention
+    _, _, cluster, params = target(admin, app, ready, 'mount.unmount')
+    live(monkeypatch)
+    execute = execution.run
+    monkeypatch.setattr(execution, 'run', lambda *args, **kwargs: None)
+    first = begin(admin, cluster, 'mount.unmount', params)
+    assert first.status_code == 202, first.text
+    monkeypatch.setattr(retention, 'probe_resource', lambda db, actor, parent, child, row:
+        {**retention.resource_request(row), 'status': 'present', 'identity': row.remote_identity,
+         'namespace': 'mnt:[changed]', 'process_namespace': 'mnt:[changed]', 'boot_id': 'boot-123'})
+    execute(SimpleNamespace(app=app, state=SimpleNamespace()), first.json()['id'])
+    value = admin.get('/api/v1/resource-operations/' + first.json()['id']).json()
+    assert value['state'] == 'failed' and value['error_code'] == 'cleanup_not_verified'
+    assert not runner
+
+
+def test_concurrent_distinct_requests_dispatch_only_one_exact_cleanup(admin, app, ready, runner, monkeypatch):
+    from concurrent.futures import ThreadPoolExecutor
+    from threading import Event
+    _, _, cluster, params = target(admin, app, ready, 'fs.delete')
+    live(monkeypatch)
+    transport = app.state.resource_transport
+    started, finish = Event(), Event()
+    def held_transport(*args, **kwargs):
+        started.set()
+        assert finish.wait(timeout=10), 'bounded fake transport was not released'
+        return transport(*args, **kwargs)
+    app.state.resource_transport = held_transport
+    with ThreadPoolExecutor(max_workers=1) as pool:
+        first = pool.submit(begin, admin, cluster, 'fs.delete', params)
+        try:
+            assert started.wait(timeout=10), 'first cleanup did not reach fake transport'
+            second = begin(admin, cluster, 'fs.delete', params)
+            assert second.status_code == 409 and second.json()['code'] == 'operation_conflict', second.text
+        finally:
+            finish.set()
+        response = first.result(timeout=10)
+    assert response.status_code == 202 and len(runner) == 1, response.text
+
+
+@pytest.mark.parametrize('entrypoint', ['authenticate', 'cancel', 'get'])
+def test_cleanup_operation_entrypoints_lock_account_then_full_owner_before_inventory(admin, app, ready, monkeypatch, entrypoint):
+    from dingofs_platform.auth import users
+    from dingofs_platform.resources import execution, routes
+    from dingofs_platform.operations import leases
+    run_id, keys, cluster, params = target(admin, app, ready, 'fs.delete')
+    live(monkeypatch)
+    monkeypatch.setattr(execution, 'run', lambda *args, **kwargs: None)
+    first = begin(admin, cluster, 'fs.delete', params)
+    assert first.status_code == 202, first.text
+    full_keys = {*keys, 'machine:another-original-target'}
+    with app.state.session_factory.begin() as db:
+        leases.acquire_leases(db, 'functional:' + run_id, [leases.LeaseRequest('machine:another-original-target')])
+        if entrypoint == 'authenticate':
+            operation = db.get(ResourceOperation, first.json()['id'])
+            operation.state, operation.lease_token = 'needs_password', 'test-challenge' * 3
+            operation.challenge_digest = execution.digest('test-challenge' * 3)
+    accounts, lock_keys, inventory = users.lock_accounts, leases.lock_keys, execution.lock_inventory
+    events = []
+    def accounts_first(db):
+        db.info['cleanup_accounts_prelocked'] = True
+        return accounts(db)
+    def full_owner_next(db, requests):
+        if full_keys <= {request.key for request in requests}:
+            assert db.info.get('cleanup_accounts_prelocked'), 'owner union locked before account'
+            db.info['cleanup_full_owner_prelocked'] = True
+        return lock_keys(db, requests)
+    def inventory_last(db):
+        assert db.info.get('cleanup_full_owner_prelocked'), 'entrypoint inventory before full functional owner'
+        events.append('inventory')
+        return inventory(db)
+    monkeypatch.setattr(users, 'lock_accounts', accounts_first)
+    monkeypatch.setattr(leases, 'lock_keys', full_owner_next)
+    monkeypatch.setattr(execution, 'lock_inventory', inventory_last)
+    monkeypatch.setattr(routes, 'lock_inventory', inventory_last)
+    path = '/api/v1/resource-operations/' + first.json()['id']
+    if entrypoint == 'authenticate':
+        response = admin.post(path + '/authenticate', json={'challenge': 'test-challenge' * 3, 'password': 'sudo-test'})
+    elif entrypoint == 'cancel':
+        response = admin.post(path + '/cancel')
+    else:
+        response = admin.get(path)
+    assert response.status_code == 200 and events, response.text
+    with app.state.session_factory() as db:
+        assert all(row.released_at is None for row in db.scalars(select(OperationLease)))
 
 
 def test_reported_cleanup_runs_actual_probe_and_adapter_before_readonly_release(admin, app, ready, monkeypatch):
