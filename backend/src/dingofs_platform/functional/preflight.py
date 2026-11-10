@@ -7,6 +7,7 @@ the returned pinned binding immediately before queued launch.
 """
 from datetime import datetime, timedelta, timezone
 import hashlib
+import ipaddress
 import json
 from pathlib import Path, PurePosixPath
 import re
@@ -73,6 +74,8 @@ def parent_safe(value):
 checks['tools'] = all(shutil.which(tool) for tool in r['tools'])
 checks['binaries'] = all(pathlib.Path(p).is_file() and os.access(p, os.X_OK) for p in r['binaries'])
 checks['directories'] = all(parent_safe(p) for p in r['paths'])
+checks['directories'] = checks['directories'] and all(
+    pathlib.Path(p).is_dir() and parent_safe(p) for p in r.get('required_existing_paths', []))
 try:
     pathlib.Path('/proc/self/stat').read_text()
     pathlib.Path('/proc/self/mountinfo').read_text()
@@ -215,6 +218,7 @@ def resolve_submission(db, actor, payload: RunSpec) -> NormalizedSubmission:
     except (OSError, ValueError):
         raise Problem(422, 'source_unavailable', '可信用例源不可用') from None
     environments = {}
+    module_environments = {}
     grouped = {}
     for plan in payload.module_plans:
         grouped.setdefault(plan.environment_profile_id, {})[plan.module] = [
@@ -233,7 +237,16 @@ def resolve_submission(db, actor, payload: RunSpec) -> NormalizedSubmission:
         if base.digest != row.source_digest:
             raise Problem(409, 'environment_source_changed', '预置环境源已改变，请同步后重新预检')
         environments[profile_id] = {'id': profile_id, 'revision': row.revision, **descriptor.model_dump(mode='json')}
-    return normalize_submission(payload, catalog, environments)
+        # The runtime validates exactly one module's manifest. A shared source
+        # environment must not put sibling case/include hashes into that child.
+        for module, cases in modules.items():
+            try:
+                child_descriptor = inspect_source(root.parent, row.source_key, {module: cases})
+            except ValueError:
+                raise Problem(422, 'source_unavailable', '可信环境源不可用') from None
+            module_environments[module] = {'id': profile_id, 'revision': row.revision,
+                                          **child_descriptor.model_dump(mode='json')}
+    return normalize_submission(payload, catalog, environments, module_environments=module_environments)
 
 
 def _target(db, actor, host):
@@ -243,6 +256,10 @@ def _target(db, actor, host):
     if len(matches) != 1 or matches[0].maintenance:
         raise Problem(422, 'target_unresolved', '所有测试目标必须唯一绑定可用的已登记机器')
     require_manage(actor, matches[0])
+    try:
+        ipaddress.ip_address(matches[0].address)
+    except ValueError:
+        raise Problem(422, 'target_address_requires_ip', '引导执行需要固定 IP 地址，请更新登记机器地址后重新预检') from None
     return matches[0]
 
 
@@ -459,6 +476,9 @@ def _evaluate(db, actor, request, pinned=None, owner=None):
                     'ports': sorted({c['port'] for c in clients + caches}), 'cache': bool(caches), 'client': bool(clients),
                     'fs_query': fs_query, 'mount_roots': [c['mount_path'] for c in clients], 'mds': ','.join(snapshot['mds_addresses']),
                     'fixed_names': sorted({name for c in snapshot['modules'].values() for name in c['fixed_resources']})}
+            # Adapters create only unique children beneath these configured
+            # roots; they never mkdir missing ancestors on the user's behalf.
+            spec['required_existing_paths'] = list(spec['paths'])
             result = _transport(db, machine, user, ['python3', '-I', '-B', '-c', READ_ONLY_PROBE, json.dumps(spec)])
             if (not isinstance(result, dict) or result.get('user') != user or not isinstance(result.get('checks'), dict)
                     or set(result['checks']) != set(PROBE_CHECKS) or any(type(v) is not bool for v in result['checks'].values())

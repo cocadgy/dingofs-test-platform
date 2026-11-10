@@ -80,6 +80,8 @@ def ready(admin, app, tmp_path):
     app.state.settings.functional_guided_enabled = True
     with app.state.session_factory.begin() as db:
         db.get(Cluster, cluster['id']).status_snapshot = {'mds_addresses': ['node1.test:6900']}
+        target = db.get(Machine, control['id'])
+        target.address, target.aliases = '192.0.2.1', ['node1.test']
     assert admin.post('/api/v1/functional/environments/sync-predefined').status_code == 200
     profiles = admin.get('/api/v1/functional/environments').json()
     profile = next(p for p in profiles if p['source_key'] == 'env_ready')
@@ -187,8 +189,8 @@ def test_registration_address_change_invalidates_frozen_target(app, ready):
     result = invoke(app, ready)
     with app.state.session_factory.begin() as db:
         row = db.get(Machine, ready[3]['id'])
-        row.aliases = [row.address]
-        row.address = 'different.test'
+        row.aliases = ['node1.test', row.address]
+        row.address = '192.0.2.9'
     from dingofs_platform.errors import Problem
     with pytest.raises(Problem) as error:
         invoke(app, ready, token=result.token, confirmations=result.required_confirmations)
@@ -202,6 +204,8 @@ def test_expiry_and_confirmation_required_and_queue_rechecks(app, ready):
         invoke(app, ready, token=result.token)
     binding = invoke(app, ready, token=result.token, confirmations=result.required_confirmations)
     assert binding['runtime_binding']['approved_targets'] == [
+        {'host': '192.0.2.1', 'user': 'test', 'role': 'client', 'mutates': True},
+        {'host': '192.0.2.1', 'user': 'test', 'role': 'mds', 'mutates': True},
         {'host': 'node1.test', 'user': 'test', 'role': 'client', 'mutates': True},
         {'host': 'node1.test', 'user': 'test', 'role': 'mds', 'mutates': True}]
     with app.state.session_factory.begin() as db:
@@ -277,6 +281,55 @@ def test_read_only_probe_checks_real_parent_identity_and_missing_tools(tmp_path,
     answer = json.loads(capsys.readouterr().out)
     assert answer['checks']['identity']
     assert not answer['checks']['tools'] and not answer['checks']['directories']
+
+
+def test_configured_owned_base_must_exist_even_when_parent_is_writable(tmp_path, monkeypatch, capsys):
+    import os, pwd, sys
+    folder = tmp_path / 'not-created'
+    request = {'user': pwd.getpwuid(os.geteuid()).pw_name, 'tools': [], 'binaries': [],
+               'paths': [str(folder)], 'ports': [], 'cache': False, 'client': False,
+               'fs_query': [], 'mount_roots': [], 'mds': '', 'required_existing_paths': [str(folder)]}
+    monkeypatch.setattr(sys, 'argv', ['probe', json.dumps(request)])
+    exec(compile(api().READ_ONLY_PROBE, '<read-only probe>', 'exec'), {})
+    answer = json.loads(capsys.readouterr().out)
+    assert not answer['checks']['directories']
+    assert not folder.exists()
+
+
+def test_non_ip_route_is_refused_before_any_remote_probe(app, ready):
+    with app.state.session_factory.begin() as db:
+        row = db.get(Machine, ready[3]['id'])
+        row.address = 'node1.test'
+    result = invoke(app, ready)
+    assert not result.can_start
+    assert {'code': 'target_address_requires_ip', 'ok': False} in result.checks
+    assert ready[2].calls == []
+
+
+def test_owned_child_cleanup_preserves_frozen_base_fingerprint(tmp_path, monkeypatch, capsys):
+    import os, pwd, sys
+    from pathlib import Path
+    directory_module = Path(os.environ['FUNCTIONAL_CONTRACTS_TEST_ROOT']) / 'src/test_runner/owned_directory.py'
+    spec = importlib.util.spec_from_file_location('isolated_owned_directory', directory_module)
+    owned = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(owned)
+    folder = tmp_path / 'configured-root'
+    folder.mkdir()
+    request = {'user': pwd.getpwuid(os.geteuid()).pw_name, 'tools': [], 'binaries': [],
+               'paths': [str(folder)], 'required_existing_paths': [str(folder)], 'ports': [],
+               'cache': False, 'client': False, 'fs_query': [], 'mount_roots': [], 'mds': ''}
+    monkeypatch.setattr(sys, 'argv', ['probe', json.dumps(request)])
+    def probe():
+        exec(compile(api().READ_ONLY_PROBE, '<read-only probe>', 'exec'), {})
+        return json.loads(capsys.readouterr().out)
+    before = probe()
+    child = folder / 'owned-child'
+    owned.create_directory(str(child))
+    identity = child.stat()
+    owned.cleanup_directory(str(child), f'{identity.st_dev}:{identity.st_ino}')
+    after = probe()
+    assert before['checks']['directories'] and after['checks']['directories']
+    assert before['fingerprint'] == after['fingerprint']
 
 
 def test_source_password_must_match_the_authentication_actually_probed(app, ready):
@@ -451,6 +504,8 @@ def test_partitioned_tool_inventory_matches_actual_command_and_mount_hosts(admin
     with app.state.session_factory.begin() as db:
         db.get(Machine, other['id']).ssh_password_ciphertext = encrypt_password(
             'test-secret', app.state.settings.credential_encryption_key)
+        target = db.get(Machine, other['id'])
+        target.address, target.aliases = '192.0.2.2', ['other.test']
     path = ready[1] / 'conf/env/base.yaml'
     content = path.read_text().replace('host: node1.test', 'host: other.test')
     content = content.replace('client_bin_path: /opt/dingo-client',

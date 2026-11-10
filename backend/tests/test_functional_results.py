@@ -83,6 +83,31 @@ def test_success_requires_exact_final_cases_and_verified_remote_end():
     assert result.missing == [] and result.not_run == []
 
 
+@pytest.mark.parametrize('phase', ['intent', 'retained', 'unknown'])
+def test_uncertain_preexisting_resource_blocks_success_and_continuation(phase):
+    resource = dict(id='borrowed', kind='cache', cluster='cluster', host='host', user='test',
+                    name='member', path=None, port=1234, owned=False, phase=phase,
+                    remote_identity={'member_id': 'member'})
+    events = [event(1, 'resource_changed', data={'resource': resource}), *passing_events()]
+    for index, row in enumerate(events, 1): row['seq'] = index
+    events[-1]['data']['retained_resources'] = [resource]
+    result = evaluate(events=events)
+    assert result.child_state == 'needs_attention'
+    assert result.may_continue is False
+    assert result.retained_resources == [resource]
+
+
+def test_verified_active_preexisting_resource_may_remain_in_place():
+    resource = dict(id='borrowed', kind='cache', cluster='cluster', host='host', user='test',
+                    name='member', path=None, port=1234, owned=False, phase='active',
+                    remote_identity={'member_id': 'member'})
+    events = [event(1, 'resource_changed', data={'resource': resource}), *passing_events()]
+    for index, row in enumerate(events, 1): row['seq'] = index
+    result = evaluate(events=events)
+    assert result.child_state == 'success' and result.may_continue
+    assert result.retained_resources == []
+
+
 def test_failed_then_passed_attempt_counts_one_final_case():
     events = [event(1, 'attempt_finished', case_path='a.yaml', attempt=1,
                     data={'status': 'FAIL'}),

@@ -5,7 +5,7 @@ import logging
 import json
 import shlex
 import threading
-from sqlalchemy import select
+from sqlalchemy import select,or_
 from dingofs_platform.inventory.models import Machine
 from dingofs_platform.storage.service import resolve as resolve_storage
 from .environments.render import render_environment
@@ -42,13 +42,21 @@ class FunctionalManager:
             try:
                 self.running={id:f for id,f in self.running.items() if not f.done()}
                 with self.app.state.session_factory() as db:
-                    ids=list(db.scalars(select(FunctionalRun.id).where(FunctionalRun.version==1,FunctionalRun.state.in_(ACTIVE)).order_by(FunctionalRun.updated_at)))
+                    query=select(FunctionalRun.id).where(FunctionalRun.state.in_(ACTIVE))
+                    if not self.app.state.settings.functional_guided_enabled:
+                        query=query.where(or_(FunctionalRun.version==1,FunctionalRun.state!='queued'))
+                    ids=list(db.scalars(query.order_by(FunctionalRun.updated_at)))
                 for id in ids:
                     if len(self.running)>=4:break
                     if id not in self.running:self.running[id]=self.pool.submit(self.process,id)
             except Exception:logging.getLogger(__name__).exception('functional monitor failed')
             self.stop_event.wait(2)
     def process(self,id):
+        with self.app.state.session_factory() as db:
+            row=db.get(FunctionalRun,id)
+            if row and row.version==2:
+                if self.app.state.settings.functional_guided_enabled or row.state!='queued':self.process_guided(id)
+                return
         factory=self.app.state.session_factory;password='';secrets=[];remote_attempted=False
         requests=[];owner='functional:'+id
         try:
@@ -156,3 +164,28 @@ class FunctionalManager:
                     if not remote_attempted:
                         row.finished_at=now()
                         release_verified(db,owner,completion_evidence(owner,requests))
+
+    def process_guided(self, id):
+        from .scheduler import advance_parent, record_observation
+        factory=self.app.state.session_factory
+        with factory.begin() as db:
+            db.info['functional_settings']=self.app.state.settings
+            db.info['functional_preflight_transport']=getattr(self.app.state,'functional_preflight_transport',None)
+            decision=advance_parent(db,id)
+        if decision.action not in ('launch','poll'):return
+        try:
+            with factory() as db:
+                row=db.get(FunctionalRun,id)
+                machine=db.get(Machine,row.machine_id)
+                connection=row.snapshot['runtime_binding']['control_connection']
+                if not machine or [machine.address,machine.ssh_port,machine.ssh_user]!=connection:
+                    raise ValueError('control connection changed')
+                password=decrypt_password(machine.ssh_password_ciphertext,self.app.state.settings.credential_encryption_key)
+                config=SSHConfig(*connection,password)
+            transport=getattr(self.app.state,'functional_transport',Transport)(config)
+            if decision.action=='launch':transport.start_child(decision.payload)
+            observation=transport.poll_child(decision.payload,decision.cursor,decision.cancel)
+        except Exception:
+            observation={'transport_error':True,'cursor_before':decision.cursor}
+        with factory.begin() as db:
+            record_observation(db,id,decision.child_id,observation)

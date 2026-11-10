@@ -5,6 +5,21 @@ import time
 from dingofs_platform.tool_packages.ssh_session import Remote
 
 RUNNER=Path(__file__).with_name('remote_runner.py')
+READER=Path(__file__).with_name('event_reader.py')
+
+
+def child_bootstrap_code(payload):
+    return ('REQUEST='+repr(payload)+'\nSOURCE='+repr(RUNNER.read_text())+
+            '\nEVENT_SOURCE='+repr(READER.read_text())+
+            "\nnamespace={'__name__':'functional_supervisor'}\nexec(compile(SOURCE,'<supervisor>','exec'),namespace)\n"
+            "print(namespace['json'].dumps(namespace['bootstrap_child'](REQUEST,SOURCE,EVENT_SOURCE)))\n")
+
+
+def child_snapshot_code(payload,cursor,cancel=False):
+    return ('REQUEST='+repr(payload)+'\nCURSOR='+repr(cursor)+'\nCANCEL='+repr(cancel)+
+            '\nSOURCE='+repr(RUNNER.read_text())+
+            "\nnamespace={'__name__':'functional_supervisor'}\nexec(compile(SOURCE,'<supervisor>','exec'),namespace)\n"
+            "print(namespace['json'].dumps(namespace['snapshot_child'](REQUEST,CURSOR,CANCEL)))\n")
 
 def bootstrap_code(payload):
     return 'REQUEST='+repr(payload)+'\nSOURCE='+repr(RUNNER.read_text())+'''\nimport json,os,subprocess,sys
@@ -65,3 +80,5 @@ class Transport:
         finally:remote.close()
     def start(self,payload,env_yaml=None,redactions=None):return self.call(bootstrap_code(payload),{'env_yaml':env_yaml,'redactions':redactions or []})
     def poll(self,id,cancel=False):return self.call(snapshot_code(id,cancel))
+    def start_child(self,payload):return self.call(child_bootstrap_code(payload))
+    def poll_child(self,payload,cursor,cancel=False):return self.call(child_snapshot_code(payload,cursor,cancel))

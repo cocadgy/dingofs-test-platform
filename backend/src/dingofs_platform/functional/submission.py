@@ -7,6 +7,8 @@ The caller owns the surrounding transaction and preflight validation.
 from copy import deepcopy
 import hashlib
 import json
+from dataclasses import asdict
+from uuid import uuid4
 
 from pydantic import Field
 from sqlalchemy import select
@@ -24,6 +26,7 @@ from .contracts import EnvironmentDescriptor
 from .drafts import Draft
 from .models import FunctionalRun, FunctionalModuleRun
 from .schemas import ModuleSelection, RunInput, RunInputV2, RunSpec
+from .results import evaluate_child
 
 
 class NormalizedSubmission(RunSpec):
@@ -43,7 +46,8 @@ def _digest(canonical: dict) -> str:
 
 
 def normalize_submission(payload: RunInput | RunSpec | RunInputV2, catalog: dict,
-                         environments: dict[str, dict]) -> NormalizedSubmission:
+                         environments: dict[str, dict], *,
+                         module_environments: dict[str, dict] | None = None) -> NormalizedSubmission:
     if payload.catalog_digest != catalog['digest']:
         raise Problem(409, 'catalog_changed', '用例目录已改变，请重新预检')
     if isinstance(payload, RunInput):
@@ -69,7 +73,8 @@ def normalize_submission(payload: RunInput | RunSpec | RunInputV2, catalog: dict
         spec = RunSpec(**payload.model_dump(include=set(RunSpec.model_fields)))
     snapshots, hashes = {}, {}
     for plan in spec.module_plans:
-        source = environments.get(plan.environment_profile_id)
+        source = (module_environments.get(plan.module) if module_environments is not None
+                  else environments.get(plan.environment_profile_id))
         if not source:
             raise Problem(404, 'environment_missing', '环境不存在')
         if source.get('revision') != plan.environment_profile_revision:
@@ -90,7 +95,8 @@ def normalize_submission(payload: RunInput | RunSpec | RunInputV2, catalog: dict
     return NormalizedSubmission(**deepcopy(canonical), request_digest=digest, **controls)
 
 
-def create_run(db: Session, actor: User, request: NormalizedSubmission) -> FunctionalRun:
+def create_run(db: Session, actor: User, request: NormalizedSubmission, *,
+               runtime_binding: dict | None = None) -> FunctionalRun:
     canonical = request.model_dump(mode='json', include={
         *RunSpec.model_fields, 'environment_snapshots', 'case_hashes'})
     if _digest(canonical) != request.request_digest:
@@ -136,6 +142,8 @@ def create_run(db: Session, actor: User, request: NormalizedSubmission) -> Funct
                     raise Problem(409, 'revision_conflict', '草稿已提交或版本发生变化')
             snapshot = request.model_dump(mode='json', exclude={
                 'preflight_token', 'idempotency_key', 'confirmed_impacts', 'draft_id', 'draft_revision'})
+            if runtime_binding is not None:
+                snapshot['runtime_binding'] = deepcopy(runtime_binding)
             row = FunctionalRun(version=2, creator_id=actor.id, cluster_id=cluster.id,
                                 machine_id=machine.id, name=request.name, state='queued',
                                 snapshot=deepcopy(snapshot), deadline=None,
@@ -143,10 +151,13 @@ def create_run(db: Session, actor: User, request: NormalizedSubmission) -> Funct
             db.add(row)
             db.flush()
             for position, plan in enumerate(request.module_plans):
-                db.add(FunctionalModuleRun(run_id=row.id, module=plan.module, position=position,
+                child_id = str(uuid4())
+                pending = evaluate_child({'parent_id': row.id, 'child_id': child_id,
+                                          'module': plan.module, 'cases': list(plan.cases)}, [], {})
+                db.add(FunctionalModuleRun(id=child_id, run_id=row.id, module=plan.module, position=position,
                     environment_snapshot=deepcopy(request.environment_snapshots[plan.module]),
                     cases=list(plan.cases), case_hashes=deepcopy(request.case_hashes[plan.module]),
-                    retries=request.retries, timeout_minutes=request.timeout_minutes))
+                    retries=request.retries, timeout_minutes=request.timeout_minutes, result=asdict(pending)))
             if draft:
                 draft.state = 'submitted'; draft.run_id = row.id; draft.revision += 1
             audit(db, actor, 'functional.create', 'functional/' + row.id, [])

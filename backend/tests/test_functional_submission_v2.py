@@ -217,12 +217,14 @@ def test_submission_permission_is_enforced(app, ready):
     assert denied.value.status == 403
 
 
-def test_v2_endpoint_is_closed_and_csrf_protected(admin, app, ready):
+def test_v2_endpoint_is_default_closed_and_requires_real_source_and_csrf(admin, app, ready):
     api()
     response = admin.post('/api/v1/functional/runs', json=ready[0])
     assert response.status_code == 503
     app.state.settings.functional_guided_enabled = True
-    assert admin.post('/api/v1/functional/runs', json=ready[0]).status_code == 503
+    rejected = admin.post('/api/v1/functional/runs', json=ready[0])
+    assert rejected.status_code == 422
+    assert rejected.json()['code'] in ('source_unavailable', 'environment_unavailable')
     admin.headers.pop('X-CSRF-Token')
     assert admin.post('/api/v1/functional/runs', json=ready[0]).status_code == 403
     assert admin.get('/api/v1/functional/runs').json() == []

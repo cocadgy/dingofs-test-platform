@@ -271,7 +271,8 @@ def evaluate_child(snapshot: dict, events: list[dict], remote_state: dict) -> Ch
                                  resource, summary=True)
                 resources[resource['id']] = resource
     retained_resources = [item for item in resources.values()
-                          if item.get('owned') is True and item.get('phase') != 'removed']
+                          if (item.get('owned') is True and item.get('phase') != 'removed')
+                          or item.get('phase') in ('intent', 'retained', 'unknown')]
     ended = _end_proof(snapshot, remote_state)
     report_status, report_path = _report(snapshot, remote_state, ended, report_event)
     cancelled = (cancelled_event or suite_status == 'cancelled'

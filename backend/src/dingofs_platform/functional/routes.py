@@ -7,8 +7,9 @@ import re
 from pathlib import PurePosixPath
 import time
 from fastapi import APIRouter,Depends,Request
-from fastapi.responses import Response
+from fastapi.responses import Response,JSONResponse
 from sqlalchemy import select
+from sqlalchemy.orm import object_session
 from dingofs_platform.auth.dependencies import current_user
 from dingofs_platform.auth.users import actor_in_transaction
 from dingofs_platform.db import get_db
@@ -25,7 +26,7 @@ from dingofs_platform.inventory.credentials import decrypt_password
 from dingofs_platform.inventory.ssh_transport import SSHConfig
 from .catalog import catalogue,validate_selection
 from .manager import now
-from .models import FunctionalRun,ACTIVE
+from .models import FunctionalRun,FunctionalModuleRun,FunctionalEvent,FunctionalPreflight,ACTIVE
 from .schemas import RunInput, RunInputV2, RunSpec
 from . import submission  # noqa: F401 register guided persistence metadata
 from .report_redaction import redact_report
@@ -51,10 +52,28 @@ def guided_preflight(payload: RunSpec, request: Request, user=Depends(current_us
 def catalog_path(request):
     return request.app.state.settings.functional_source_root
 
-def view(row,detail=False):
+def view(row,detail=False,actor=None):
     value={key:getattr(row,key) for key in ('id','name','cluster_id','machine_id','creator_id','state','phase','progress','created_at','finished_at','error','cancel_requested')}
     value['snapshot']=row.snapshot
     if detail:value.update(log=row.log,result=row.result)
+    if row.version==2:
+        value['version']=2
+        value['can_manage']=bool(actor and can_manage(actor,row))
+        db=object_session(row)
+        routes=row.snapshot.get('runtime_binding',{}).get('resolved_targets',[])
+        value['children']=[]
+        for child in db.scalars(select(FunctionalModuleRun).where(FunctionalModuleRun.run_id==row.id)
+                               .order_by(FunctionalModuleRun.position)):
+            target_ids={(target['host'],target['user']) for target in child.environment_snapshot['targets']}
+            targets=[route for route in routes if (route['source_host'],route['user']) in target_ids]
+            item={key:getattr(child,key) for key in ('id','module','position','state','cases','started_at',
+                'deadline','finished_at','cancel_requested','error','result','environment_snapshot')}
+            item.update(env_name=child.environment_snapshot['env_name'],stage=child.result.get('stage','waiting'),
+                execution_targets=[{'machine_id':route['machine_id'],'name':route['machine_name'],
+                                    'ip':route['address'],'user':route['user']} for route in targets],
+                events=list(db.scalars(select(FunctionalEvent.record).where(FunctionalEvent.child_id==child.id)
+                                       .order_by(FunctionalEvent.seq))))
+            value['children'].append(item)
     return value
 
 def cluster_and_machine(db,actor,id,machine_id=None):
@@ -220,8 +239,23 @@ def create(payload:RunInput|RunInputV2,request:Request,user=Depends(current_user
     if isinstance(payload,RunInputV2):
         if not request.app.state.settings.functional_guided_enabled:
             raise Problem(503,'guided_runs_disabled','引导功能测试尚未启用')
-        # Task 10 replaces this guard after preflight and scheduler are connected.
-        raise Problem(503,'guided_runs_unavailable','引导预检和调度尚未就绪')
+        from .preflight import resolve_submission,validate_preflight
+        with get_db(request) as db,db.begin():
+            db.info['functional_settings']=request.app.state.settings
+            db.info['functional_preflight_transport']=getattr(request.app.state,'functional_preflight_transport',None)
+            actor=actor_in_transaction(db,request)
+            existing=db.scalar(select(FunctionalRun).where(FunctionalRun.creator_id==actor.id,
+                                FunctionalRun.idempotency_key==payload.idempotency_key))
+            if existing:
+                require_manage(actor,existing)
+                if any(existing.snapshot.get(k)!=v for k,v in payload.model_dump(mode='json',include=set(RunSpec.model_fields)).items()):
+                    raise Problem(409,'idempotency_conflict','幂等键已经用于不同的请求')
+                return view(existing,True,actor)
+            normalized=resolve_submission(db,actor,payload)
+            trusted=validate_preflight(db,actor,normalized,payload.preflight_token,payload.confirmed_impacts)
+            row=submission.create_run(db,actor,normalized,runtime_binding=trusted['runtime_binding'])
+            db.get(FunctionalPreflight,trusted['preflight_id']).consumed_by=row.id
+            return view(row,True,actor)
     data=catalogue(catalog_path(request))
     if data['digest']!=payload.catalog_digest:raise Problem(409,'catalog_changed','用例目录已更新，请刷新后重新选择')
     try:cases=validate_selection(data,payload.selected)
@@ -229,12 +263,40 @@ def create(payload:RunInput|RunInputV2,request:Request,user=Depends(current_user
     hashes={module:{row['path']:row['sha256'] for row in data['modules'][module] if row['path'] in paths} for module,paths in cases.items()}
     with get_db(request) as db,db.begin():
         db.info['functional_source_root']=catalog_path(request)
-        return enqueue(db,actor_in_transaction(db,request),payload,cases,data['digest'],hashes)
+        actor=actor_in_transaction(db,request)
+        profile=db.get(FunctionalEnvironmentProfile,payload.environment_profile_id) if payload.environment_profile_id else None
+        if request.app.state.settings.functional_guided_enabled and not payload.wizard and (not profile or profile.source_kind=='predefined'):
+            from .preflight import resolve_submission,preflight
+            from .schemas import ModuleSelection
+            if payload.binaries:
+                raise Problem(422,'guided_submission_required','现有环境必须通过引导预检；不支持二进制覆盖')
+            if not profile:
+                matches=list(db.scalars(select(FunctionalEnvironmentProfile).where(
+                    FunctionalEnvironmentProfile.source_kind=='predefined',
+                    FunctionalEnvironmentProfile.source_key==payload.env_name,
+                    FunctionalEnvironmentProfile.deleted==False)))
+                if len(matches)!=1:
+                    raise Problem(422,'guided_submission_required','请先同步预置环境，然后通过引导预检提交')
+                profile=matches[0]
+            spec=RunSpec(name=payload.name,cluster_id=payload.cluster_id,catalog_digest=payload.catalog_digest,
+                retries=payload.retries,timeout_minutes=payload.timeout_minutes,
+                module_plans=[ModuleSelection(module=module,cases=paths,environment_profile_id=profile.id,
+                    environment_profile_revision=payload.environment_profile_revision or profile.revision)
+                    for module,paths in cases.items()])
+            db.info['functional_settings']=request.app.state.settings
+            db.info['functional_preflight_transport']=getattr(request.app.state,'functional_preflight_transport',None)
+            checked=preflight(db,actor,resolve_submission(db,actor,spec))
+            # Commit the real token, but never infer confirmation from an old
+            # payload that cannot express confirmations or an idempotency key.
+            return JSONResponse(status_code=409,content={'code':'guided_submission_required',
+                'message':'请升级为 version=2 提交，提供幂等键并确认预检影响。',
+                'details':{'submission':spec.model_dump(mode='json'),'preflight':checked.model_dump(mode='json')}})
+        return enqueue(db,actor,payload,cases,data['digest'],hashes)
 
 @router.get('/runs')
 def listing(request:Request,user=Depends(current_user)):
     with get_db(request) as db:
-        return [view(row) for row in db.scalars(select(FunctionalRun).order_by(FunctionalRun.created_at.desc()).limit(200)) if can_manage(user,row)]
+        return [view(row,actor=user) for row in db.scalars(select(FunctionalRun).order_by(FunctionalRun.created_at.desc()).limit(200)) if can_manage(user,row)]
 
 @router.get('/runs/{id}')
 def detail(id:str,request:Request,user=Depends(current_user)):
@@ -242,7 +304,7 @@ def detail(id:str,request:Request,user=Depends(current_user)):
         row=db.get(FunctionalRun,id)
         if not row:raise Problem(404,'not_found','任务不存在')
         require_manage(user,row)
-        return view(row,True)
+        return view(row,True,user)
 
 @router.post('/runs/{id}/stop')
 def stop(id:str,request:Request,user=Depends(current_user)):
@@ -252,7 +314,7 @@ def stop(id:str,request:Request,user=Depends(current_user)):
         require_manage(actor_in_transaction(db,request),row)
         if row.state not in ACTIVE:raise Problem(409,'not_running','任务已经结束')
         row.cancel_requested=True;row.phase='正在停止：等待当前用例结束'
-        return view(row,True)
+        return view(row,True,user)
 
 @router.post('/runs/{id}/rerun',status_code=202)
 def rerun(id:str,request:Request,failed_only:bool=False,user=Depends(current_user)):
@@ -260,6 +322,8 @@ def rerun(id:str,request:Request,failed_only:bool=False,user=Depends(current_use
         actor=actor_in_transaction(db,request);original=db.get(FunctionalRun,id)
         if not original:raise Problem(404,'not_found','原任务不存在')
         require_manage(actor,original)
+        if original.version==2:
+            raise Problem(409,'guided_rerun_required','引导重跑需要新的预检和幂等提交，请在引导页重新选择用例')
         if original.state in ACTIVE:raise Problem(409,'busy','任务尚未结束')
         old=original.snapshot;cases=old['selected']
         if failed_only:
@@ -283,6 +347,9 @@ def report(id:str,path:str,request:Request,user=Depends(current_user)):
     with get_db(request) as db:
         row=db.get(FunctionalRun,id)
         if not row:raise Problem(404,'not_found','任务不存在')
+        if row.version==2:
+            require_manage(user,row)
+            raise Problem(409,'child_report_required','请使用对应模块的已验证报告入口')
         require_manage(user,row)
         machine=db.get(Machine,row.machine_id)
         password=decrypt_password(machine.ssh_password_ciphertext,request.app.state.settings.credential_encryption_key)
