@@ -267,6 +267,7 @@ def create(payload:RunInput|RunInputV2,request:Request,user=Depends(current_user
         actor=actor_in_transaction(db,request)
         profile=db.get(FunctionalEnvironmentProfile,payload.environment_profile_id) if payload.environment_profile_id else None
         if request.app.state.settings.functional_guided_enabled and not payload.wizard and (not profile or profile.source_kind=='predefined'):
+            request.app.state.require_guided_readiness()
             from .preflight import resolve_submission,preflight
             from .schemas import ModuleSelection
             if payload.binaries:

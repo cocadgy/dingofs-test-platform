@@ -79,6 +79,56 @@ def test_v2_rerun_cannot_bypass_enabled_migration_gate(admin, app, ready):
     assert admin.post('/api/v1/functional/runs/missing-legacy/rerun').status_code == 404
 
 
+@pytest.mark.parametrize('by_profile', [False, True])
+def test_legacy_predefined_cannot_probe_or_persist_before_migration_ready(admin, app, ready, by_profile):
+    from sqlalchemy import func, select
+    from dingofs_platform.functional.models import FunctionalPreflight
+    spec = ready[0]
+    payload = dict(name='legacy-readiness', cluster_id=spec.cluster_id,
+                   selected={'quota': ['case.yaml']}, catalog_digest=spec.catalog_digest)
+    payload.update({'environment_profile_id': ready[4]['id'],
+                    'environment_profile_revision': ready[4]['revision']}
+                   if by_profile else {'env_name': 'env_ready'})
+    with app.state.engine.begin() as connection:
+        connection.execute(text("UPDATE alembic_version SET version_num = '2f6d6db8c141'"))
+    response = admin.post('/api/v1/functional/runs', json=payload)
+    with app.state.session_factory() as db:
+        token_count = db.scalar(select(func.count()).select_from(FunctionalPreflight))
+    assert (response.status_code, len(ready[2].calls), token_count) == (503, 0, 0), response.text
+    assert response.json()['code'] == 'guided_runtime_unavailable'
+
+
+@pytest.mark.parametrize('enabled', [False, True])
+@pytest.mark.parametrize('kind', ['custom', 'wizard'])
+def test_legacy_custom_and_wizard_ignore_guided_migration_gate(admin, app, ready, enabled, kind):
+    spec = ready[0]
+    storage = admin.post('/api/v1/storage-profiles', json={
+        'name': 'legacy-storage', 'storage_type': 's3', 'enabled': True,
+        'parameters': {'s3_ak': 'fixture', 's3_sk': 'fixture',
+                       's3_endpoint': 'http://store', 's3_bucketname': 'bucket'}})
+    assert storage.status_code == 201, storage.text
+    configuration = {'machine_id': ready[3]['id'], 'storage_profile_id': storage.json()['id'],
+                     'settings': {'mount_root': '/tmp/legacy', 'fs_prefix': 'legacy'}}
+    payload = dict(name='legacy', cluster_id=spec.cluster_id,
+                   selected={'quota': ['case.yaml']}, catalog_digest=spec.catalog_digest)
+    if kind == 'custom':
+        profile = admin.post('/api/v1/functional/environments', json={
+            **configuration, 'name': 'legacy-custom', 'cluster_id': spec.cluster_id, 'enabled': True})
+        assert profile.status_code == 201, profile.text
+        payload.update(environment_profile_id=profile.json()['id'],
+                       environment_profile_revision=profile.json()['revision'])
+    else:
+        payload['wizard'] = configuration
+    app.state.settings.functional_guided_enabled = enabled
+    with app.state.engine.begin() as connection:
+        connection.execute(text("UPDATE alembic_version SET version_num = '2f6d6db8c141'"))
+    response = admin.post('/api/v1/functional/runs', json=payload)
+    assert response.status_code == 202, response.text
+    assert response.json()['snapshot']['environment_profile_snapshot']['kind'] == 'custom'
+    assert ready[2].calls == []
+    assert admin.get('/api/v1/functional/runs/' + response.json()['id']).status_code == 200
+
+
 def test_functional_worker_runs_with_creation_disabled_and_performance_disabled(app, monkeypatch):
     settings = app.state.settings.model_copy(update={'functional_worker_enabled': True})
     instance = create_app(settings)

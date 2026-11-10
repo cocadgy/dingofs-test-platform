@@ -119,6 +119,15 @@ def create_app(settings=None):
             inspect_source(root, '__platform_readiness__', {})
             source_check.update(key=key, expires=monotonic() + 30)
 
+    def require_guided_readiness():
+        try:
+            check_guided_readiness()
+        except (SQLAlchemyError, OSError, ValueError) as exc:
+            raise Problem(503, 'guided_runtime_unavailable',
+                          '引导功能测试迁移或源契约不可用') from exc
+
+    app.state.require_guided_readiness = require_guided_readiness
+
     @app.middleware("http")
     async def request_identity(request, call_next):
         request.state.request_id = str(uuid4())
@@ -142,15 +151,10 @@ def create_app(settings=None):
                 # Preserve authentication/CSRF precedence over capability checks.
                 from .auth.dependencies import current_user
                 await run_in_threadpool(current_user, request)
-                await run_in_threadpool(check_guided_readiness)
+                await run_in_threadpool(require_guided_readiness)
             except Problem as exc:
                 return JSONResponse(status_code=exc.status, content={
                     'code': exc.code, 'message': exc.message, 'details': exc.details},
-                    headers={'X-Request-ID': request.state.request_id})
-            except (SQLAlchemyError, OSError, ValueError):
-                return JSONResponse(status_code=503, content={
-                    'code': 'guided_runtime_unavailable',
-                    'message': '引导功能测试迁移或源契约不可用', 'details': {}},
                     headers={'X-Request-ID': request.state.request_id})
         response = await call_next(request)
         response.headers["X-Request-ID"] = request.state.request_id
