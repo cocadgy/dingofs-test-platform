@@ -42,6 +42,7 @@ export function FunctionalPage() {
   const profile = profiles.find((p) => p.id === environment);
   const count = Object.values(selected).reduce((n, rows) => n + rows.length, 0);
   function navigate(next: string) {
+    rerunIntent.current = null;
     setDetail(undefined);
     setError("");
     window.location.hash =
@@ -51,6 +52,7 @@ export function FunctionalPage() {
   }
   useEffect(() => {
     const sync = () => {
+      if (rerunIntent.current && route() !== rerunIntent.current.runId) rerunIntent.current = null;
       setPage(route());
       setDraftId(window.location.hash.split("/")[3]||"");
       setError("");

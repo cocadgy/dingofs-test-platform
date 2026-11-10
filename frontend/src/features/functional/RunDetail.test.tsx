@@ -102,6 +102,19 @@ test("test_legacy_run_without_children_still_renders", () => {
   expect(screen.getByRole("button", { name: "重跑全部" })).toBeDisabled();
 });
 
+test("active legacy run keeps its stop action", () => {
+  const onStop = vi.fn();
+  render(<RunDetail run={{ id: "legacy-running", name: "旧任务", state: "running",
+    phase: "执行中", progress: 25, error: "", created_at: "2026-11-10T08:00:00Z",
+    snapshot: { selected: { quota: ["a.yaml"] } },
+  }} busy={false} onStop={onStop} onRerun={vi.fn()} />);
+  const stop = screen.getByRole("button", { name: /停止测试/ });
+  expect(stop).toBeEnabled();
+  fireEvent.click(stop);
+  expect(onStop).toHaveBeenCalledOnce();
+  expect(screen.queryByText("历史任务只读")).not.toBeInTheDocument();
+});
+
 test("cancelling and unknown children never say stopped or offer rerun", () => {
   show(v2({ state: "cancelling", finished_at: undefined, children: [child({
     state: "cancelling", result: result({ child_state: "cancelling", end_proof: false }),
@@ -197,6 +210,34 @@ test("V2 rerun confirms frozen module and machine scope and keeps one key for a 
   expect(confirm.mock.calls[0][0]).toContain("基础文件操作");
   expect(confirm.mock.calls[0][0]).toContain("机器旧名");
   expect(confirm.mock.calls[0][0]).toContain("10.0.0.7");
+  confirm.mockRestore();
+});
+
+test("successful V2 rerun then returning creates a new idempotency key", async () => {
+  window.location.hash = "#/functional/parent-one";
+  const confirm = vi.spyOn(window, "confirm").mockReturnValue(true);
+  vi.mocked(api).mockReset();
+  let reruns = 0;
+  vi.mocked(api).mockImplementation(async (path, method) => {
+    if (path === "/functional/options") return { clusters: [], modules: {}, digest: "x" };
+    if (path === "/functional/environments") return [];
+    if (path === "/functional/runs/parent-one") return v2();
+    if (path === "/functional/runs/next") return v2({ id: "next" });
+    if (method === "POST" && String(path).includes("/rerun")) return { id: ++reruns === 1 ? "next" : "next-two" };
+    return [];
+  });
+  render(<FunctionalPage />);
+  fireEvent.click(await screen.findByRole("button", { name: "重跑全部" }));
+  await waitFor(() => expect(window.location.hash).toBe("#/functional/next"));
+  window.location.hash = "#/functional/parent-one";
+  fireEvent(window, new HashChangeEvent("hashchange"));
+  fireEvent.click(await screen.findByRole("button", { name: "重跑全部" }));
+  await waitFor(() => expect(reruns).toBe(2));
+  const keys = vi.mocked(api).mock.calls
+    .filter(([path, method]) => method === "POST" && String(path).includes("/rerun"))
+    .map(([, , body]) => (body as { idempotency_key: string }).idempotency_key);
+  expect(keys).toHaveLength(2);
+  expect(keys[0]).not.toBe(keys[1]);
   confirm.mockRestore();
 });
 

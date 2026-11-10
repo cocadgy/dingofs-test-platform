@@ -132,9 +132,9 @@ export function RunDetail({
           </p>
         )}
         <div className="functional-actions">
-          {active(run.state) ? (
+          {["queued", "running", "cancelling", "unknown"].includes(run.state) ? (
             <button
-              disabled
+              disabled={busy || run.state === "cancelling"}
               onClick={onStop}
             >
               停止测试（当前用例结束后生效）
@@ -161,7 +161,7 @@ export function RunDetail({
               )}
             </>
           )}
-          <span className="functional-muted">历史任务只读</span>
+          {!active(run.state) && <span className="functional-muted">历史任务只读</span>}
         </div>
       </section>
       <section className="functional-card">
