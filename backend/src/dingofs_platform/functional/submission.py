@@ -19,6 +19,7 @@ from dingofs_platform.inventory.models import Cluster, Machine
 from dingofs_platform.inventory.permissions import require_manage
 from dingofs_platform.inventory.service import audit
 from dingofs_platform.operations.models import OperationLease  # noqa: F401 register shared metadata
+from dingofs_platform.operations.leases import functional_requests, require_available
 from .contracts import EnvironmentDescriptor
 from .drafts import Draft
 from .models import FunctionalRun, FunctionalModuleRun
@@ -117,6 +118,8 @@ def create_run(db: Session, actor: User, request: NormalizedSubmission) -> Funct
     if not machine or machine.archived or machine.maintenance:
         raise Problem(409, 'machine_unavailable', '集群管理机器不可用')
     require_manage(actor, machine)
+    require_available(db, functional_requests(db, cluster.id, machine.id,
+                      request.environment_snapshots.values(), actor=actor))
     # Savepoint keeps a concurrent uniqueness loser usable in its outer transaction.
     try:
         with db.begin_nested():

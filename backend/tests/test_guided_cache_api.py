@@ -37,9 +37,29 @@ def test_plan_pins_binary_and_retry_only_runs_unfinished_members(admin, app, run
     assert response.status_code == 202, response.text
     failed = admin.get("/api/v1/resource-operations/" + response.json()["id"]).json()
     assert failed["state"] == "failed", failed
+    # Only the same verified logical retry may use the retained owner.
+    assert begin(admin, cluster, 'fs.delete', {'fs_name':'unrelated'}).status_code == 409
+    from dingofs_platform.resources.models import ResourceOperation
+    with app.state.session_factory.begin() as db:
+        original = db.get(ResourceOperation, failed['id'])
+        original.state = 'unknown'
+        original_actor = original.actor_id
+    assert begin(admin, cluster, 'cache.create', {'retry_operation_id':failed['id']}).status_code == 409
+    with app.state.session_factory.begin() as db:
+        original = db.get(ResourceOperation, failed['id'])
+        original.state = 'failed'; original.actor_id = 'another-actor'
+    assert begin(admin, cluster, 'cache.create', {'retry_operation_id':failed['id']}).status_code == 409
+    with app.state.session_factory.begin() as db:
+        db.get(ResourceOperation, failed['id']).actor_id = original_actor
     response = begin(admin, cluster, "cache.create", {"retry_operation_id": failed["id"]})
     assert response.status_code == 202, response.text
     retried = admin.get("/api/v1/resource-operations/" + response.json()["id"]).json()
     assert retried["state"] == "succeeded", retried
     assert retried["resource_id"] == plan["resource_id"]
     assert starts == [ids[0], ids[1], ids[1], ids[2]]
+    from sqlalchemy import select
+    from dingofs_platform.operations.models import OperationLease
+    with app.state.session_factory() as db:
+        rows = list(db.scalars(select(OperationLease)))
+        assert {row.owner for row in rows} == {'resource:' + failed['id']}
+        assert all(row.released_at is not None for row in rows)

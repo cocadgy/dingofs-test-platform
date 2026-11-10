@@ -1,6 +1,7 @@
 from datetime import datetime, timezone
 from sqlalchemy import select
-from dingofs_platform.inventory.models import Machine
+from dingofs_platform.inventory.models import Machine, Cluster
+from dingofs_platform.operations.leases import LeaseRequest
 from dingofs_platform.errors import Problem
 from .models import ResourceOperation, ManagedResource
 from .safety import redact
@@ -8,6 +9,7 @@ from .commands import is_mutating
 
 ACTIVE = ("pending", "running", "needs_password")
 MESSAGES = {
+    "operation_conflict": "目标资源被其他操作占用或远端结果尚未确认",
     "python_missing": "目标用户环境中未找到 python3，无法核验并停止缓存进程",
     "batch_failed": "批量操作已完成，但部分目标失败，请查看逐项结果",
     "timeout": "操作超时，远端结果可能未知，请先核实状态后再操作",
@@ -143,3 +145,93 @@ def check_busy(db, cid):
         expire_cluster(op)
         if op.state in ACTIVE and op.kind not in ("status", "topology"):
             raise Problem(409, "cluster_busy", "此集群有进行中的操作，请等待完成")
+
+
+def lease_requests(db, cid, action, parameters, *, steps=None, actor=None):
+    """Resolve mutation hosts before inventory locks, from server-owned records.
+
+    Cluster RPCs only share their control host runtime. A common control host
+    does not make unrelated clusters mutually exclusive.
+    """
+    if not is_mutating(action):
+        return []
+    cluster = db.get(Cluster, cid)
+    requests = [LeaseRequest('cluster:' + cid)]
+    if cluster:
+        requests.append(LeaseRequest('runtime:' + cluster.management_machine_id, 'shared'))
+    local = action.startswith('mount.') or action in ('cache.create', 'cache.stop', 'trash.restore')
+    if not local:
+        return requests
+    ids = set()
+    def collect(value):
+        if isinstance(value, dict):
+            if value.get('machine_id'):
+                ids.add(value['machine_id'])
+            for item in value.values(): collect(item)
+        elif isinstance(value, list):
+            for item in value: collect(item)
+    if steps is not None:
+        for work in steps:
+            if work['action'] not in ('cache.verify_members', 'cache.wait_offline'):
+                ids.add(work['machine_id'])
+    else:
+        collect(parameters)
+        resource_ids = list(parameters.get('resource_ids', []))
+        if parameters.get('resource_id'): resource_ids.append(parameters['resource_id'])
+        member_ids = set(parameters.get('member_ids', [])) if action == 'cache.stop' else set()
+        for rid in resource_ids:
+            resource = db.get(ManagedResource, rid)
+            if resource and resource.cluster_id == cid:
+                collect(resource.data)
+                if resource.data.get('origin') == 'external':
+                    member_ids.update(m['member_id'] for m in resource.data.get('members', []))
+        for field in ('plan_id', 'retry_operation_id'):
+            previous = db.get(ResourceOperation, parameters[field]) if parameters.get(field) else None
+            if previous and previous.cluster_id == cid:
+                collect(previous.steps)
+        if member_ids:
+            matched = set()
+            for resource in db.scalars(select(ManagedResource).where(ManagedResource.cluster_id == cid,
+                                        ManagedResource.kind == 'cache', ManagedResource.state != 'deleted')):
+                for member in resource.data.get('members', []):
+                    if member.get('member_id') in member_ids and member.get('origin') != 'external' and member.get('machine_id'):
+                        collect(member); matched.add(member['member_id'])
+            if member_ids - matched and actor and cluster:
+                from .external_cache import resolve_members
+                for target in resolve_members(db, actor, cluster, sorted(member_ids - matched)).values():
+                    ids.add(target['machine_id'])
+        if action == 'trash.restore' and cluster:
+            ids.add(cluster.management_machine_id)
+    for mid in sorted(ids):
+        requests.extend([LeaseRequest('machine:' + mid), LeaseRequest('runtime:' + mid, 'shared')])
+    return requests
+
+
+def verified_retry_root(db, cid, action, parameters, actor_id):
+    """Keep an exact failed create/retry chain under its original lease owner.
+
+    A transport exception/unknown outcome never authorizes retry. remote_ended
+    is written by our execution adapter only after a valid command response;
+    browser parameters cannot supply it. The existing plan consumers separately
+    select only unfinished members and verify their immutable saved targets.
+    """
+    previous_id = parameters.get('retry_operation_id')
+    if not previous_id:
+        return None
+    from .execution import valid
+    seen = set()
+    while previous_id:
+        if previous_id in seen or len(seen) >= 32:
+            raise Problem(409, 'retry_invalid', '重试任务链无效')
+        seen.add(previous_id)
+        previous = db.get(ResourceOperation, previous_id)
+        if (not previous or previous.actor_id != actor_id or previous.cluster_id != cid
+                or previous.action != action or action not in ('cache.create', 'mount.create')
+                or not valid(db, previous)):
+            raise Problem(409, 'retry_invalid', '原任务与当前账号、集群或计划不匹配')
+        results = (previous.result or {}).get('steps', [])
+        if (previous.state != 'failed' or previous.error_code not in ('query_failed', 'batch_failed')
+                or not results or not all(result.get('remote_ended') is True for result in results)):
+            raise Problem(409, 'retry_unverified', '原任务远端结果未确认，请先复核后再重试')
+        previous_id = previous.parameters.get('retry_operation_id')
+    return previous

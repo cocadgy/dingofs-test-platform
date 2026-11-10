@@ -19,6 +19,7 @@ from .models import PerformanceRun,ACTIVE
 from .schemas import RunInput,TestSpec
 from .commands import argv_for
 from .manager import now
+from dingofs_platform.operations.leases import performance_requests, require_available
 
 router=APIRouter(prefix='/api/v1/performance',tags=['performance'])
 
@@ -61,11 +62,15 @@ def preview(payload:RunInput,request:Request,user=Depends(current_user)):
 
 
 def enqueue(db,actor,payload,scenes,rerun_of=None):
+    target=db.get(Machine,payload.machine_id)
+    if not target:raise Problem(404,'not_found','机器不存在')
+    require_manage(actor,target)
+    require_available(db,performance_requests(db,payload.machine_id,payload.target_path))
     machine=accessible_machine(db,actor,payload.machine_id)
     if not machine.ssh_password_ciphertext:raise Problem(422,'ssh_password_missing','请先配置机器SSH密码')
     if db.scalar(select(PerformanceRun.id).where(PerformanceRun.machine_id==machine.id,PerformanceRun.state.in_(ACTIVE))):
         raise Problem(409,'performance_busy','该机器已有运行中或结果未确认的性能任务')
-    if db.scalar(select(ToolJob.id).where(ToolJob.machine_id==machine.id,ToolJob.state=='running',ToolJob.deadline>now())):
+    if db.scalar(select(ToolJob.id).where(ToolJob.machine_id==machine.id,ToolJob.action!='check',ToolJob.state=='running',ToolJob.deadline>now())):
         raise Problem(409,'tools_busy','该机器正在部署或检查工具，请等待完成')
     snapshot={**payload.model_dump(),'tests':[scene['parameters'] for scene in scenes],'scenarios':scenes,
               'machine_name':machine.name,'connection':[machine.address,machine.ssh_port,machine.ssh_user]}

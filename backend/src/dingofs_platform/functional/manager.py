@@ -13,6 +13,8 @@ from dingofs_platform.inventory.credentials import decrypt_password
 from dingofs_platform.inventory.ssh_transport import SSHConfig
 from .models import FunctionalRun,ACTIVE
 from .transport import Transport
+from dingofs_platform.operations.leases import (legacy_functional_requests, ensure_leases, lock_keys,
+    release_verified, completion_evidence)
 
 def now():return datetime.now(timezone.utc)
 
@@ -48,10 +50,17 @@ class FunctionalManager:
             self.stop_event.wait(2)
     def process(self,id):
         factory=self.app.state.session_factory;password='';secrets=[];remote_attempted=False
+        requests=[];owner='functional:'+id
         try:
             with factory.begin() as db:
-                row=db.get(FunctionalRun,id,with_for_update=True)
+                row=db.get(FunctionalRun,id)
                 if not row or row.version!=1 or row.state not in ACTIVE:return
+                remote_attempted=row.state!='queued'
+                requests=legacy_functional_requests(db,row.cluster_id,row.machine_id,row.snapshot,
+                    self.app.state.settings.functional_source_root)
+                lock_keys(db,requests)
+                row=db.get(FunctionalRun,id,with_for_update=True,populate_existing=True)
+                if row.version!=1 or row.state not in ACTIVE:return
                 # A resumed job may still be running remotely, even if polling fails.
                 remote_attempted=row.state!='queued'
                 machine=db.get(Machine,row.machine_id);snapshot=row.snapshot
@@ -64,6 +73,11 @@ class FunctionalManager:
                     row.state='cancelled';row.phase='启动前已取消';row.finished_at=now();return
                 if launch and now()>=row.deadline:
                     row.state='failed';row.error='排队超时';row.finished_at=now();return
+                if not ensure_leases(db,owner,requests).acquired:
+                    row.phase='等待目标资源释放';return
+                if launch:
+                    legacy_functional_requests(db,row.cluster_id,row.machine_id,row.snapshot,
+                        self.app.state.settings.functional_source_root,strict=True)
                 if launch:row.state='running';row.phase='启动远端任务'
                 deadline=row.deadline
                 env_yaml=None
@@ -112,6 +126,7 @@ class FunctionalManager:
                 result=transport.poll(id,cancel)
                 if result.get('missing'):raise RuntimeError('远端任务记录不存在，结果未确认')
                 with factory.begin() as db:
+                    lock_keys(db,requests)
                     row=db.get(FunctionalRun,id,with_for_update=True)
                     state=result.get('state')
                     if state not in ('queued','running','success','failed','cancelled','unknown'):
@@ -122,15 +137,22 @@ class FunctionalManager:
                     row.log=redact(result.get('log','')[-131072:],secrets)
                     row.error=redact(result.get('error','')[:16000],secrets)
                     if 'result' in result:row.result=redact(result['result'],secrets)
-                    if state not in ('queued','running','unknown'):row.finished_at=now()
+                    if state not in ('queued','running','unknown'):
+                        row.finished_at=now()
+                        row.state='needs_attention'
+                        row.phase='远端任务已结束，等待资源复核'
+                        row.error=(row.error+'\n旧任务缺少恢复及资源清理证据，占用将保留至人工复核。').strip()
                 if state not in ('queued','running'):
                     if state=='unknown':self.stop_event.wait(5)
                     else:return
                 self.stop_event.wait(2)
         except Exception as exc:
             with factory.begin() as db:
+                lock_keys(db,requests)
                 row=db.get(FunctionalRun,id)
                 if row and row.state in ACTIVE:
                     row.state='unknown' if remote_attempted else 'failed'
                     row.error=('状态采集失败，正在重试；不会重复启动。' if remote_attempted else '启动前验证失败。')+redact(str(exc)[:2000],[password,*secrets])
-                    if not remote_attempted:row.finished_at=now()
+                    if not remote_attempted:
+                        row.finished_at=now()
+                        release_verified(db,owner,completion_evidence(owner,requests))

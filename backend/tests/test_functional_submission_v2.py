@@ -63,6 +63,20 @@ def persist(app, request, username='admin'):
         return create(db, actor, request).id
 
 
+def test_v2_submission_checks_leases_without_reserving_queued_work(app, ready):
+    from dingofs_platform.operations.leases import acquire_leases, LeaseRequest
+    from dingofs_platform.operations.models import OperationLease
+    request = normalize(ready)
+    with app.state.session_factory.begin() as db:
+        acquire_leases(db, 'resource:other', [LeaseRequest('cluster:' + request.cluster_id)])
+    with pytest.raises(Problem) as error:
+        persist(app, request)
+    assert error.value.code == 'operation_conflict'
+    with app.state.session_factory() as db:
+        assert not db.scalar(select(FunctionalRun.id))
+        assert list(db.scalars(select(OperationLease.owner))) == ['resource:other']
+
+
 def test_same_key_returns_same_parent_and_changed_body_conflicts(app, ready):
     request = normalize(ready)
     first = persist(app, request)

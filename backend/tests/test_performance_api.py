@@ -13,6 +13,84 @@ def setup(admin):
     return {'name':'benchmark','machine_id':m['id'],'target_path':'/tmp/perf','tests':[{'tool':'fio','file_size':'4KiB','file_count':1,'concurrency':1}]}
 
 
+def test_functional_lease_blocks_submission_but_not_preview(admin):
+    from dingofs_platform.operations.leases import acquire_leases, LeaseRequest
+    payload = setup(admin)
+    with admin.app.state.session_factory.begin() as db:
+        acquire_leases(db, 'functional:other', [LeaseRequest('machine:' + payload['machine_id'])])
+    assert admin.post('/api/v1/performance/preview', json=payload).status_code == 200
+    response = admin.post('/api/v1/performance/runs', json=payload)
+    assert response.status_code == 409
+    assert response.json()['code'] == 'operation_conflict'
+
+
+def test_execution_rechecks_conflict_after_queue_without_remote_launch(admin):
+    from dingofs_platform.operations.leases import acquire_leases, LeaseRequest
+    payload = setup(admin)
+    row = admin.post('/api/v1/performance/runs', json=payload).json()
+    with admin.app.state.session_factory.begin() as db:
+        assert acquire_leases(db, 'functional:other', [LeaseRequest('machine:' + payload['machine_id'])]).acquired
+    class Forbidden:
+        def __init__(self, config):
+            raise AssertionError('conflicting queued work must not connect')
+    admin.app.state.performance_transport = Forbidden
+    admin.app.state.performance_manager.process(row['id'])
+    detail = admin.get('/api/v1/performance/runs/' + row['id']).json()
+    assert detail['state'] == 'queued'
+
+
+def test_performance_unknown_keeps_machine_lease(admin):
+    from dingofs_platform.operations.leases import check_conflicts, LeaseRequest
+    payload = setup(admin)
+    row = admin.post('/api/v1/performance/runs', json=payload).json()
+    class Lost:
+        def __init__(self, config): pass
+        def start(self, payload): raise OSError('lost after launch')
+    admin.app.state.performance_transport = Lost
+    admin.app.state.performance_manager.process(row['id'])
+    with admin.app.state.session_factory() as db:
+        assert check_conflicts(db, [LeaseRequest('machine:' + payload['machine_id'])])
+
+
+def test_monitor_resume_does_not_accumulate_lease_depth(admin):
+    from sqlalchemy import select
+    from dingofs_platform.operations.models import OperationLease
+    payload = setup(admin)
+    row = admin.post('/api/v1/performance/runs', json=payload).json()
+    class Lost:
+        def __init__(self, config): pass
+        def start(self, payload): raise OSError('lost after launch')
+        def poll(self, id, cancel): return {'missing':True}
+    admin.app.state.performance_transport = Lost
+    for _ in range(3): admin.app.state.performance_manager.process(row['id'])
+    with admin.app.state.session_factory() as db:
+        assert {r.depth for r in db.scalars(select(OperationLease))} == {1}
+
+
+def test_prelaunch_error_releases_only_own_leases(admin):
+    from dingofs_platform.operations.leases import check_conflicts, LeaseRequest
+    payload = setup(admin)
+    row = admin.post('/api/v1/performance/runs', json=payload).json()
+    class Invalid:
+        def __init__(self, config): raise ValueError('local constructor failed before connection')
+    admin.app.state.performance_transport = Invalid
+    admin.app.state.performance_manager.process(row['id'])
+    assert admin.get('/api/v1/performance/runs/' + row['id']).json()['state'] == 'failed'
+    with admin.app.state.session_factory() as db:
+        assert not check_conflicts(db, [LeaseRequest('machine:' + payload['machine_id'])])
+
+
+def test_readonly_tool_check_does_not_block_performance_submission(admin):
+    from datetime import datetime, timezone, timedelta
+    from dingofs_platform.tool_packages.models import ToolJob
+    payload = setup(admin)
+    with admin.app.state.session_factory.begin() as db:
+        db.add(ToolJob(machine_id=payload['machine_id'], creator_id='test', action='check',
+            deadline=datetime.now(timezone.utc)+timedelta(minutes=5)))
+    response = admin.post('/api/v1/performance/runs', json=payload)
+    assert response.status_code == 202, response.text
+
+
 def test_create_preview_and_machine_exclusion(admin):
     payload=setup(admin)
     preview=admin.post('/api/v1/performance/preview',json=payload)

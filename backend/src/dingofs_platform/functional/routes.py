@@ -56,12 +56,32 @@ def cluster_and_machine(db,actor,id,machine_id=None):
 
 def enqueue(db,actor,payload,cases,digest,hashes,rerun_of=None,fs_mode_override=None):
     cluster,machine=cluster_and_machine(db,actor,payload.cluster_id,payload.wizard.machine_id if payload.wizard else None)
+    from dingofs_platform.operations.leases import require_available, legacy_functional_requests
+    # Reserve the complete sorted lock set before taking the optional draft row
+    # lock below. The account lock serializes profile/inventory changes.
+    early_profile = db.get(FunctionalEnvironmentProfile,payload.environment_profile_id) if payload.environment_profile_id else None
+    early_snapshot = {'env_name':payload.env_name,'selected':cases}
+    if payload.wizard:
+        early_snapshot['environment_profile_snapshot'] = {'kind':'custom',
+            'machine_id':payload.wizard.machine_id,'settings':payload.wizard.settings}
+    elif early_profile and early_profile.source_kind=='custom':
+        early_snapshot['environment_profile_snapshot'] = {'kind':'custom',
+            'machine_id':early_profile.machine_id,'settings':early_profile.settings}
+    elif early_profile:
+        early_snapshot['env_name'] = early_profile.source_key
+        early_snapshot['environment_profile_snapshot'] = {'kind':'predefined',
+            'source_file':early_profile.source_file,
+            'source_file_sha':early_profile.display.get('source_file_sha'),
+            'storage_file_sha':early_profile.display.get('storage_file_sha')}
+    requests = legacy_functional_requests(db,cluster.id,machine.id,early_snapshot,
+        db.info.get('functional_source_root'),actor=actor,strict=True)
+    require_available(db,requests)
     if not machine.ssh_password_ciphertext:raise Problem(422,'ssh_password_missing','请配置管理机器 SSH 密码')
     if db.scalar(select(FunctionalRun.id).where(FunctionalRun.cluster_id==cluster.id,FunctionalRun.state.in_(ACTIVE))):
         raise Problem(409,'functional_busy','集群有进行中的功能测试')
     if db.scalar(select(PerformanceRun.id).where(PerformanceRun.machine_id==machine.id,PerformanceRun.state.in_(PERF_ACTIVE))):
         raise Problem(409,'performance_busy','管理机器有进行中的性能测试')
-    if db.scalar(select(ToolJob.id).where(ToolJob.machine_id==machine.id,ToolJob.state=='running',ToolJob.deadline>now())):
+    if db.scalar(select(ToolJob.id).where(ToolJob.machine_id==machine.id,ToolJob.action!='check',ToolJob.state=='running',ToolJob.deadline>now())):
         raise Problem(409,'tools_busy','机器正在部署工具')
     addresses=(cluster.status_snapshot or {}).get('mds_addresses') or []
     if not addresses:raise Problem(422,'cluster_status_required','请先刷新集群状态以获取 MDS 地址')

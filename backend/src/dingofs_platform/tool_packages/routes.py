@@ -16,6 +16,7 @@ from .models import ToolPackage, ToolJob
 from .bundle import inspect_bundle
 from .service import view, expire, run_job
 from .source import get_source
+from dingofs_platform.operations.leases import tool_requests, require_available
 
 router = APIRouter(prefix='/api/v1', tags=['tool-packages'])
 
@@ -72,6 +73,13 @@ def start(id: str, payload: JobInput, request: Request, background: BackgroundTa
     settings = request.app.state.settings
     with get_db(request) as db, db.begin():
         actor = actor_in_transaction(db, request)
+        target = db.get(Machine, id)
+        if not target:
+            raise Problem(404, 'not_found', '机器不存在')
+        require_manage(actor, target)
+        source = get_source(db) if payload.action == 'auto_install' else None
+        lease_options = {'source_machine_id':source.machine_id, 'tool':payload.tool} if source else None
+        require_available(db, tool_requests(id, payload.action, lease_options))
         machine = db.get(Machine, id, with_for_update=True)
         if not machine:
             raise Problem(404, 'not_found', '机器不存在')
@@ -79,20 +87,19 @@ def start(id: str, payload: JobInput, request: Request, background: BackgroundTa
         if machine.archived or machine.maintenance:
             raise Problem(409, 'machine_unavailable', '机器已归档或处于维护状态')
         from dingofs_platform.performance.models import PerformanceRun, ACTIVE
-        if db.scalar(select(PerformanceRun.id).where(PerformanceRun.machine_id == id, PerformanceRun.state.in_(ACTIVE))):
+        if payload.action != 'check' and db.scalar(select(PerformanceRun.id).where(PerformanceRun.machine_id == id, PerformanceRun.state.in_(ACTIVE))):
             raise Problem(409, 'performance_busy', '该机器有性能任务正在运行或状态未确认，请先结束性能任务')
         if not machine.ssh_password_ciphertext:
             raise Problem(422, 'ssh_password_missing', '请先配置机器 SSH 密码')
         for previous in db.scalars(select(ToolJob).where(ToolJob.machine_id == id, ToolJob.state == 'running')):
             expire(db, previous)
-            if previous.state == 'running':
+            if payload.action != 'check' and previous.action != 'check' and previous.state == 'running':
                 raise Problem(409, 'tools_busy', '该机器已有工具任务正在执行')
         source_config = None
         options = None
         if payload.action == 'auto_install':
             if not payload.tool or payload.package_id:
                 raise Problem(422,'invalid_request','请选择工具')
-            source = get_source(db)
             source_machine = db.get(Machine,source.machine_id)
             if not source_machine or source_machine.archived or source_machine.maintenance or not source_machine.ssh_password_ciphertext:
                 raise Problem(422,'source_unavailable','平台工具来源机器不可用')

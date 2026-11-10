@@ -19,7 +19,8 @@ from dingofs_platform.cache_profiles import service as cache_profiles
 from dingofs_platform.mount_profiles import service as mount_profiles
 from dingofs_platform.cache_profiles.catalog import MEMBER_KEYS, INDEX as CACHE_PARAMETER_INDEX, member_defaults
 from dingofs_platform.storage import service as storage_profiles
-from .views import check_busy, now, operation_view, resource_view
+from .views import check_busy, now, operation_view, resource_view, lease_requests, verified_retry_root
+from dingofs_platform.operations.leases import require_available
 from . import commands
 from . import port_planning, external_cache
 from .bulk_create import expand_cache_members, mount_instances
@@ -380,7 +381,7 @@ def create(request, cid, payload):
     ).hexdigest()
     with get_db(request) as db, db.begin():
         actor = actor_in_transaction(db, request)
-        lock_inventory(db)
+        require_manage(actor, cluster(db, cid))
         c = cluster(db, cid)
         require_manage(actor, c)
         session = current_session(db, request, actor)
@@ -395,6 +396,11 @@ def create(request, cid, payload):
             if previous.request_digest != fingerprint:
                 raise Problem(409, "request_conflict", "同一请求标识不能用于不同操作")
             return operation_view(db, previous, private=True), False
+        retry_root = verified_retry_root(db, cid, payload.action, p, actor.id)
+        requests = (lease_requests(db, cid, retry_root.action, retry_root.parameters, steps=retry_root.steps)
+                    if retry_root else lease_requests(db, cid, payload.action, p, actor=actor))
+        require_available(db, requests, owner='resource:' + retry_root.id if retry_root else None)
+        lock_inventory(db)
         if c.revision != payload.base_revision:
             raise Problem(409, "revision_conflict", "集群配置已更新，请刷新页面")
         if c.binding_state != "verified":
@@ -457,6 +463,9 @@ def create(request, cid, payload):
         secret = {k: p[k] for k in commands.secret_keys(payload.action) if p.get(k)}
         public = {k: v for k, v in p.items() if k not in secret}
         steps, resource = prepare(db, actor, c, payload.action, public)
+        actual = lease_requests(db, cid, payload.action, public, steps=steps)
+        if not {r.key for r in actual} <= {r.key for r in requests}:
+            raise Problem(409, 'target_changed', '执行目标已改变，请重新检查计划')
         if resource and source and payload.action in ("cache.create", "cache.plan", "mount.create"):
             resource.data = {**resource.data, **source}
         if source and payload.action == "mount.create" and public.get("count", 1) > 1:

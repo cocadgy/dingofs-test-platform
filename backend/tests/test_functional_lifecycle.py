@@ -11,14 +11,96 @@ def ready(admin,app,tmp_path):
     root=tmp_path/'testcases'/'basic_file_operation';root.mkdir(parents=True)
     for name in ('a','b'):(root/(name+'.yaml')).write_text('case_name: '+name+'\nsteps: []\n')
     app.state.settings.functional_source_root=root.parent
-    with app.state.session_factory.begin() as db:db.get(Cluster,cluster['id']).status_snapshot={'mds_addresses':['10.0.0.1:6900']}
-    payload={'name':'lifecycle','cluster_id':cluster['id'],'env_name':'env_test',
+    env_root=root.parent.parent/'conf'/'env';env_root.mkdir(parents=True)
+    (env_root/'test.yaml').write_text('env_test:\n  mds_addr: 10.0.0.1:6900\n  storage: {storage_type: s3}\n  clients:\n    - host: '+machine['address']+'\n')
+    (env_root.parent/'storage.yaml').write_text('s3: {}\n')
+    from sqlalchemy import select
+    from dingofs_platform.functional.environments.service import sync_predefined
+    from dingofs_platform.functional.environments.models import FunctionalEnvironmentProfile
+    with app.state.session_factory.begin() as db:
+        db.get(Cluster,cluster['id']).status_snapshot={'mds_addresses':['10.0.0.1:6900']}
+        sync_predefined(db, env_root)
+        profile=db.scalar(select(FunctionalEnvironmentProfile).where(FunctionalEnvironmentProfile.source_key=='env_test'))
+        profile_id, profile_revision=profile.id, profile.revision
+    payload={'name':'lifecycle','cluster_id':cluster['id'],
+             'environment_profile_id':profile_id,'environment_profile_revision':profile_revision,
              'selected':{'basic_file_operation':['a.yaml','b.yaml']},'catalog_digest':catalogue(root.parent)['digest']}
     return payload,machine,cluster
 
 def create(admin,ready):
     r=admin.post('/api/v1/functional/runs',json=ready[0]);assert r.status_code==202,r.text
     return r.json()
+
+
+def test_legacy_submission_checks_shared_conflict_service(admin, app, ready):
+    from dingofs_platform.operations.leases import acquire_leases, LeaseRequest
+    with app.state.session_factory.begin() as db:
+        acquire_leases(db, 'resource:other', [LeaseRequest('cluster:' + ready[2]['id'])])
+    response = admin.post('/api/v1/functional/runs', json=ready[0])
+    assert response.status_code == 409
+    assert response.json()['code'] == 'operation_conflict'
+
+
+def test_legacy_worker_rechecks_lease_before_remote_launch(admin, app, ready):
+    from dingofs_platform.operations.leases import acquire_leases, LeaseRequest
+    row = create(admin, ready)
+    with app.state.session_factory.begin() as db:
+        acquire_leases(db, 'resource:other', [LeaseRequest('cluster:' + ready[2]['id'])])
+    class Forbidden:
+        def __init__(self, *args): raise AssertionError('must wait for target leases')
+    app.state.functional_transport = Forbidden
+    app.state.functional_manager.process(row['id'])
+    assert admin.get('/api/v1/functional/runs/' + row['id']).json()['state'] == 'queued'
+
+
+def test_legacy_unresolved_environment_cannot_be_submitted(admin, app, ready):
+    payload = {key:value for key,value in ready[0].items() if not key.startswith('environment_profile_')}
+    response = admin.post('/api/v1/functional/runs', json={**payload, 'env_name':'env_missing'})
+    assert response.status_code == 422
+    assert response.json()['code'] == 'target_unresolved'
+
+
+def test_bare_env_local_yaml_never_proves_remote_targets(admin, app, ready):
+    from datetime import timedelta
+    from dingofs_platform.functional.manager import now
+    from dingofs_platform.auth.models import User
+    from sqlalchemy import select
+    payload = {key:value for key,value in ready[0].items() if not key.startswith('environment_profile_')}
+    payload['env_name']='env_test'
+    response = admin.post('/api/v1/functional/runs', json=payload)
+    assert response.status_code == 422
+    assert response.json()['code'] == 'target_unresolved'
+    # Historical records remain readable but cannot launch based on local YAML.
+    with app.state.session_factory.begin() as db:
+        actor = db.scalar(select(User).where(User.username=='admin'))
+        m=ready[1]
+        row=FunctionalRun(creator_id=actor.id,cluster_id=ready[2]['id'],machine_id=m['id'],
+            name='historical',deadline=now()+timedelta(minutes=5),snapshot={**payload,
+                'connection':[m['address'],m['ssh_port'],m['ssh_user']]})
+        db.add(row);db.flush();oid=row.id
+    class Forbidden:
+        def __init__(self, config): raise AssertionError('unbound legacy source must never connect')
+    app.state.functional_transport=Forbidden
+    app.state.functional_manager.process(oid)
+    detail=admin.get('/api/v1/functional/runs/'+oid).json()
+    assert detail['state']=='failed'
+    assert 'target_unresolved' in detail['error']
+
+
+def test_legacy_completion_without_recovery_requires_attention(admin, app, ready):
+    from dingofs_platform.operations.leases import check_conflicts, LeaseRequest
+    row = create(admin, ready)
+    class Done:
+        def __init__(self, config): pass
+        def start(self, payload): return {'root':'/tmp/functional-job'}
+        def poll(self, id, cancel): return {'state':'success', 'result':{'cases':[]}}
+    app.state.functional_transport = Done
+    app.state.functional_manager.process(row['id'])
+    result = admin.get('/api/v1/functional/runs/' + row['id']).json()
+    assert result['state'] == 'needs_attention'
+    assert '复核' in result['phase']
+    with app.state.session_factory() as db:
+        assert check_conflicts(db, [LeaseRequest('cluster:' + ready[2]['id'])])
 
 @pytest.mark.parametrize('mutation,expected',[
  ({'selected':{}},422),({'selected':{'basic_file_operation':['../a.yaml']}},422),

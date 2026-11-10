@@ -30,6 +30,9 @@ from .safety import redact, product_failed
 from . import commands, port_planning, cache_images, cache_transfer, discovered
 from .bulk_create import finish_mount_batch
 from .remote_helper import FS_LIST_MAX_RESPONSE
+from .views import lease_requests, verified_retry_root
+from dingofs_platform.operations.leases import (ensure_leases, lock_keys, release_verified,
+    completion_evidence)
 
 
 def valid(db, op):
@@ -106,16 +109,33 @@ def run(request, oid, password=None, *, claimed=False):
     operation_timeout = settings.resource_operation_timeout
     deadline = time.monotonic() + operation_timeout
     artifacts, distributed = {}, set()
+    remote_attempted = claimed
     with get_db(request) as db, db.begin():
-        lock_inventory(db)
         op = db.get(ResourceOperation, oid)
         if not op or op.state != ("running" if claimed else "pending"):
+            return
+        try:
+            retry_root = verified_retry_root(db, op.cluster_id, op.action, op.parameters, op.actor_id)
+        except Problem as exc:
+            lock_inventory(db)
+            terminal(db, op, 'failed', exc.code)
+            return
+        root = retry_root or op
+        requests = lease_requests(db, root.cluster_id, root.action, root.parameters, steps=root.steps)
+        owner = 'resource:' + root.id
+        lock_keys(db, requests)
+        lock_inventory(db)
+        db.refresh(op)
+        if op.state != ("running" if claimed else "pending"):
             return
         expire(db, op)
         if op.state not in ACTIVE:
             return
         if not valid(db, op):
             terminal(db, op, "failed", "stale")
+            return
+        if not ensure_leases(db, owner, requests).acquired:
+            terminal(db, op, "failed", "operation_conflict")
             return
         if op.action in ("cache.plan", "mount.plan") and any(step.get("record", {}).get("binary_source") == "tag" for step in op.steps):
             operation_timeout = max(operation_timeout, 3600)
@@ -129,16 +149,23 @@ def run(request, oid, password=None, *, claimed=False):
         config = None
         secret_values = []
         with get_db(request) as db, db.begin():
+            lock_keys(db, requests)
             lock_inventory(db)
             op = db.get(ResourceOperation, oid)
             if op.state != "running" or op.lease_token != lease:
+                if not remote_attempted:
+                    release_verified(db, owner, completion_evidence(owner, requests))
                 return
             if not valid(db, op):
                 terminal(db, op, "failed", "stale")
+                if not remote_attempted:
+                    release_verified(db, owner, completion_evidence(owner, requests))
                 return
             if op.cursor >= len(op.steps):
                 failed = op.action in ("fs.delete_batch", "cache.delete_batch", "cache.stop", "mount.unmount", "mount.delete", "mount.scan") and any(s.get("failed") for s in (op.result or {}).get("steps", []))
                 terminal(db, op, "failed" if failed else "succeeded", "batch_failed" if failed else None)
+                if not failed:
+                    release_verified(db, owner, completion_evidence(owner, requests))
                 return
             work = deepcopy(op.steps[op.cursor])
             if work['action'] == 'mount.plan':
@@ -191,6 +218,8 @@ def run(request, oid, password=None, *, claimed=False):
                     password = None
                     continue
                 terminal(db, op, "failed", "credential_unavailable")
+                if not remote_attempted:
+                    release_verified(db, owner, completion_evidence(owner, requests))
                 return
             secret_values = [login_password, password, *storage.values()]
             command_args = {**work["parameters"], **storage}
@@ -219,6 +248,7 @@ def run(request, oid, password=None, *, claimed=False):
         distributed_key = None
         try:
             if work["action"] in ("cache.plan", "mount.plan") and work["record"].get("binary_source") == "tag":
+                remote_attempted = True
                 image_digest = work["record"]["binary_digest"]
                 if image_digest not in artifacts:
                     root = Path(os.environ.get("PLATFORM_CACHE_BINARY_DIR", str(Path.home() / ".cache/dingofs-platform/cache-binaries")))
@@ -264,6 +294,7 @@ def run(request, oid, password=None, *, claimed=False):
                 if work["action"] == "fs.list"
                 else settings.cluster_max_bytes
             )
+            remote_attempted = True
             output = transport(
                 config,
                 command,
@@ -297,6 +328,7 @@ def run(request, oid, password=None, *, claimed=False):
                     data=parsed.get("data", parsed),
                     remote_state=parsed.get("state"),
                     command_completed=parsed.get("command_completed") is True,
+                    remote_ended=True,
                     stderr=output.stderr,
                     message=parsed.get("message"),
                 ),
@@ -324,6 +356,7 @@ def run(request, oid, password=None, *, claimed=False):
             password = None
             secret_values.clear()
         with get_db(request) as db, db.begin():
+            lock_keys(db, requests)
             lock_inventory(db)
             op = db.get(ResourceOperation, oid)
             if op.state != "running" or op.lease_token != lease:

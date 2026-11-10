@@ -94,6 +94,64 @@ def begin(admin, c, action="fs.list", params=None, request_id=None):
     )
 
 
+def test_functional_lease_blocks_resource_write_but_not_read(admin, runner):
+    from dingofs_platform.operations.leases import acquire_leases, LeaseRequest
+    _, c, _ = linked(admin)
+    with admin.app.state.session_factory.begin() as db:
+        acquire_leases(db, 'functional:other', [LeaseRequest('cluster:' + c['id'])])
+    response = begin(admin, c, 'fs.delete', {'fs_name':'main'})
+    assert response.status_code == 409
+    assert response.json()['code'] == 'operation_conflict'
+    assert begin(admin, c).status_code == 202
+    assert [item['action'] for item in runner] == ['fs.list']
+
+
+def test_resource_execution_rechecks_conflict_after_submission(admin, runner, monkeypatch):
+    from types import SimpleNamespace
+    from dingofs_platform.operations.leases import acquire_leases, LeaseRequest
+    from dingofs_platform.resources import execution
+    _, c, _ = linked(admin)
+    run = execution.run
+    monkeypatch.setattr(execution, 'run', lambda *args: None)
+    response = begin(admin, c, 'fs.delete', {'fs_name':'main'})
+    assert response.status_code == 202
+    with admin.app.state.session_factory.begin() as db:
+        assert acquire_leases(db, 'functional:other', [LeaseRequest('cluster:' + c['id'])]).acquired
+    run(SimpleNamespace(app=admin.app, state=SimpleNamespace()), response.json()['id'])
+    result = admin.get('/api/v1/resource-operations/' + response.json()['id']).json()
+    assert result['state'] == 'failed'
+    assert result['error_code'] == 'operation_conflict'
+    assert not runner
+
+
+def test_resource_zero_start_credential_failure_releases_leases(admin, app, runner, monkeypatch):
+    from dingofs_platform.operations.leases import check_conflicts, LeaseRequest
+    from dingofs_platform.resources import execution
+    _, c, _ = linked(admin)
+    def broken(*args): raise ValueError('unreadable saved credential')
+    monkeypatch.setattr(execution, 'decrypt_password', broken)
+    response = begin(admin, c, 'fs.delete', {'fs_name':'main'})
+    result = admin.get('/api/v1/resource-operations/' + response.json()['id']).json()
+    assert result['error_code'] == 'credential_unavailable'
+    assert not runner
+    with app.state.session_factory() as db:
+        assert not check_conflicts(db, [LeaseRequest('cluster:' + c['id'])])
+
+
+def test_resource_write_locks_actual_machine_across_clusters(admin, app, runner):
+    from dingofs_platform.operations.leases import acquire_leases, LeaseRequest
+    m, c, _ = linked(admin)
+    with app.state.session_factory.begin() as db:
+        acquire_leases(db, 'functional:unrelated-cluster', [LeaseRequest('machine:' + m['id'])])
+    response = begin(admin, c, 'mount.create', {'machine_id':m['id'], 'target_user':'test',
+        'fs_name':'data', 'mount_path':'/mnt/client-a'})
+    assert response.status_code == 409
+    # An RPC through the common control host does not mutate that host.
+    response = begin(admin, c, 'fs.delete', {'fs_name':'main'})
+    assert response.status_code == 202, response.text
+    assert [r['action'] for r in runner] == ['fs.delete']
+
+
 def test_read_results_and_idempotent_requests(admin, runner):
     _, c, _ = linked(admin)
     rid = str(uuid4())

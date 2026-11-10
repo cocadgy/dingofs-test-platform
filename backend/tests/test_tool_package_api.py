@@ -3,6 +3,79 @@ from dingofs_platform.tool_packages.models import ToolJob
 from datetime import datetime, timezone, timedelta
 
 
+def test_runtime_lease_blocks_install_but_check_is_readonly(admin):
+    from test_performance_api import setup
+    from dingofs_platform.operations.leases import acquire_leases, LeaseRequest
+    payload = setup(admin)
+    mid = payload['machine_id']
+    with admin.app.state.session_factory.begin() as db:
+        acquire_leases(db, 'functional:other', [LeaseRequest('runtime:' + mid, 'shared')])
+    response = admin.post('/api/v1/machines/' + mid + '/tool-jobs', json={'action':'install', 'package_id':'unused'})
+    assert response.status_code == 409
+    assert response.json()['code'] == 'operation_conflict'
+    admin.app.state.tool_transport = lambda *args: {'items': []}
+    response = admin.post('/api/v1/machines/' + mid + '/tool-jobs', json={'action':'check'})
+    assert response.status_code == 202, response.text
+    assert admin.get('/api/v1/machines/' + mid + '/tool-jobs').json()[0]['state'] == 'success'
+
+
+def test_tool_execution_checks_conflicts_before_install(admin):
+    from test_performance_api import setup
+    from dingofs_platform.operations.leases import acquire_leases, LeaseRequest
+    from dingofs_platform.tool_packages.service import run_job
+    from dingofs_platform.inventory.ssh_transport import SSHConfig
+    payload = setup(admin)
+    with admin.app.state.session_factory.begin() as db:
+        row = ToolJob(machine_id=payload['machine_id'], creator_id='test', action='install',
+                      deadline=datetime.now(timezone.utc) + timedelta(minutes=5))
+        db.add(row); db.flush(); oid = row.id
+        acquire_leases(db, 'functional:other', [LeaseRequest('runtime:' + payload['machine_id'], 'shared')])
+    admin.app.state.tool_transport = lambda *args: {'items': []}
+    run_job(admin.app, oid, SSHConfig('example.test', 22, 'test', 'secret'))
+    with admin.app.state.session_factory() as db:
+        row = db.get(ToolJob, oid)
+        assert row.state == 'failed'
+        assert '占用' in row.result['error_message']
+
+
+def test_auto_install_source_mutation_conflicts_at_submission_and_execution(admin):
+    from test_performance_api import setup
+    from dingofs_platform.operations.leases import acquire_leases, LeaseRequest
+    from dingofs_platform.tool_packages.models import ToolSource
+    from dingofs_platform.tool_packages.service import run_job
+    from dingofs_platform.inventory.ssh_transport import SSHConfig
+    payload = setup(admin)
+    source = machine(admin, 'source')
+    with admin.app.state.session_factory.begin() as db:
+        db.add(ToolSource(id='default', machine_id=source['id'], directory='/tmp/tools', image='image:test', allow_cached=False))
+        acquire_leases(db, 'functional:source-run', [LeaseRequest('runtime:' + source['id'], 'shared')])
+        row = ToolJob(machine_id=payload['machine_id'], creator_id='test', action='auto_install',
+            options={'tool':'dtt', 'source_machine_id':source['id']}, deadline=datetime.now(timezone.utc)+timedelta(minutes=5))
+        db.add(row); db.flush(); oid = row.id
+    response = admin.post('/api/v1/machines/' + payload['machine_id'] + '/tool-jobs', json={'action':'auto_install','tool':'dtt'})
+    assert response.status_code == 409
+    assert response.json()['code'] == 'operation_conflict'
+    admin.app.state.tool_automatic_transport = lambda *args: {'items': []}
+    run_job(admin.app, oid, SSHConfig('target.test', 22, 'test', 'secret'))
+    with admin.app.state.session_factory() as db:
+        row = db.get(ToolJob, oid)
+        assert row.state == 'failed'
+        assert '占用' in row.result['error_message']
+
+
+def test_readonly_tool_check_can_continue_during_install(admin):
+    from test_performance_api import setup
+    from dingofs_platform.operations.leases import acquire_leases, LeaseRequest
+    payload = setup(admin)
+    with admin.app.state.session_factory.begin() as db:
+        db.add(ToolJob(machine_id=payload['machine_id'], creator_id='test', action='install',
+            deadline=datetime.now(timezone.utc)+timedelta(minutes=5)))
+        acquire_leases(db, 'tool:install', [LeaseRequest('runtime:' + payload['machine_id'])])
+    admin.app.state.tool_transport = lambda *args: {'items': []}
+    response = admin.post('/api/v1/machines/' + payload['machine_id'] + '/tool-jobs', json={'action':'check'})
+    assert response.status_code == 202, response.text
+
+
 def test_member_cannot_publish_packages(client):
     response = client.post('/api/v1/auth/login', json={'username':'member', 'password':'test-password-123'})
     client.headers['X-CSRF-Token'] = response.json()['csrf_token']

@@ -11,6 +11,8 @@ from .models import PerformanceRun,ACTIVE
 from .commands import argv_for
 from .schemas import TestSpec
 from .transport import Transport
+from dingofs_platform.operations.leases import (performance_requests, ensure_leases, lock_keys,
+    release_verified, completion_evidence)
 
 
 def now():return datetime.now(timezone.utc)
@@ -50,10 +52,17 @@ class PerformanceManager:
     def process(self,id):
         factory=self.app.state.session_factory
         password=''
+        remote_attempted=False;requests=[];owner='performance:'+id
         try:
             with factory.begin() as db:
-                row=db.get(PerformanceRun,id,with_for_update=True)
+                row=db.get(PerformanceRun,id)
                 if not row or row.state not in ACTIVE:return
+                remote_attempted=row.state!='queued'
+                requests=performance_requests(db,row.machine_id,row.snapshot['target_path'])
+                lock_keys(db,requests)
+                row=db.get(PerformanceRun,id,with_for_update=True,populate_existing=True)
+                if row.state not in ACTIVE:return
+                remote_attempted=row.state!='queued'
                 machine=db.get(Machine,row.machine_id)
                 snapshot=row.snapshot
                 if [machine.address,machine.ssh_port,machine.ssh_user]!=snapshot['connection']:
@@ -65,6 +74,8 @@ class PerformanceManager:
                     row.state='cancelled';row.phase='启动前已取消';row.finished_at=now();return
                 if launch and now()>=row.deadline:
                     row.state='failed';row.error='排队期间已超过任务总超时';row.finished_at=now();return
+                if not ensure_leases(db,owner,requests).acquired:
+                    row.phase='等待目标资源释放';return
                 if launch:row.state='running';row.phase='启动远端任务'
                 deadline=row.deadline
             transport=getattr(self.app.state,'performance_transport',Transport)(config)
@@ -74,6 +85,7 @@ class PerformanceManager:
                          'timeout_seconds':max(1,int((deadline-now()).total_seconds())),
                          'cleanup_data':snapshot.get('cleanup_data',False),
                          'tests':[{'id':snapshot['scenarios'][i]['id'] if snapshot.get('scenarios') else t.tool,'spec':t.model_dump(),'custom_script':custom_script(t) if t.tool=='mdtest' else None,'args':argv_for(t,'__DATA__','__OUTPUT__','dtt')[1:]} for i,t in enumerate(specs)]}
+                remote_attempted=True
                 root=transport.start(payload)['root']
                 with factory.begin() as db:db.get(PerformanceRun,id).remote_root=root
             while not self.stop_event.is_set():
@@ -83,6 +95,7 @@ class PerformanceManager:
                 result=transport.poll(id,cancel)
                 if result.get('missing'):raise RuntimeError('远端任务记录不存在，结果未确认；不会自动重新执行')
                 with factory.begin() as db:
+                    lock_keys(db,requests)
                     row=db.get(PerformanceRun,id,with_for_update=True)
                     state=result.get('state')
                     if state not in ('queued','running','success','failed','cancelled','unknown'):raise RuntimeError('远端任务状态格式错误')
@@ -93,14 +106,20 @@ class PerformanceManager:
                     row.error=result.get('error','')[:16000]
                     if 'reports' in result:row.reports=result['reports']
                     elif 'scene_results' in result:row.reports=result['scene_results']
-                    if state not in ('queued','running','unknown'):row.finished_at=now()
+                    if state not in ('queued','running','unknown'):
+                        row.finished_at=now()
+                        release_verified(db,owner,completion_evidence(owner,requests))
                 if state not in ('queued','running'):return
                 self.stop_event.wait(2)
         except Exception as exc:
             with factory.begin() as db:
+                lock_keys(db,requests)
                 row=db.get(PerformanceRun,id)
                 if row and row.state in ACTIVE:
-                    row.state='unknown'
+                    row.state='unknown' if remote_attempted else 'failed'
                     message=str(exc)
                     if password:message=message.replace(password,'[REDACTED]')
-                    row.error='状态采集失败，正在重试；不会重复启动测试。'+message[:2000]
+                    row.error=('状态采集失败，正在重试；不会重复启动测试。' if remote_attempted else '启动前验证失败。')+message[:2000]
+                    if not remote_attempted:
+                        row.finished_at=now()
+                        release_verified(db,owner,completion_evidence(owner,requests))
