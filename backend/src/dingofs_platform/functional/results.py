@@ -49,6 +49,33 @@ def _safe_relative(path: Any) -> bool:
             and value.as_posix() == path and all(ord(c) >= 32 for c in path))
 
 
+def _valid_resource(record: Any) -> bool:
+    if not isinstance(record, dict):
+        return False
+    if any(not isinstance(record.get(key), str) or not record[key]
+           for key in ('id', 'kind', 'cluster')):
+        return False
+    if any(record.get(key) is not None and not isinstance(record[key], str)
+           for key in ('host', 'user', 'name', 'path')):
+        return False
+    port = record.get('port')
+    return (all(key in record for key in ('host', 'user', 'name', 'path',
+                                           'port', 'owned', 'phase', 'remote_identity'))
+            and (port is None or type(port) is int and 1 <= port <= 65535)
+            and type(record['owned']) is bool
+            and record['phase'] in _RESOURCE_PHASES
+            and isinstance(record['remote_identity'], dict))
+
+
+def _resource_update(previous: dict | None, current: dict, *, summary: bool) -> None:
+    if not _valid_resource(current):
+        raise ChildResultError('invalid resource record')
+    if previous and previous['owned'] != current['owned']:
+        raise ChildResultError('resource ownership changed')
+    if summary and previous and previous['phase'] != 'removed' and current['phase'] == 'removed':
+        raise ChildResultError('summary cannot prove resource removal')
+
+
 def _end_proof(snapshot: dict, state: dict) -> bool:
     process = state.get('process')
     proof = state.get('end_proof')
@@ -115,9 +142,11 @@ def evaluate_child(snapshot: dict, events: list[dict], remote_state: dict) -> Ch
     started: set[str] = set()
     final: dict[str, dict[str, Any]] = {}
     attempts: list[dict[str, Any]] = []
+    finished_attempts: dict[tuple[str, int], str] = {}
     resources: dict[str, dict[str, Any]] = {}
     suite: dict | None = None
     report_event: dict | None = None
+    cancelled_event = False
     stage = 'waiting'
     previous_seq = 0
     for item in events:
@@ -148,19 +177,23 @@ def evaluate_child(snapshot: dict, events: list[dict], remote_state: dict) -> Ch
         if kind == 'attempt_finished':
             if data.get('status') not in _STATUSES:
                 raise ChildResultError('invalid attempt status')
+            attempt_key = (path, item['attempt'])
+            if attempt_key in finished_attempts or path in final:
+                raise ChildResultError('duplicate or late finished attempt')
+            finished_attempts[attempt_key] = data['status']
             attempts.append({'case_path': path, 'attempt': item['attempt'],
                              'status': data['status'], 'seq': seq})
         elif kind == 'case_finished':
             if data.get('status') not in _STATUSES or path in final:
                 raise ChildResultError('invalid or duplicate final case')
+            if finished_attempts.get((path, item['attempt'])) != data['status']:
+                raise ChildResultError('final case differs from finished attempt')
             final[path] = {'case_path': path, 'attempt': item['attempt'],
                            'status': data['status']}
         elif kind == 'resource_changed':
             resource = data.get('resource')
-            if (not isinstance(resource, dict) or not isinstance(resource.get('id'), str)
-                    or not resource['id'] or resource.get('phase') not in _RESOURCE_PHASES
-                    or type(resource.get('owned')) is not bool):
-                raise ChildResultError('invalid resource record')
+            _resource_update(resources.get(resource.get('id')) if isinstance(resource, dict) else None,
+                             resource, summary=False)
             resources[resource['id']] = resource
         elif kind == 'suite_finished':
             if suite is not None:
@@ -170,6 +203,8 @@ def evaluate_child(snapshot: dict, events: list[dict], remote_state: dict) -> Ch
             if report_event is not None:
                 raise ChildResultError('duplicate report final event')
             report_event = data
+        elif kind == 'cancelled':
+            cancelled_event = True
     missing = [path for path in cases if path in started and path not in final]
     not_run = [path for path in cases if path not in started and path not in final]
     counts = {name: 0 for name in _COUNTS.values()}
@@ -204,6 +239,7 @@ def evaluate_child(snapshot: dict, events: list[dict], remote_state: dict) -> Ch
             raise ChildResultError('execution targets differ from frozen selection')
         listed = suite.get('results')
         final_rows = []
+        summary_attempts: dict[tuple[str, int], tuple[str, bool]] = {}
         if not isinstance(listed, list):
             protocol_error = True
         else:
@@ -214,32 +250,45 @@ def evaluate_child(snapshot: dict, events: list[dict], remote_state: dict) -> Ch
                         or row.get('status') not in _STATUSES):
                     protocol_error = True
                     continue
+                key = (row['case_path'], row['attempt'])
+                if key in summary_attempts or finished_attempts.get(key) != row['status']:
+                    protocol_error = True
+                summary_attempts[key] = (row['status'], row['final'])
                 if row['final']:
                     final_rows.append(row)
             if (len(final_rows) != len(final) or
                     {row['case_path']: (row['attempt'], row['status']) for row in final_rows} !=
                     {path: (item['attempt'], item['status']) for path, item in final.items()}):
                 protocol_error = True
+            if set(summary_attempts) != set(finished_attempts):
+                protocol_error = True
         retained = suite.get('retained_resources')
         if not isinstance(retained, list):
             protocol_error = True
         else:
             for resource in retained:
-                if isinstance(resource, dict) and resource.get('id'):
-                    resources[resource['id']] = resource
-                else:
-                    protocol_error = True
+                _resource_update(resources.get(resource.get('id')) if isinstance(resource, dict) else None,
+                                 resource, summary=True)
+                resources[resource['id']] = resource
     retained_resources = [item for item in resources.values()
                           if item.get('owned') is True and item.get('phase') != 'removed']
     ended = _end_proof(snapshot, remote_state)
     report_status, report_path = _report(snapshot, remote_state, ended, report_event)
-    cancelled = (suite_status == 'cancelled' or bool(suite and suite.get('cancelled'))
-                 or bool(remote_state.get('cancelled')))
+    cancelled = (cancelled_event or suite_status == 'cancelled'
+                 or bool(suite and suite.get('cancelled'))
+                 or bool(remote_state.get('cancelled'))
+                 or bool(remote_state.get('cancel_requested'))
+                 or bool(remote_state.get('timeout')))
     safe_resources = not retained_resources
     safe_recovery = recovery in ('not_required', 'recovered')
+    ordinary_failure = (suite_status == 'failed' and counts['failed'] > 0
+                        and remote_state.get('returncode') == 1 and not suite_errors)
+    complete_success = (suite_status == 'completed' and remote_state.get('returncode') == 0
+                        and not counts['failed'] and not missing and not not_run and not suite_errors)
     may_continue = (ended and suite is not None and safe_resources
-                    and safe_recovery and cleanup in ('cleaned', 'failed')
-                    and not cancelled and not protocol_error)
+                    and safe_recovery and cleanup == 'cleaned'
+                    and not cancelled and not protocol_error
+                    and (ordinary_failure or complete_success))
     if not ended:
         process = remote_state.get('process') or {}
         if process.get('state') == 'unknown':

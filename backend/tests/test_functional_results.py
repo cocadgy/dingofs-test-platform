@@ -90,9 +90,11 @@ def test_failed_then_passed_attempt_counts_one_final_case():
                     data={'status': 'PASS'}),
               event(3, 'case_finished', case_path='a.yaml', attempt=2,
                     data={'status': 'PASS'}),
-              event(4, 'case_finished', case_path='b.yaml', attempt=1,
+              event(4, 'attempt_finished', case_path='b.yaml', attempt=1,
                     data={'status': 'PASS'}),
-              event(5, 'suite_finished', stage='finished', data=summary(
+              event(5, 'case_finished', case_path='b.yaml', attempt=1,
+                    data={'status': 'PASS'}),
+              event(6, 'suite_finished', stage='finished', data=summary(
                   results=[{'case_path': 'a.yaml', 'attempt': 1, 'final': False,
                             'status': 'FAIL'},
                            {'case_path': 'a.yaml', 'attempt': 2, 'final': True,
@@ -101,14 +103,16 @@ def test_failed_then_passed_attempt_counts_one_final_case():
                             'status': 'PASS'}]))]
     result = evaluate(events=events)
     assert result.child_state == 'success'
-    assert [item['status'] for item in result.attempt_records] == ['FAIL', 'PASS']
+    assert [item['status'] for item in result.attempt_records] == ['FAIL', 'PASS', 'PASS']
     assert result.case_counts['passed'] == 2
 
 
 def test_not_run_is_not_reported_as_failed_case():
-    events = [event(1, 'case_finished', case_path='a.yaml', attempt=1,
+    events = [event(1, 'attempt_finished', case_path='a.yaml', attempt=1,
                     data={'status': 'FAIL'}),
-              event(2, 'suite_finished', stage='finished', data=summary(
+              event(2, 'case_finished', case_path='a.yaml', attempt=1,
+                    data={'status': 'FAIL'}),
+              event(3, 'suite_finished', stage='finished', data=summary(
                   status='failed', passed=0, failed=1, unexecuted=1,
                   results=[{'case_path': 'a.yaml', 'attempt': 1, 'final': True,
                             'status': 'FAIL'}]))]
@@ -117,6 +121,7 @@ def test_not_run_is_not_reported_as_failed_case():
     assert result.not_run == ['b.yaml']
     assert result.case_counts['failed'] == 1
     assert result.child_state == 'failed'
+    assert result.may_continue is True
 
 
 @pytest.mark.parametrize('changes', [
@@ -135,9 +140,11 @@ def test_suite_and_finalizer_failures_prevent_success_even_if_cases_pass(changes
 
 def test_rc_zero_with_missing_final_case_is_not_success():
     events = [event(1, 'case_started', case_path='a.yaml'),
-              event(2, 'case_finished', case_path='b.yaml', attempt=1,
+              event(2, 'attempt_finished', case_path='b.yaml', attempt=1,
                     data={'status': 'PASS'}),
-              event(3, 'suite_finished', stage='finished', data=summary(
+              event(3, 'case_finished', case_path='b.yaml', attempt=1,
+                    data={'status': 'PASS'}),
+              event(4, 'suite_finished', stage='finished', data=summary(
                   passed=1, unexecuted=1,
                   results=[{'case_path': 'b.yaml', 'attempt': 1, 'final': True,
                             'status': 'PASS'}]))]
@@ -174,13 +181,13 @@ def test_unverified_remote_end_is_unknown_and_retains_resources():
     assert result.retained_resources == [resource]
 
 
-def test_failed_cleanup_allows_next_child_only_when_no_owned_resource_left():
+def test_failed_cleanup_blocks_next_child_even_when_no_resource_is_left():
     events = passing_events()
     events[-1] = event(5, 'suite_finished', stage='finished',
                        data=summary(cleanup_status='failed'))
     result = evaluate(events=events)
     assert result.child_state == 'failed'
-    assert result.may_continue is True
+    assert result.may_continue is False
     resource = {'id': 'fs-1', 'kind': 'filesystem', 'cluster': 'cluster',
                 'host': None, 'user': None, 'name': 'fs', 'path': None,
                 'port': None, 'owned': True, 'phase': 'retained',
@@ -261,3 +268,119 @@ def test_expected_execution_targets_are_frozen_and_checked():
     events = passing_events()
     with pytest.raises(ChildResultError):
         evaluate(snapshot=snapshot, events=events)
+
+
+def test_suite_errors_block_continuation_even_when_cases_and_cleanup_pass():
+    events = passing_events()
+    events[-1] = event(5, 'suite_finished', stage='finished',
+                       data=summary(status='failed', suite_errors=1))
+    result = evaluate(events=events, remote_state=ended(1))
+    assert result.child_state == 'failed'
+    assert result.may_continue is False
+
+
+def test_cancelled_event_blocks_success_despite_completed_summary_and_rc_zero():
+    events = passing_events()
+    events.insert(-1, event(5, 'cancelled', stage='cleanup'))
+    events[-1]['seq'] = 6
+    result = evaluate(events=events)
+    assert result.child_state == 'cancelled'
+    assert result.may_continue is False
+
+
+def test_final_case_must_match_finished_attempt_status():
+    from dingofs_platform.functional.results import ChildResultError
+    events = passing_events()
+    events[0]['data']['status'] = 'FAIL'
+    with pytest.raises(ChildResultError):
+        evaluate(events=events)
+
+
+def test_final_case_requires_finished_attempt():
+    from dingofs_platform.functional.results import ChildResultError
+    events = passing_events()
+    del events[0]
+    for seq, item in enumerate(events, 1):
+        item['seq'] = seq
+    with pytest.raises(ChildResultError):
+        evaluate(events=events)
+
+
+def test_summary_must_include_every_nonfinal_attempt():
+    events = [event(1, 'attempt_finished', case_path='a.yaml', attempt=1,
+                    data={'status': 'FAIL'})] + passing_events()
+    for seq, item in enumerate(events, 1):
+        item['seq'] = seq
+    events[1]['attempt'] = 2
+    events[2]['attempt'] = 2
+    events[-1]['data']['results'][0]['attempt'] = 2
+    result = evaluate(events=events)
+    assert result.child_state == 'needs_attention'
+    assert result.may_continue is False
+
+
+def test_summary_cannot_invent_an_extra_nonfinal_attempt():
+    events = passing_events()
+    events[-1]['data']['results'].append({'case_path': 'a.yaml',
+                                           'attempt': 3, 'final': False,
+                                           'status': 'FAIL'})
+    result = evaluate(events=events)
+    assert result.child_state == 'needs_attention'
+    assert result.may_continue is False
+
+
+def resource_record(**changes):
+    resource = {'id': 'fs-1', 'kind': 'filesystem', 'cluster': 'cluster',
+                'host': None, 'user': None, 'name': 'fs', 'path': None,
+                'port': None, 'owned': True, 'phase': 'unknown',
+                'remote_identity': {}}
+    resource.update(changes)
+    return resource
+
+
+def test_summary_cannot_erase_owned_unknown_resource_without_removal_event():
+    from dingofs_platform.functional.results import ChildResultError
+    events = passing_events()
+    events.insert(-1, event(5, 'resource_changed', stage='cleanup',
+                            data={'resource': resource_record()}))
+    events[-1]['seq'] = 6
+    events[-1]['data']['retained_resources'] = [resource_record(
+        owned=False, phase='removed')]
+    with pytest.raises(ChildResultError):
+        evaluate(events=events)
+
+
+@pytest.mark.parametrize('bad', [
+    resource_record(port=True),
+    resource_record(remote_identity=[]),
+    resource_record(kind=''),
+])
+def test_resource_record_types_are_validated(bad):
+    from dingofs_platform.functional.results import ChildResultError
+    events = passing_events()
+    events.insert(-1, event(5, 'resource_changed', stage='cleanup',
+                            data={'resource': bad}))
+    events[-1]['seq'] = 6
+    with pytest.raises(ChildResultError):
+        evaluate(events=events)
+
+
+def test_authoritative_resource_removal_event_allows_clean_completion():
+    events = passing_events()
+    events.insert(-1, event(5, 'resource_changed', stage='cleanup',
+                            data={'resource': resource_record()}))
+    events.insert(-1, event(6, 'resource_changed', stage='cleanup',
+                            data={'resource': resource_record(phase='removed')}))
+    events[-1]['seq'] = 7
+    result = evaluate(events=events)
+    assert result.child_state == 'success'
+    assert result.retained_resources == []
+    assert result.may_continue is True
+
+
+def test_invalid_summary_resource_record_is_refused():
+    from dingofs_platform.functional.results import ChildResultError
+    events = passing_events()
+    events[-1]['data']['retained_resources'] = [resource_record(port=True)]
+    with pytest.raises(ChildResultError):
+        evaluate(events=events)
