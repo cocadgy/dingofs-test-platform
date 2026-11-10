@@ -54,6 +54,7 @@ export function RunList({
               <th>任务名称</th>
               <th>集群</th>
               <th>状态</th>
+              <th>模块进度</th>
               <th>创建时间</th>
               <th>耗时</th>
             </tr>
@@ -73,6 +74,9 @@ export function RunList({
                 <td>
                   <Status state={run.state} />
                 </td>
+                <td>{run.version === 2 && run.children?.length
+                  ? `${run.children.filter((child) => ["success", "failed", "cancelled"].includes(child.state)).length} / ${run.children.length} 模块已结束`
+                  : "—"}</td>
                 <td>{new Date(run.created_at).toLocaleString()}</td>
                 <td>{elapsed(run)}</td>
               </tr>

@@ -58,6 +58,7 @@ test("missing usable storage profile directs user to configuration without submi
 
 
 test("start chooser opens filesystem wizard", () => {
+  vi.mocked(api).mockResolvedValueOnce({ enabled: false });
   const onNavigate = vi.fn();
   render(<GettingStartedPage route="chooser" onNavigate={onNavigate} onDirty={vi.fn()} admin />);
   fireEvent.change(screen.getByLabelText("想做什么"), { target: { value: "filesystem" } });

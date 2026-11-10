@@ -1,5 +1,60 @@
 import { useState } from "react";
-import { Run, Status, elapsed, active, moduleLabels } from "./types";
+import { Run, Status, elapsed, active, moduleLabels, verifiedCaseCounts } from "./types";
+import { ModuleRunDetail } from "./ModuleRunDetail";
+
+function V2RunDetail({ run, busy, onStop, onRerun }: {
+  run: Run; busy: boolean; onStop: () => void; onRerun: (failed: boolean) => void;
+}) {
+  const children = [...(run.children || [])].sort((a, b) => a.position - b.position);
+  const totals = children.map(verifiedCaseCounts);
+  const allCountsKnown = children.length > 0 && totals.every((row) => row !== null);
+  const sum = (key: "passed" | "failed" | "skipped" | "known_bugs" | "completed") =>
+    allCountsKnown ? totals.reduce((value, row) => value + (row?.[key] || 0), 0) : null;
+  const selected = children.reduce((value, child) => value + child.cases.length, 0);
+  const completed = sum("completed");
+  const failures = sum("failed");
+  const suiteErrors = allCountsKnown && children.every((child) => typeof child.result.suite_errors === "number")
+    ? children.reduce((value, child) => value + (child.result.suite_errors || 0), 0) : null;
+  const canManage = run.can_manage === true;
+  const canRerun = canManage && children.length > 0 &&
+    ["success", "failed", "cancelled"].includes(run.state) &&
+    children.every((child) => !["unknown", "needs_attention", "cancelling"].includes(child.state) &&
+      child.execution_targets?.length > 0 && child.execution_targets.every((machine) =>
+        !!machine.machine_id && !!machine.name && !!machine.ip && !!machine.user));
+  return <>
+    <section className="functional-card">
+      <div className="functional-detail-title"><h2>{run.name}</h2><Status state={run.state} /></div>
+      <p>{run.snapshot.cluster_name || run.snapshot.cluster_id || "—"} · 耗时 {elapsed(run)}</p>
+      <div className="functional-stats">
+        <div><strong>{sum("passed") ?? "—"}</strong><span>通过</span></div>
+        <div className={failures ? "has-failure" : ""}><strong>{failures ?? "—"}</strong><span>失败</span></div>
+        <div><strong>{completed === null ? "—" : Math.max(0, selected - completed)}</strong><span>未完成</span></div>
+        <div><strong>{completed === null ? `— / ${selected}` : `${completed} / ${selected}`}</strong><span>已完成用例</span></div>
+      </div>
+      <p>跳过 {sum("skipped") ?? "—"} · 已知问题 {sum("known_bugs") ?? "—"} · 套件错误 {suiteErrors ?? "—"}</p>
+      {completed !== null && selected > 0 && <progress aria-label="用例完成进度" max={selected} value={completed} />}
+      <p>当前阶段：{run.phase || "等待执行"}</p>
+      {run.error && <p role="alert" className="error">{run.error}</p>}
+      <div className="functional-actions">
+        {canManage && ["queued", "running"].includes(run.state) && <button disabled={busy} onClick={onStop}>停止测试（当前用例结束后生效）</button>}
+        {canRerun && <>
+          <button disabled={busy} onClick={() => onRerun(false)}>重跑全部</button>
+          <button disabled={busy || !failures} onClick={() => onRerun(true)}>重跑失败用例</button>
+        </>}
+        <a href="#/start/functional">返回引导配置</a>
+      </div>
+    </section>
+    <section className="functional-card">
+      <h3>模块进度与结果</h3>
+      {children.length ? children.map((child) => <ModuleRunDetail key={child.id} runId={run.id} child={child} />)
+        : <p className="functional-empty">模块详情暂不可用，请稍后刷新。</p>}
+    </section>
+    <section className="functional-card">
+      <h3>任务日志</h3>
+      <pre className="functional-log">{run.log || "等待输出…"}</pre>
+    </section>
+  </>;
+}
 export function RunDetail({
   run,
   busy,
@@ -14,8 +69,9 @@ export function RunDetail({
   const [tab, setTab] = useState("results");
   const [onlyFailed, setOnlyFailed] = useState(false);
   const [query, setQuery] = useState("");
+  if (run.version === 2) return <V2RunDetail run={run} busy={busy} onStop={onStop} onRerun={onRerun} />;
   const cases = run.result?.cases || [];
-  const total = Object.values(run.snapshot.selected).reduce(
+  const total = Object.values(run.snapshot.selected || {}).reduce(
     (n, rows) => n + rows.length,
     0,
   );
@@ -78,18 +134,18 @@ export function RunDetail({
         <div className="functional-actions">
           {active(run.state) ? (
             <button
-              disabled={busy || run.state === "cancelling"}
+              disabled
               onClick={onStop}
             >
               停止测试（当前用例结束后生效）
             </button>
           ) : (
             <>
-              <button disabled={busy} onClick={() => onRerun(false)}>
+              <button disabled onClick={() => onRerun(false)}>
                 重跑全部
               </button>
               <button
-                disabled={busy || !failed.length}
+                disabled
                 onClick={() => onRerun(true)}
               >
                 重跑失败用例
@@ -105,6 +161,7 @@ export function RunDetail({
               )}
             </>
           )}
+          <span className="functional-muted">历史任务只读</span>
         </div>
       </section>
       <section className="functional-card">

@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from "react";
 import { api } from "../../api/client";
+import { requestId } from "../resources/requestId";
 import { LogLoading } from "../remote/LogLoading";
-import { Options, Profile, Run, active } from "./types";
+import { Options, Profile, Run, active, moduleLabels } from "./types";
 import { CaseSelector } from "./CaseSelector";
 import { RunList } from "./RunList";
 import { RunDetail } from "./RunDetail";
@@ -36,6 +37,7 @@ export function FunctionalPage() {
   const [detail, setDetail] = useState<Run>();
   const [busy, setBusy] = useState(false);
   const initialized = useRef(false);
+  const rerunIntent = useRef<{ runId: string; failed: boolean; key: string } | null>(null);
   const id = page && page !== "new" ? page : "";
   const profile = profiles.find((p) => p.id === environment);
   const count = Object.values(selected).reduce((n, rows) => n + rows.length, 0);
@@ -441,6 +443,27 @@ export function FunctionalPage() {
           }
           onRerun={(failed) =>
             void action(async () => {
+              if (detail.version === 2) {
+                if (detail.can_manage !== true || !["success", "failed", "cancelled"].includes(detail.state) ||
+                    !detail.children?.length || detail.children.some((child) =>
+                      ["unknown", "needs_attention", "cancelling"].includes(child.state) ||
+                      !child.execution_targets?.length || child.execution_targets.some((machine) =>
+                        !machine.machine_id || !machine.name || !machine.ip || !machine.user))) return;
+                const scopedChildren = failed ? detail.children.filter((child) => child.result.failed_cases?.length) : detail.children;
+                if (!scopedChildren.length) return;
+                const scope = scopedChildren.map((child) =>
+                  `${moduleLabels[child.module] || child.module}：${child.env_name}；${child.execution_targets.map((machine) =>
+                    `${machine.name} (${machine.ip}, ${machine.user})`).join("、") || "机器待确认"}`).join("\n");
+                if (!window.confirm(`确认重跑${failed ? "失败用例" : "全部用例"}？\n模块与机器范围：\n${scope}`)) return;
+                if (!rerunIntent.current || rerunIntent.current.runId !== detail.id || rerunIntent.current.failed !== failed)
+                  rerunIntent.current = { runId: detail.id, failed, key: requestId() };
+                const next = await api<Run>(
+                  `/functional/runs/${encodeURIComponent(detail.id)}/rerun?failed_only=${failed}`,
+                  "POST", { idempotency_key: rerunIntent.current.key },
+                );
+                navigate(next.id);
+                return;
+              }
               const next = await api<Run>(
                 `/functional/runs/${detail.id}/rerun${failed ? "?failed_only=true" : ""}`,
                 "POST",

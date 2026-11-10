@@ -7,6 +7,7 @@ vi.mock("../../api/client", async (original) => ({ ...await original<typeof impo
 afterEach(() => { cleanup(); vi.mocked(api).mockReset(); });
 
 test("chooser opens guided cluster discovery rather than coming soon", () => {
+  vi.mocked(api).mockResolvedValueOnce({ enabled: false });
   const onNavigate = vi.fn();
   render(<GettingStartedPage route="chooser" onNavigate={onNavigate} onDirty={vi.fn()} />);
   fireEvent.change(screen.getByLabelText("想做什么"), { target: { value: "cluster" } });

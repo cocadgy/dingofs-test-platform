@@ -80,19 +80,82 @@ export type Profile = {
     descriptor?: EnvironmentDescriptor;
   };
 };
+export type MachineIdentity = { machine_id: string; name: string; ip: string; user: string };
+export type FunctionalEventV2 = {
+  version: 2; seq: number; time: string; type: string; stage: string;
+  parent_id: string; child_id: string; module: string;
+  case_path: string | null; attempt: number | null; data: Record<string, unknown>;
+};
+export type ChildResult = {
+  child_state: string; stage: string;
+  case_counts: { passed: number; failed: number; skipped: number; known_bugs: number; completed: number; total: number };
+  case_results: { case_path: string; attempt: number; status: string }[];
+  attempt_records: { case_path: string; attempt: number; status: string; seq: number }[];
+  failed_cases: string[]; missing: string[]; not_run: string[]; suite_errors: number;
+  cleanup_status: string; recovery_status: string;
+  retained_resources: { id: string; kind: string; cluster: string; host: string | null;
+    user: string | null; name: string | null; path: string | null; port: number | null;
+    owned: boolean; phase: string; remote_identity: Record<string, unknown> }[];
+  report_status: "pending" | "missing" | "failed" | "ready";
+  report_path: string | null; may_continue: boolean; end_proof: boolean;
+};
+export type ModuleRunView = {
+  id: string; module: string; position: number; env_name: string; state: string;
+  stage: string; execution_targets: MachineIdentity[]; events: FunctionalEventV2[];
+  environment_snapshot: Record<string, unknown>; cases: string[];
+  started_at: string | null; deadline: string | null; finished_at: string | null;
+  // A newly queued child is currently returned with {} until its first observation.
+  result: Partial<ChildResult>; error: string;
+};
+export function verifiedCaseCounts(child: ModuleRunView): ChildResult["case_counts"] | null {
+  const counts = child.result?.case_counts;
+  const rows = child.result?.case_results;
+  const failedCases = child.result?.failed_cases;
+  const missing = child.result?.missing;
+  const notRun = child.result?.not_run;
+  if (!counts || !Array.isArray(rows) || !Array.isArray(failedCases) ||
+      !Array.isArray(missing) || !Array.isArray(notRun) ||
+      !Array.isArray(child.cases) || new Set(child.cases).size !== child.cases.length) return null;
+  const keys = ["passed", "failed", "skipped", "known_bugs", "completed", "total"] as const;
+  if (keys.some((key) => !Number.isSafeInteger(counts[key]) || counts[key] < 0) ||
+      counts.total !== child.cases.length || counts.completed !== rows.length ||
+      counts.passed + counts.failed + counts.skipped + counts.known_bugs !== counts.completed ||
+      counts.completed + missing.length + notRun.length !== counts.total) return null;
+  const selected = new Set(child.cases);
+  const seen = new Set<string>();
+  const actual = { passed: 0, failed: 0, skipped: 0, known_bugs: 0 };
+  const failedPaths: string[] = [];
+  const categories = { PASS: "passed", FAIL: "failed", SKIP: "skipped", KNOWN_BUG: "known_bugs" } as const;
+  for (const row of rows) {
+    if (!selected.has(row.case_path) || seen.has(row.case_path) || !(row.status in categories)) return null;
+    seen.add(row.case_path);
+    actual[categories[row.status as keyof typeof categories]] += 1;
+    if (row.status === "FAIL") failedPaths.push(row.case_path);
+  }
+  for (const path of [...missing, ...notRun]) {
+    if (!selected.has(path) || seen.has(path)) return null;
+    seen.add(path);
+  }
+  return (Object.keys(actual) as (keyof typeof actual)[]).every((key) => actual[key] === counts[key]) &&
+    failedCases.length === failedPaths.length && failedCases.every((path) => failedPaths.includes(path))
+    ? counts : null;
+}
 export type Run = {
   id: string;
   name: string;
   state: string;
   phase: string;
   progress: number;
+  version?: number;
+  can_manage?: boolean;
+  children?: ModuleRunView[];
   error: string;
   log?: string;
   result?: {
     cases?: { module: string; case: string; status: string; time?: string }[];
   };
   snapshot: {
-    selected: Record<string, string[]>;
+    selected?: Record<string, string[]>;
     cluster_id?: string;
     cluster_name?: string;
     environment_name?: string;
@@ -101,12 +164,13 @@ export type Run = {
   finished_at?: string;
 };
 export const active = (state: string) =>
-  ["queued", "running", "cancelling", "unknown"].includes(state);
+  ["queued", "running", "cancelling", "unknown", "needs_attention"].includes(state);
 export const stateLabels: Record<string, string> = {
   queued: "等待执行",
   running: "运行中",
   cancelling: "正在停止",
   unknown: "状态待确认",
+  needs_attention: "需要人工处理",
   success: "通过",
   failed: "失败",
   cancelled: "已停止",
