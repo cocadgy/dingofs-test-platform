@@ -16,7 +16,7 @@ def copy_trusted_protocol(root: Path) -> None:
         pytest.skip('set FUNCTIONAL_CONTRACTS_TEST_ROOT to the reviewed framework checkout')
     source = Path(configured)
     for relative in (
-        'src/config/__init__.py', 'src/config/models.py', 'src/config/env_parser.py',
+        'src/config/__init__.py', 'src/config/models.py', 'src/config/env_parser.py', 'src/config/command_utils.py',
         'src/config/environment_contracts.py', 'src/test_runner/__init__.py',
         'src/test_runner/models.py', 'src/test_runner/functional_contracts.py',
         'src/test_runner/functional_capabilities.py', 'src/test_runner/owned_workloads.py',

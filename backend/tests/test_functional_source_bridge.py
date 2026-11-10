@@ -205,3 +205,47 @@ def test_real_fixed_policy_dependency_is_available_to_inspector(trusted_source):
     (cases / 'fixture.yaml').write_text('case_name: fixed\nsteps: []\n')
     descriptor = inspect(trusted_source, {'client': ['testcases/client_test_cases/fixture.yaml']})
     assert 'client' in descriptor.modules
+
+
+@pytest.mark.parametrize('credential,user,password,matches,mode', [
+    ('  worker/fixture-secret  ', 'worker', 'fixture-secret', True, 'password'),
+    ('  worker/fixture-secret  ', 'worker', 'fixture-secret  ', False, 'password'),
+    ('  worker / fixture/secret  ', 'worker ', ' fixture/secret', True, 'password'),
+    ('  worker/  ', 'worker', '', False, 'missing'),
+])
+def test_projection_authentication_uses_runtime_credential_whitespace_semantics(
+        trusted_source, credential, user, password, matches, mode):
+    from dingofs_platform.functional.source_bridge import project_source
+    path = trusted_source / 'conf/env/base.yaml'
+    path.write_text(path.read_text().replace('worker/password-do-not-display', json.dumps(credential)))
+    value = project_source(trusted_source, 'env_Original', authentication=[{'user': user, 'value': password}])
+    assert value['execution']['user'] == user
+    assert value['execution']['authentication_matches'] is matches
+    assert value['execution']['authentication_mode'] == mode
+    assert value['execution']['source_auth_present'] is (mode == 'password')
+    assert 'fixture-secret' not in json.dumps(value) and 'fixture/secret' not in json.dumps(value)
+
+
+def test_projection_omits_flags_with_raw_or_normalized_runtime_password(trusted_source):
+    from dingofs_platform.functional.source_bridge import project_source
+    path = trusted_source / 'conf/env/base.yaml'
+    content = path.read_text().replace('worker/password-do-not-display', json.dumps('  worker/fixture-secret  '))
+    content = content.replace('client_count: 2', '''client_count: 2
+      client_conf: {--normalized: prefix-fixture-secret-tail, --raw: "prefix-fixture-secret  -tail", --safe: ok}''')
+    content = content.replace('remote_cache_count: 3', '''remote_cache_count: 3
+      remote_cache_conf: {--normalized: fixture-secret, --raw: "fixture-secret  ", --safe: ok}''')
+    path.write_text(content)
+    value = project_source(trusted_source, 'env_Original')
+    assert value['settings']['clients'][0]['client_conf'] == {'--safe': 'ok'}
+    assert value['settings']['remote_caches'][0]['remote_cache_conf'] == {'--safe': 'ok'}
+    assert value['omitted'] and 'fixture-secret' not in json.dumps(value)
+
+
+def test_projection_rejects_other_scalars_with_normalized_runtime_password(trusted_source):
+    from dingofs_platform.functional.source_bridge import project_source
+    path = trusted_source / 'conf/env/base.yaml'
+    path.write_text(path.read_text().replace('worker/password-do-not-display', json.dumps('  worker/fixture-secret  '))
+        .replace('/mnt/original', '/mnt/fixture-secret'))
+    with pytest.raises(ValueError, match='invalid environment projection') as error:
+        project_source(trusted_source, 'env_Original')
+    assert 'fixture-secret' not in str(error.value)

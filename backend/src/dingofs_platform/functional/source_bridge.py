@@ -171,10 +171,12 @@ _PROJECTION = _BOOTSTRAP.rsplit("runpy.run_module(", 1)[0] + r'''
 import json, re, hmac
 from dataclasses import asdict
 from src.config.env_parser import parse_environment
+from src.config.command_utils import parse_run_as_user
 request = json.load(sys.stdin)
 env = parse_environment(request['env_name'], conf_dir=request['source_root'] + '/conf')
 if env is None: raise ValueError('missing environment')
-sensitive = [env.run_as_user.partition('/')[2]]
+user, secret = parse_run_as_user(env.run_as_user)
+sensitive = [env.run_as_user.partition('/')[2], secret]
 if env.storage and env.storage.s3: sensitive.extend((env.storage.s3.s3_ak, env.storage.s3.s3_sk))
 if env.storage and env.storage.rados: sensitive.append(env.storage.rados.rados_key)
 sensitive = [value for value in sensitive if value]
@@ -208,16 +210,15 @@ while position < len(env.remote_caches):
     indices[first.host] = start + count
     caches.append({'machine_id': '', 'remote_cache_count': count, 'remote_cache_conf': flags(first.remote_cache_conf)})
     position += count
-user, separator, secret = env.run_as_user.partition('/')
 storage = env.storage
 storage_ready = bool(storage and (
     storage.storage_type == 's3' and storage.s3 and all((storage.s3.s3_ak, storage.s3.s3_sk, storage.s3.s3_endpoint, storage.s3.s3_bucketname))
     or storage.storage_type == 'rados' and storage.rados and all((storage.rados.rados_username, storage.rados.rados_key, storage.rados.rados_mon, storage.rados.rados_poolname))))
-execution = {'user': user.strip(), 'declared_ssh_user': env.ssh_user,
-    'source_auth_present': bool(separator and secret or env.ssh_identity_file), 'storage_ready': storage_ready,
-    'authentication_mode': 'key' if env.ssh_identity_file else ('password' if separator and secret else 'missing'),
-    'authentication_matches': bool(not env.ssh_identity_file and separator and secret and request.get('authentication') and all(
-        item['user'] == user.strip() and hmac.compare_digest(item['value'].encode(), secret.encode())
+execution = {'user': user, 'declared_ssh_user': env.ssh_user,
+    'source_auth_present': bool(secret or env.ssh_identity_file), 'storage_ready': storage_ready,
+    'authentication_mode': 'key' if env.ssh_identity_file else ('password' if secret else 'missing'),
+    'authentication_matches': bool(not env.ssh_identity_file and secret and request.get('authentication') and all(
+        item['user'] == user and hmac.compare_digest(item['value'].encode(), secret.encode())
         for item in request.get('authentication', []))),
     'command_host': env.host or env.mds_addr.split(',')[0].rsplit(':', 1)[0],
     'mds_node_count': env.mds_node_count,
