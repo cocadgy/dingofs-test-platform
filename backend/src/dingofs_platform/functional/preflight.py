@@ -26,12 +26,13 @@ from dingofs_platform.inventory.models import Cluster, Machine
 from dingofs_platform.inventory.permissions import require_manage
 from dingofs_platform.inventory.ssh_transport import SSHConfig, execute
 from dingofs_platform.operations.leases import check_conflicts, functional_requests
+from dingofs_platform.operations.models import OperationLease
 from dingofs_platform.resources.external_cache import machine_addresses
 from dingofs_platform.tool_packages.models import ToolJob
 from .catalog import MODULE_DIRS, catalogue
 from .contracts import EnvironmentDescriptor
 from .environments.models import FunctionalEnvironmentProfile as Profile
-from .models import FunctionalPreflight
+from .models import FunctionalPreflight, FunctionalRun, ACTIVE
 from .schemas import RunSpec
 from .source_bridge import inspect_source, project_source
 from .submission import NormalizedSubmission, _digest, normalize_submission
@@ -339,9 +340,9 @@ def _source_version_matches(root, runtime):
         return False
 
 
-def _evaluate(db, actor, request, pinned=None, owner=None):
+def _evaluate(db, actor, request, pinned=None, owner=None, *, admitted=False):
     settings = _settings(db)
-    if not settings.functional_guided_enabled:
+    if not settings.functional_guided_enabled and not admitted:
         raise Problem(503, 'guided_runs_disabled', '引导功能测试尚未启用')
     # Inventory/permission mutations use this same lock. Keep it before fresh
     # authorization and before sorted lease locks, including direct worker calls.
@@ -376,6 +377,11 @@ def _evaluate(db, actor, request, pinned=None, owner=None):
                 impacts.append({'module': module, 'description': impact})
     requests = functional_requests(db, cluster.id, control.id, request.environment_snapshots.values(), actor=fresh_actor)
     conflicts = check_conflicts(db, requests, owner)
+    if admitted:
+        held = {(lease.key, lease.mode) for lease in db.scalars(select(OperationLease).where(
+            OperationLease.owner == owner, OperationLease.released_at.is_(None), OperationLease.depth > 0))}
+        if any((item.key, item.mode) not in held for item in requests):
+            raise Problem(409, 'preflight_changed', '已接收任务的资源占用未确认')
     check('resource_available', not conflicts, conflicts=[{'key': c.key, 'owner': c.owner, 'reason': c.reason} for c in conflicts])
     for (host, user), machine in targets.items():
         check('authentication_supported', bool(user) and user == machine.ssh_user and bool(machine.ssh_password_ciphertext),
@@ -536,12 +542,21 @@ def validate_preflight(db, actor, request: NormalizedSubmission, token: str, con
     return {'preflight_id': row.id, 'runtime_binding': binding}
 
 
-def revalidate_binding(db, actor, request, binding, *, owner=None):
+def revalidate_binding(db, actor, request, binding, *, owner=None, admitted_run_id=None):
     """Task10 queue-start gate. Rechecks frozen path, permissions and sources."""
     if not binding:
         raise Problem(409, 'preflight_changed', '固定运行时绑定缺失')
+    # Only an already persisted parent may cross a now-closed creation gate.
+    # All ordinary preflight/submit/rerun callers retain the default closed gate.
+    if admitted_run_id is not None:
+        parent = db.get(FunctionalRun, admitted_run_id)
+        if (not parent or parent.version != 2 or parent.state not in ACTIVE
+                or parent.creator_id != actor.id or parent.request_digest != request.request_digest
+                or parent.snapshot.get('runtime_binding') != binding or owner != 'functional:' + parent.id):
+            raise Problem(409, 'preflight_changed', '已接收任务身份与固定绑定不匹配')
     try:
-        checks, _, actual = _evaluate(db, actor, request, pinned=binding, owner=owner)
+        checks, _, actual = _evaluate(db, actor, request, pinned=binding, owner=owner,
+                                     admitted=admitted_run_id is not None)
     except Problem:
         raise
     except Exception:

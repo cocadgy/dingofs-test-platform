@@ -124,7 +124,8 @@ def advance_parent(db: Session, run_id: str) -> DispatchDecision:
                 actor = db.get(User, parent.creator_id)
                 request = NormalizedSubmission.model_validate({k: v for k, v in parent.snapshot.items()
                                                               if k in NormalizedSubmission.model_fields})
-                revalidate_binding(db, actor, request, parent.snapshot.get('runtime_binding'), owner=owner)
+                revalidate_binding(db, actor, request, parent.snapshot.get('runtime_binding'), owner=owner,
+                                   admitted_run_id=parent.id)
             except Exception:
                 _not_run(child, '启动前复检失败，请重新预检；尚未启动此模块。')
                 child.state = 'failed'

@@ -309,9 +309,10 @@ def detail(id:str,request:Request,user=Depends(current_user)):
 @router.post('/runs/{id}/stop')
 def stop(id:str,request:Request,user=Depends(current_user)):
     with get_db(request) as db,db.begin():
+        actor=actor_in_transaction(db,request)
         row=db.get(FunctionalRun,id,with_for_update=True)
         if not row:raise Problem(404,'not_found','任务不存在')
-        require_manage(actor_in_transaction(db,request),row)
+        require_manage(actor,row)
         if row.state not in ACTIVE:raise Problem(409,'not_running','任务已经结束')
         row.cancel_requested=True;row.phase='正在停止：等待当前用例结束'
         return view(row,True,user)

@@ -3,7 +3,7 @@ import copy
 import json
 
 import pytest
-from sqlalchemy import select
+from sqlalchemy import event, select
 
 from test_functional_preflight import ready, invoke, deny_real_ssh
 from dingofs_platform.functional.models import FunctionalRun, FunctionalPreflight, FunctionalModuleRun
@@ -77,16 +77,107 @@ def test_child_history_uses_frozen_route_names_and_v2_legacy_routes_fail_actiona
     assert admin.get('/api/v1/functional/runs/' + run_id + '/report/index.html').status_code == 409
 
 
-def test_real_queue_revalidation_blocks_drift_without_launch(admin, app, ready):
+@pytest.mark.parametrize('enabled', [True, False])
+def test_real_queue_revalidation_blocks_drift_without_launch(admin, app, ready, enabled):
     value = admin.post('/api/v1/functional/runs', json=body(app, ready))
     assert value.status_code == 202, value.text
     run_id = value.json()['id']
     ready[2].fingerprint = 'd' * 64
+    app.state.settings.functional_guided_enabled = enabled
     app.state.functional_manager.process(run_id)
     with app.state.session_factory() as db:
         child = db.scalar(select(FunctionalModuleRun).where(FunctionalModuleRun.run_id == run_id))
         assert child.launch_attempted_at is None
         assert db.get(FunctionalRun, run_id).state == 'failed'
+
+
+@pytest.mark.parametrize('cancel', [False, True])
+@pytest.mark.parametrize('dispatch', ['direct', 'monitor'])
+def test_disabled_creation_gate_still_settles_queued_run(admin, app, ready, monkeypatch, cancel, dispatch):
+    created = admin.post('/api/v1/functional/runs', json=body(app, ready))
+    assert created.status_code == 202, created.text
+    run_id = created.json()['id']
+    if cancel:
+        assert admin.post('/api/v1/functional/runs/' + run_id + '/stop').status_code == 200
+    app.state.settings.functional_guided_enabled = False
+    launches = []
+    class Fake:
+        def __init__(self, config): pass
+        def start_child(self, payload): launches.append(payload['child_id'])
+        def poll_child(self, payload, cursor, cancel=False):
+            return {'missing': True, 'cursor_before': cursor}
+    app.state.functional_transport = Fake
+    manager = app.state.functional_manager
+    if dispatch == 'direct':
+        manager.process(run_id)
+    else:
+        from concurrent.futures import Future
+        class ImmediatePool:
+            def submit(self, function, *args):
+                future = Future()
+                future.set_result(function(*args))
+                return future
+        manager.pool = ImmediatePool()
+        monkeypatch.setattr(manager.stop_event, 'wait', lambda timeout: manager.stop_event.set())
+        manager.loop()
+        manager.pool = None
+    with app.state.session_factory() as db:
+        row = db.get(FunctionalRun, run_id)
+        assert row.state == ('cancelled' if cancel else 'unknown')
+        child = db.scalar(select(FunctionalModuleRun).where(FunctionalModuleRun.run_id == run_id))
+        assert (child.launch_attempted_at is None) is cancel
+        assert (row.finished_at is not None) is cancel
+    assert len(launches) == (0 if cancel else 1)
+
+
+def test_stop_acquires_account_lock_before_parent_lock(admin, app, ready):
+    created = admin.post('/api/v1/functional/runs', json=body(app, ready))
+    assert created.status_code == 202, created.text
+    statements = []
+    def capture(connection, cursor, statement, parameters, context, executemany):
+        statements.append(statement)
+    event.listen(app.state.engine, 'before_cursor_execute', capture)
+    try:
+        stopped = admin.post('/api/v1/functional/runs/' + created.json()['id'] + '/stop')
+    finally:
+        event.remove(app.state.engine, 'before_cursor_execute', capture)
+    assert stopped.status_code == 200, stopped.text
+    assert stopped.json()['cancel_requested'] is True
+    account = next(i for i, sql in enumerate(statements) if 'pg_advisory_xact_lock(7412082)' in sql)
+    parent = next(i for i, sql in enumerate(statements) if 'functional_runs' in sql and 'FOR UPDATE' in sql)
+    assert account < parent, 'Stop must match the scheduler account-before-parent lock order'
+
+
+@pytest.mark.parametrize('mismatch', ['missing_parent', 'actor', 'digest', 'binding', 'owner', 'lease'])
+def test_disabled_gate_admission_requires_exact_persisted_parent_and_leases(admin, app, ready, mismatch):
+    from dingofs_platform.auth.models import User
+    from dingofs_platform.errors import Problem
+    from dingofs_platform.functional.preflight import revalidate_binding
+    from dingofs_platform.functional.scheduler import lease_requests
+    from dingofs_platform.functional.submission import NormalizedSubmission
+    from dingofs_platform.operations.leases import ensure_leases
+    created = admin.post('/api/v1/functional/runs', json=body(app, ready))
+    assert created.status_code == 202, created.text
+    run_id = created.json()['id']
+    app.state.settings.functional_guided_enabled = False
+    with app.state.session_factory.begin() as db:
+        db.info['functional_settings'] = app.state.settings
+        db.info['functional_preflight_transport'] = ready[2]
+        parent = db.get(FunctionalRun, run_id)
+        request = NormalizedSubmission.model_validate({key: value for key, value in parent.snapshot.items()
+                                                       if key in NormalizedSubmission.model_fields})
+        actor = db.scalar(select(User).where(User.username == ('member' if mismatch == 'actor' else 'admin')))
+        binding = copy.deepcopy(parent.snapshot['runtime_binding'])
+        owner = 'functional:' + run_id
+        if mismatch != 'lease':
+            assert ensure_leases(db, owner, lease_requests(parent)).acquired
+        if mismatch == 'digest': request = request.model_copy(update={'request_digest': '0' * 64})
+        if mismatch == 'binding': binding['immutable_path'] = '/opt/changed/dtt'
+        if mismatch == 'owner': owner = 'functional:another-parent'
+        with pytest.raises(Problem) as error:
+            revalidate_binding(db, actor, request, binding, owner=owner,
+                               admitted_run_id='missing' if mismatch == 'missing_parent' else run_id)
+        assert error.value.code == 'preflight_changed'
 
 
 def test_same_environment_children_freeze_exact_single_module_manifests(admin, app, ready, tmp_path):

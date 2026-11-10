@@ -5,7 +5,7 @@ import logging
 import json
 import shlex
 import threading
-from sqlalchemy import select,or_
+from sqlalchemy import select
 from dingofs_platform.inventory.models import Machine
 from dingofs_platform.storage.service import resolve as resolve_storage
 from .environments.render import render_environment
@@ -43,8 +43,6 @@ class FunctionalManager:
                 self.running={id:f for id,f in self.running.items() if not f.done()}
                 with self.app.state.session_factory() as db:
                     query=select(FunctionalRun.id).where(FunctionalRun.state.in_(ACTIVE))
-                    if not self.app.state.settings.functional_guided_enabled:
-                        query=query.where(or_(FunctionalRun.version==1,FunctionalRun.state!='queued'))
                     ids=list(db.scalars(query.order_by(FunctionalRun.updated_at)))
                 for id in ids:
                     if len(self.running)>=4:break
@@ -55,7 +53,7 @@ class FunctionalManager:
         with self.app.state.session_factory() as db:
             row=db.get(FunctionalRun,id)
             if row and row.version==2:
-                if self.app.state.settings.functional_guided_enabled or row.state!='queued':self.process_guided(id)
+                self.process_guided(id)
                 return
         factory=self.app.state.session_factory;password='';secrets=[];remote_attempted=False
         requests=[];owner='functional:'+id
