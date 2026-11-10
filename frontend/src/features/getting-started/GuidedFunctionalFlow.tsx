@@ -41,9 +41,16 @@ export function GuidedFunctionalFlow({userId,onNavigate,onDirty}:GuidedFunctiona
   const [busy,setBusy] = useState(false);
   const [changed,setChanged] = useState(false);
   const [loading,setLoading] = useState(true);
+  const [submittedRun,setSubmittedRun] = useState("");
   const lastSaved = useRef("");
   const submitKey = useRef("");
   const draft = useFunctionalDraft(userId,requestedDraft());
+
+  // Navigate after clearing the parent's dirty state has committed. A timer
+  // would keep the pre-submit callback and incorrectly ask to leave a draft.
+  useEffect(() => {
+    if (submittedRun) onNavigate(`#/functional/${encodeURIComponent(submittedRun)}`);
+  },[submittedRun,onNavigate]);
 
   useEffect(() => {
     let live=true;
@@ -225,7 +232,7 @@ export function GuidedFunctionalFlow({userId,onNavigate,onDirty}:GuidedFunctiona
         confirmed_impacts:confirmed,draft_id:row.id,draft_revision:row.revision,
       });
       onDirty(false);
-      window.setTimeout(() => onNavigate(`#/functional/${encodeURIComponent(result.id)}`),0);
+      setSubmittedRun(result.id);
     } catch (reason) {setError(message(reason));}
     finally {setBusy(false);}
   }

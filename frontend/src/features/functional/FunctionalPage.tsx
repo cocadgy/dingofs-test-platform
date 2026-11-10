@@ -36,6 +36,7 @@ export function FunctionalPage() {
   const [error, setError] = useState("");
   const [detail, setDetail] = useState<Run>();
   const [busy, setBusy] = useState(false);
+  const [verification, setVerification] = useState("");
   const initialized = useRef(false);
   const rerunIntent = useRef<{ runId: string; failed: boolean; key: string } | null>(null);
   const id = page && page !== "new" ? page : "";
@@ -44,6 +45,7 @@ export function FunctionalPage() {
   function navigate(next: string) {
     rerunIntent.current = null;
     setDetail(undefined);
+    setVerification("");
     setError("");
     window.location.hash =
       "#/functional" + (next ? "/" + encodeURIComponent(next) : "");
@@ -54,6 +56,7 @@ export function FunctionalPage() {
     const sync = () => {
       if (rerunIntent.current && route() !== rerunIntent.current.runId) rerunIntent.current = null;
       setPage(route());
+      setVerification("");
       setDraftId(window.location.hash.split("/")[3]||"");
       setError("");
     };
@@ -437,6 +440,18 @@ export function FunctionalPage() {
           key={id}
           run={detail}
           busy={busy}
+          verification={verification}
+          onVerifyResources={() => void action(async () => {
+            setVerification("");
+            const checked = await api<{ remaining_resources: string[]; remote_ended: boolean; recovery_ok: boolean }>(
+              `/functional/runs/${encodeURIComponent(detail.id)}/resources/verify`, "POST");
+            setDetail(await api<Run>(`/functional/runs/${encodeURIComponent(detail.id)}`));
+            setVerification(checked.remaining_resources.length
+              ? `仍有 ${checked.remaining_resources.length} 项资源未确认释放；本次仅检查，未执行清理。`
+              : checked.remote_ended && checked.recovery_ok
+                ? "已确认资源释放；本次仅检查，未执行清理。"
+                : "结束或恢复证据尚未确认；本次未执行清理。");
+          })}
           onStop={() =>
             void action(async () => {
               await api(`/functional/runs/${detail.id}/stop`, "POST");

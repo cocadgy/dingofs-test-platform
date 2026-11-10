@@ -217,10 +217,17 @@ def test_submission_permission_is_enforced(app, ready):
     assert denied.value.status == 403
 
 
-def test_v2_endpoint_is_default_closed_and_requires_real_source_and_csrf(admin, app, ready):
+def test_v2_endpoint_is_default_closed_and_requires_real_source_and_csrf(admin, app, ready, tmp_path):
     api()
     response = admin.post('/api/v1/functional/runs', json=ready[0])
     assert response.status_code == 503
+    # The runtime ABI is installed, but this synthetic submission's cases and
+    # environment are absent: request validation must still reject them.
+    from functional_source_fixture import copy_trusted_protocol
+    copy_trusted_protocol(tmp_path)
+    (tmp_path / 'testcases').mkdir()
+    (tmp_path / 'conf/env').mkdir(parents=True)
+    app.state.settings.functional_source_root = tmp_path / 'testcases'
     app.state.settings.functional_guided_enabled = True
     rejected = admin.post('/api/v1/functional/runs', json=ready[0])
     assert rejected.status_code == 422

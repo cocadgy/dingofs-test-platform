@@ -82,6 +82,7 @@ def ready(admin, app, tmp_path):
         db.get(Cluster, cluster['id']).status_snapshot = {'mds_addresses': ['node1.test:6900']}
         target = db.get(Machine, control['id'])
         target.address, target.aliases = '192.0.2.1', ['node1.test']
+        control = {**control, 'address': target.address, 'aliases': list(target.aliases)}
     assert admin.post('/api/v1/functional/environments/sync-predefined').status_code == 200
     profiles = admin.get('/api/v1/functional/environments').json()
     profile = next(p for p in profiles if p['source_key'] == 'env_ready')

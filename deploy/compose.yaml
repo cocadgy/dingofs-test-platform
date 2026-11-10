@@ -35,6 +35,9 @@ services:
       PLATFORM_TOOL_DEPLOY_TIMEOUT: ${PLATFORM_TOOL_DEPLOY_TIMEOUT:-1800}
       PLATFORM_DASHBOARD_MONITOR_ENABLED: "true"
       PLATFORM_PERFORMANCE_WORKER_ENABLED: "true"
+      PLATFORM_FUNCTIONAL_WORKER_ENABLED: "true"
+      PLATFORM_GUIDED_FUNCTIONAL_ENABLED: ${PLATFORM_GUIDED_FUNCTIONAL_ENABLED:-false}
+      PLATFORM_FUNCTIONAL_SOURCE_ROOT: /app/integration-test/testcases
       PLATFORM_COOKIE_SECURE: ${PLATFORM_COOKIE_SECURE:-true}
       PLATFORM_CREDENTIAL_ENCRYPTION_KEY: ${PLATFORM_CREDENTIAL_ENCRYPTION_KEY:-}
       PLATFORM_SSH_KNOWN_HOSTS: /app/deploy/ssh/known_hosts
@@ -58,7 +61,12 @@ services:
       - cache-binaries:/var/lib/dingofs-platform/cache-binaries
       - ./ssh:/app/deploy/ssh:ro
       - ../tool-bundles:/app/tool-bundles:ro
-      - ${PLATFORM_INTEGRATION_SOURCE:-../../dingofs-testsuite-tool/dingofs-integration-test}:/app/integration-test:ro
+      - type: bind
+        source: ${PLATFORM_INTEGRATION_SOURCE:?Set immutable reviewed integration source directory}
+        target: /app/integration-test
+        read_only: true
+        bind:
+          create_host_path: false
     command: [uvicorn, dingofs_platform.app:create_app, --factory, --host, 0.0.0.0, --port, '8000', --proxy-headers, --forwarded-allow-ips, '*']
     depends_on:
       migrate:

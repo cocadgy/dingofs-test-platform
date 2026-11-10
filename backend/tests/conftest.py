@@ -9,7 +9,9 @@ from dingofs_platform.auth.service import create_user
 
 
 @pytest.fixture
-def app():
+def app(monkeypatch):
+    # ORM API fixtures do not migrate; release tests restore the real check.
+    monkeypatch.setattr('dingofs_platform.app._check_guided_migration', lambda connection: None)
     url = os.environ["TEST_DATABASE_URL"]
     parsed = make_url(url)
     assert parsed.database.endswith("_test") and parsed.host in (

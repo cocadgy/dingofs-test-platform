@@ -34,6 +34,16 @@ from .resources.routes import router as resources
 from .mount_profiles.routes import router as mount_profiles
 from .cache_profiles.routes import router as cache_profiles
 from .storage.routes import router as storage
+from time import monotonic
+from threading import Lock
+import logging
+from starlette.concurrency import run_in_threadpool
+
+
+def _check_guided_migration(connection):
+    revisions = set(connection.scalars(text('SELECT version_num FROM alembic_version')))
+    if revisions != {'7b1c9e4a602d'}:
+        raise ValueError('guided migration is unavailable')
 
 
 def create_app(settings=None):
@@ -43,11 +53,17 @@ def create_app(settings=None):
     async def lifespan(app):
         preset_root=settings.functional_source_root.parent/'conf/env'
         if preset_root.is_dir():
-            with app.state.session_factory.begin() as db:
-                sync_predefined(db,preset_root)
+            try:
+                with app.state.session_factory.begin() as db:
+                    sync_predefined(db,preset_root)
+            except (OSError, ValueError):
+                # Optional source refresh must not remove history/worker access.
+                # Enabled readiness still rejects an unavailable source ABI.
+                logging.getLogger(__name__).warning('Functional source refresh unavailable')
         app.state.remote_manager.startup()
         if settings.performance_worker_enabled:
             app.state.performance_manager.start()
+        if settings.performance_worker_enabled or settings.functional_worker_enabled:
             app.state.functional_manager.start()
         if settings.dashboard_monitor_enabled:
             app.state.dashboard_monitor.start()
@@ -70,10 +86,72 @@ def create_app(settings=None):
         settings.database_url, pool_pre_ping=True, connect_args={"connect_timeout": 3}
     )
     app.state.session_factory = sessionmaker(app.state.engine, expire_on_commit=False)
+    source_check = {'key': None, 'expires': 0.0}
+    source_check_lock = Lock()
+
+    def check_guided_readiness():
+        """Check installed schema and pure source ABI without remote probes.
+
+        Source imports are bounded and cached for 30 seconds. Preflight still
+        independently rehashes its exact source. Schema checks are uncached.
+        """
+        from sqlalchemy import select
+        from .functional.models import (FunctionalRun, FunctionalModuleRun,
+            FunctionalPreflight, FunctionalEvent, FunctionalResource)
+        from .operations.models import OperationLease
+        from .functional.drafts import Draft
+        from .functional.source_bridge import inspect_source
+        with app.state.engine.connect() as connection:
+            for model in (FunctionalRun, FunctionalModuleRun, FunctionalPreflight,
+                          FunctionalEvent, FunctionalResource, Draft, OperationLease):
+                connection.execute(select(model).limit(0))
+            _check_guided_migration(connection)
+        root = settings.functional_source_root.parent
+        entry = root / 'src/test_runner/functional_contracts.py'
+        key = (str(root), entry.stat().st_mtime_ns, entry.stat().st_size)
+        if not settings.functional_source_root.is_dir() or not (root / 'conf/env').is_dir():
+            raise ValueError('guided source is unavailable')
+        with source_check_lock:
+            if source_check['key'] == key and source_check['expires'] > monotonic():
+                return
+            # Missing environment exercises imports and wire schema without
+            # falsely advertising any module/environment as supported.
+            inspect_source(root, '__platform_readiness__', {})
+            source_check.update(key=key, expires=monotonic() + 30)
 
     @app.middleware("http")
     async def request_identity(request, call_next):
         request.state.request_id = str(uuid4())
+        path = request.url.path
+        guarded = path in ('/api/v1/functional/guided/metadata',
+                           '/api/v1/functional/guided/compatibility',
+                           '/api/v1/functional/preflight')
+        if request.method == 'POST' and path == '/api/v1/functional/runs':
+            try:
+                guarded = (await request.json()).get('version') == 2
+            except (ValueError, AttributeError):
+                pass
+        if (request.method == 'POST' and path.startswith('/api/v1/functional/runs/')
+                and path.endswith('/rerun')):
+            try:
+                guarded = 'idempotency_key' in (await request.json())
+            except (ValueError, TypeError):
+                pass
+        if settings.functional_guided_enabled and guarded:
+            try:
+                # Preserve authentication/CSRF precedence over capability checks.
+                from .auth.dependencies import current_user
+                await run_in_threadpool(current_user, request)
+                await run_in_threadpool(check_guided_readiness)
+            except Problem as exc:
+                return JSONResponse(status_code=exc.status, content={
+                    'code': exc.code, 'message': exc.message, 'details': exc.details},
+                    headers={'X-Request-ID': request.state.request_id})
+            except (SQLAlchemyError, OSError, ValueError):
+                return JSONResponse(status_code=503, content={
+                    'code': 'guided_runtime_unavailable',
+                    'message': '引导功能测试迁移或源契约不可用', 'details': {}},
+                    headers={'X-Request-ID': request.state.request_id})
         response = await call_next(request)
         response.headers["X-Request-ID"] = request.state.request_id
         return response
@@ -119,8 +197,11 @@ def create_app(settings=None):
         try:
             with app.state.engine.connect() as db:
                 db.execute(text("SELECT 1"))
+            if settings.functional_guided_enabled:
+                check_guided_readiness()
+                return {"status": "ok", "guided_functional": "ready"}
             return {"status": "ok"}
-        except SQLAlchemyError:
+        except (SQLAlchemyError, OSError, ValueError):
             return JSONResponse(status_code=503, content={"status": "unavailable"})
 
     app.include_router(auth)

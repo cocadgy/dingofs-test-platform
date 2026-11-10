@@ -4,7 +4,7 @@ from pydantic import field_validator, Field
 
 
 class Settings(BaseSettings):
-    model_config = SettingsConfigDict(env_prefix="PLATFORM_", extra="ignore")
+    model_config = SettingsConfigDict(env_prefix="PLATFORM_", extra="ignore", populate_by_name=True)
     database_url: str
     cookie_secure: bool = True
     credential_encryption_key: str = Field(default="", repr=False)
@@ -31,8 +31,11 @@ class Settings(BaseSettings):
     tool_deploy_timeout: int = Field(default=1800, ge=30, le=7200)
     dashboard_monitor_enabled: bool = False
     performance_worker_enabled: bool = False
+    functional_worker_enabled: bool = False
     functional_source_root: Path = Path("/app/integration-test/testcases")
-    functional_guided_enabled: bool = False
+    functional_guided_enabled: bool = Field(
+        default=False, validation_alias="PLATFORM_GUIDED_FUNCTIONAL_ENABLED"
+    )
 
     @field_validator("database_url")
     @classmethod

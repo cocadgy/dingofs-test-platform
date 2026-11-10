@@ -2,8 +2,9 @@ import { useState } from "react";
 import { Run, Status, elapsed, active, moduleLabels, verifiedCaseCounts } from "./types";
 import { ModuleRunDetail } from "./ModuleRunDetail";
 
-function V2RunDetail({ run, busy, onStop, onRerun }: {
+function V2RunDetail({ run, busy, onStop, onRerun, onVerifyResources, verification }: {
   run: Run; busy: boolean; onStop: () => void; onRerun: (failed: boolean) => void;
+  onVerifyResources?: () => void; verification?: string;
 }) {
   const children = [...(run.children || [])].sort((a, b) => a.position - b.position);
   const totals = children.map(verifiedCaseCounts);
@@ -36,6 +37,8 @@ function V2RunDetail({ run, busy, onStop, onRerun }: {
       <p>当前阶段：{run.phase || "等待执行"}</p>
       {run.error && <p role="alert" className="error">{run.error}</p>}
       <div className="functional-actions">
+        {canManage && onVerifyResources && ["success", "failed", "cancelled", "needs_attention"].includes(run.state) &&
+          <button disabled={busy} onClick={onVerifyResources}>重新检查残留资源</button>}
         {canManage && ["queued", "running"].includes(run.state) && <button disabled={busy} onClick={onStop}>停止测试（当前用例结束后生效）</button>}
         {canRerun && <>
           <button disabled={busy} onClick={() => onRerun(false)}>重跑全部</button>
@@ -43,6 +46,7 @@ function V2RunDetail({ run, busy, onStop, onRerun }: {
         </>}
         <a href="#/start/functional">返回引导配置</a>
       </div>
+      {verification && <p role="status">{verification}</p>}
     </section>
     <section className="functional-card">
       <h3>模块进度与结果</h3>
@@ -60,16 +64,21 @@ export function RunDetail({
   busy,
   onStop,
   onRerun,
+  onVerifyResources,
+  verification,
 }: {
   run: Run;
   busy: boolean;
   onStop: () => void;
   onRerun: (failed: boolean) => void;
+  onVerifyResources?: () => void;
+  verification?: string;
 }) {
   const [tab, setTab] = useState("results");
   const [onlyFailed, setOnlyFailed] = useState(false);
   const [query, setQuery] = useState("");
-  if (run.version === 2) return <V2RunDetail run={run} busy={busy} onStop={onStop} onRerun={onRerun} />;
+  if (run.version === 2) return <V2RunDetail run={run} busy={busy} onStop={onStop} onRerun={onRerun}
+    onVerifyResources={onVerifyResources} verification={verification} />;
   const cases = run.result?.cases || [];
   const total = Object.values(run.snapshot.selected || {}).reduce(
     (n, rows) => n + rows.length,
