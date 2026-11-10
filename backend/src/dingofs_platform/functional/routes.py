@@ -30,6 +30,7 @@ from .models import FunctionalRun,FunctionalModuleRun,FunctionalEvent,Functional
 from .schemas import RunInput, RunInputV2, RunSpec
 from . import submission  # noqa: F401 register guided persistence metadata
 from .report_redaction import redact_report
+from .reruns import RerunRequest, rerun_parent
 from .environments.models import FunctionalEnvironmentProfile
 from .environments.validation import validate_target
 from .environments.service import member_machine_ids, validate_settings
@@ -318,13 +319,17 @@ def stop(id:str,request:Request,user=Depends(current_user)):
         return view(row,True,user)
 
 @router.post('/runs/{id}/rerun',status_code=202)
-def rerun(id:str,request:Request,failed_only:bool=False,user=Depends(current_user)):
+def rerun(id:str,request:Request,failed_only:bool=False,payload:RerunRequest|None=None,user=Depends(current_user)):
     with get_db(request) as db,db.begin():
         actor=actor_in_transaction(db,request);original=db.get(FunctionalRun,id)
         if not original:raise Problem(404,'not_found','原任务不存在')
         require_manage(actor,original)
         if original.version==2:
-            raise Problem(409,'guided_rerun_required','引导重跑需要新的预检和幂等提交，请在引导页重新选择用例')
+            if payload is None:
+                raise Problem(409,'guided_rerun_required','请确认重跑模块与机器并提供幂等键')
+            db.info['functional_settings']=request.app.state.settings
+            db.info['functional_preflight_transport']=getattr(request.app.state,'functional_preflight_transport',None)
+            return view(rerun_parent(db,actor,id,failed_only,payload.idempotency_key),True,actor)
         if original.state in ACTIVE:raise Problem(409,'busy','任务尚未结束')
         old=original.snapshot;cases=old['selected']
         if failed_only:
@@ -340,6 +345,27 @@ def rerun(id:str,request:Request,failed_only:bool=False,user=Depends(current_use
                          selected=cases,catalog_digest=data['digest'])
         db.info['functional_source_root']=catalog_path(request)
         return enqueue(db,actor,payload,cases,data['digest'],{module:{path:old['hashes'][module][path] for path in paths} for module,paths in cases.items()},rerun_of=id,fs_mode_override=old.get('fs_mode'))
+
+@router.get('/runs/{id}/modules/{child_id}/report/{path:path}')
+def module_report(id:str,child_id:str,path:str,request:Request,user=Depends(current_user)):
+    from .reports import download_report
+    with get_db(request) as db:
+        db.info['functional_settings']=request.app.state.settings
+        db.info['functional_report_transport']=getattr(request.app.state,'functional_report_transport',None)
+        data,media=download_report(db,user,id,child_id,path)
+    return Response(data,media_type=media,headers={'Cache-Control':'no-store','X-Content-Type-Options':'nosniff'})
+
+
+@router.post('/runs/{id}/resources/verify')
+def verify_resources(id:str,request:Request,user=Depends(current_user)):
+    from dataclasses import asdict
+    from .retention import verify_retained_resources
+    with get_db(request) as db,db.begin():
+        actor=actor_in_transaction(db,request)
+        db.info['functional_settings']=request.app.state.settings
+        db.info['functional_retention_transport']=getattr(request.app.state,'functional_retention_transport',None)
+        return asdict(verify_retained_resources(db,actor,id))
+
 
 @router.get('/runs/{id}/report/{path:path}')
 def report(id:str,path:str,request:Request,user=Depends(current_user)):

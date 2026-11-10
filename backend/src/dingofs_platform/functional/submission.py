@@ -96,7 +96,8 @@ def normalize_submission(payload: RunInput | RunSpec | RunInputV2, catalog: dict
 
 
 def create_run(db: Session, actor: User, request: NormalizedSubmission, *,
-               runtime_binding: dict | None = None) -> FunctionalRun:
+               runtime_binding: dict | None = None, rerun_of: str | None = None,
+               rerun_failed_only: bool = False) -> FunctionalRun:
     canonical = request.model_dump(mode='json', include={
         *RunSpec.model_fields, 'environment_snapshots', 'case_hashes'})
     if _digest(canonical) != request.request_digest:
@@ -144,6 +145,8 @@ def create_run(db: Session, actor: User, request: NormalizedSubmission, *,
                 'preflight_token', 'idempotency_key', 'confirmed_impacts', 'draft_id', 'draft_revision'})
             if runtime_binding is not None:
                 snapshot['runtime_binding'] = deepcopy(runtime_binding)
+            if rerun_of is not None:
+                snapshot.update(rerun_of=rerun_of, rerun_failed_only=rerun_failed_only)
             row = FunctionalRun(version=2, creator_id=actor.id, cluster_id=cluster.id,
                                 machine_id=machine.id, name=request.name, state='queued',
                                 snapshot=deepcopy(snapshot), deadline=None,

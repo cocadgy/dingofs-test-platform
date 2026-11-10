@@ -399,7 +399,18 @@ def create(request, cid, payload):
         retry_root = verified_retry_root(db, cid, payload.action, p, actor.id)
         requests = (lease_requests(db, cid, retry_root.action, retry_root.parameters, steps=retry_root.steps)
                     if retry_root else lease_requests(db, cid, payload.action, p, actor=actor))
-        require_available(db, requests, owner='resource:' + retry_root.id if retry_root else None)
+        cleanup = None
+        try:
+            require_available(db, requests, owner='resource:' + retry_root.id if retry_root else None)
+        except Problem as exc:
+            if retry_root or exc.code != 'operation_conflict':
+                raise
+            from dingofs_platform.functional.retention_cleanup import resolve_cleanup_exception
+            db.info['functional_settings'] = request.app.state.settings
+            db.info['functional_retention_transport'] = getattr(request.app.state, 'functional_retention_transport', None)
+            cleanup = resolve_cleanup_exception(db, actor, c, payload.action, p, requests)
+            if cleanup is None:
+                raise
         lock_inventory(db)
         if c.revision != payload.base_revision:
             raise Problem(409, "revision_conflict", "集群配置已更新，请刷新页面")
@@ -462,7 +473,11 @@ def create(request, cid, payload):
                     p["mount_options"] = saved
         secret = {k: p[k] for k in commands.secret_keys(payload.action) if p.get(k)}
         public = {k: v for k, v in p.items() if k not in secret}
-        steps, resource = prepare(db, actor, c, payload.action, public)
+        if cleanup:
+            steps = cleanup[1]
+            resource = db.get(ManagedResource, cleanup[0]['managed_resource_id']) if cleanup[0]['managed_resource_id'] else None
+        else:
+            steps, resource = prepare(db, actor, c, payload.action, public)
         actual = lease_requests(db, cid, payload.action, public, steps=steps)
         if not {r.key for r in actual} <= {r.key for r in requests}:
             raise Problem(409, 'target_changed', '执行目标已改变，请重新检查计划')
@@ -483,7 +498,7 @@ def create(request, cid, payload):
             request_id=str(payload.request_id),
             request_digest=fingerprint,
             action=payload.action,
-            parameters={**public, **source},
+            parameters={**public, **source, **({'_functional_cleanup': cleanup[0]} if cleanup else {})},
             secret_ciphertext=encrypt_password(
                 json.dumps(secret), request.app.state.settings.credential_encryption_key
             )

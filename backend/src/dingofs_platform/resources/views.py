@@ -97,7 +97,7 @@ def operation_view(db, op, *, private=False):
         creator_id=op.actor_id,
         action=op.action,
         state=op.state,
-        payload=redact(op.parameters),
+        payload=redact({key: value for key, value in op.parameters.items() if key != '_functional_cleanup'}),
         result=_step_results(db, op),
         error_code=op.error_code,
         message=_operation_message(op),

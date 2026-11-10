@@ -70,6 +70,9 @@ def terminal(db, op, state, code=None):
     from .mount_planning import finish
     finish(db, op, state)
     op.state, op.error_code = state, code
+    if (op.parameters.get('_functional_cleanup') and not (op.result or {}).get('cleanup_dispatched')
+            and not (op.result or {}).get('steps')):
+        op.result = {**(op.result or {}), 'zero_start': True}
     op.secret_ciphertext = None
     op.challenge_digest = None
     if op.resource_id:
@@ -111,6 +114,8 @@ def run(request, oid, password=None, *, claimed=False):
     artifacts, distributed = {}, set()
     remote_attempted = claimed
     with get_db(request) as db, db.begin():
+        db.info['functional_settings'] = settings
+        db.info['functional_retention_transport'] = getattr(request.app.state, 'functional_retention_transport', None)
         op = db.get(ResourceOperation, oid)
         if not op or op.state != ("running" if claimed else "pending"):
             return
@@ -138,7 +143,15 @@ def run(request, oid, password=None, *, claimed=False):
         if not valid(db, op):
             terminal(db, op, "failed", "stale")
             return
-        if not ensure_leases(db, owner, requests).acquired:
+        cleanup_context = op.parameters.get('_functional_cleanup')
+        if cleanup_context:
+            from dingofs_platform.functional.retention_cleanup import revalidate_cleanup_exception
+            try:
+                revalidate_cleanup_exception(db, db.get(User, op.actor_id), cleanup_context, op.steps, requests)
+            except Problem as exc:
+                terminal(db, op, 'failed', exc.code)
+                return
+        elif not ensure_leases(db, owner, requests).acquired:
             terminal(db, op, "failed", "operation_conflict")
             return
         if op.action in ("cache.plan", "mount.plan") and any(step.get("record", {}).get("binary_source") == "tag" for step in op.steps):
@@ -153,6 +166,8 @@ def run(request, oid, password=None, *, claimed=False):
         config = None
         secret_values = []
         with get_db(request) as db, db.begin():
+            db.info['functional_settings'] = settings
+            db.info['functional_retention_transport'] = getattr(request.app.state, 'functional_retention_transport', None)
             lock_keys(db, requests)
             lock_inventory(db)
             op = db.get(ResourceOperation, oid)
@@ -172,6 +187,12 @@ def run(request, oid, password=None, *, claimed=False):
                     release_verified(db, owner, completion_evidence(owner, requests))
                 return
             work = deepcopy(op.steps[op.cursor])
+            if cleanup_context:
+                try:
+                    revalidate_cleanup_exception(db, db.get(User, op.actor_id), cleanup_context, op.steps, requests)
+                except Problem as exc:
+                    terminal(db, op, 'failed', exc.code)
+                    return
             if work['action'] == 'mount.plan':
                 work['record']['reserved_ports'] = [
                     step['record']['checked_port'] for step in op.steps[:op.cursor]
@@ -230,6 +251,10 @@ def run(request, oid, password=None, *, claimed=False):
             resource_id = work.get("resource_id") or op.resource_id or op.id
             account = op.auth_account
             target_name = c.external_name
+            if cleanup_context:
+                # Persist before leaving the transaction for remote dispatch.
+                # A crash afterwards is uncertain, never zero-start evidence.
+                op.result = {**(op.result or {}), 'cleanup_dispatched': True}
         result = None
         error = None
         auth_account = None
