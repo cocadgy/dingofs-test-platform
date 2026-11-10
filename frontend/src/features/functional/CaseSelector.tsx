@@ -59,7 +59,7 @@ export function CaseSelector({
           const visible = cases.filter(
             (c) =>
               (!onlySelected || chosen.includes(c.path)) &&
-              `${module} ${moduleLabels[module] || ""} ${c.name} ${c.path} ${c.description || ""}`
+              `${module} ${moduleLabels[module] || ""} ${c.id || ""} ${c.name} ${c.path} ${c.description || ""}`
                 .toLowerCase()
                 .includes(query.toLowerCase()),
           );
@@ -97,7 +97,7 @@ export function CaseSelector({
                   />
                   <span>
                     {c.name}
-                    <small>
+                    <small>{c.id ? `${c.id} · ` : ""}{!c.description ? "元数据说明缺失 · " : ""}
                       {c.description || c.path}
                       {c.run_level ? ` · ${c.run_level}` : ""}
                     </small>
@@ -113,7 +113,7 @@ export function CaseSelector({
             !cases.some(
               (c) =>
                 (!onlySelected || (selected[module] || []).includes(c.path)) &&
-                `${module} ${moduleLabels[module] || ""} ${c.name} ${c.path} ${c.description || ""}`
+                `${module} ${moduleLabels[module] || ""} ${c.id || ""} ${c.name} ${c.path} ${c.description || ""}`
                   .toLowerCase()
                   .includes(query.toLowerCase()),
             ),

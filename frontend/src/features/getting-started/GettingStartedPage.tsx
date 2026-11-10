@@ -1,6 +1,8 @@
 import { GuidedCacheFlow } from "./GuidedCacheFlow";
 import { GuidedMountFlow } from "./GuidedMountFlow";
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { api } from "../../api/client";
+import { GuidedFunctionalFlow } from "./GuidedFunctionalFlow";
 import { GuidedMachineForm } from "./GuidedMachineForm";
 import { GuidedFilesystemFlow } from "./GuidedFilesystemFlow";
 import { DiscoverClusters } from "../clusters/DiscoverClusters";
@@ -18,13 +20,22 @@ const actions = [
 ] as const;
 
 export function GettingStartedPage({ route, onNavigate, onDirty, admin = false, userId }: {
-  route: "chooser" | "machine" | "cluster" | "cluster-machine" | "filesystem" | "filesystem-storage" | "cache" | "mount";
+  route: "chooser" | "functional" | "machine" | "cluster" | "cluster-machine" | "filesystem" | "filesystem-storage" | "cache" | "mount";
   onNavigate: (hash: string) => void;
   onDirty: (dirty: boolean) => void;
   admin?: boolean;
   userId?: string;
 }) {
   const [action, setAction] = useState<string>("machine");
+  const [guidedEnabled, setGuidedEnabled] = useState(false);
+  useEffect(() => {
+    if (route !== "chooser") return;
+    let live = true;
+    void api<{enabled:boolean}>("/functional/guided/metadata")
+      .then(value => {if (live) setGuidedEnabled(value.enabled);})
+      .catch(() => {if (live) setGuidedEnabled(false);});
+    return () => {live = false;};
+  },[route]);
   const [comingSoon, setComingSoon] = useState(false);
   const [newMachineId, setNewMachineId] = useState<string>();
   const [importedIds, setImportedIds] = useState<string[]>([]);
@@ -32,6 +43,7 @@ export function GettingStartedPage({ route, onNavigate, onDirty, admin = false, 
     sessionStorage.setItem("guided-filesystem-storage-return", "1");
     onNavigate("#/start/filesystem");
   }
+  if (route === "functional") return <GuidedFunctionalFlow userId={userId || ""} onNavigate={onNavigate} onDirty={onDirty} />;
   if (route === "mount") return <GuidedMountFlow key={userId} admin={admin} userId={userId} route={window.location.hash} onNavigate={onNavigate} onDirty={onDirty} />;
   if (route === "cache") return <GuidedCacheFlow admin={admin} userId={userId} route={window.location.hash} onNavigate={onNavigate} onDirty={onDirty} />;
   if (route === "filesystem") return <section className="getting-started"><p className="eyebrow">GETTING STARTED / FILESYSTEM</p><h1>创建文件系统</h1><GuidedFilesystemFlow admin={admin} userId={userId} onNavigate={onNavigate} onDirty={onDirty} /></section>;
@@ -56,12 +68,14 @@ export function GettingStartedPage({ route, onNavigate, onDirty, admin = false, 
           <select id="start-action" value={action} onChange={(event) => setAction(event.target.value)}>
             {actions.map(([value, label]) => <option key={value} value={value}>{label}</option>)}
           </select>
-          <button className="primary" type="button" onClick={() => {
+          {action === "functional" && !guidedEnabled && <p>功能测试引导尚未启用</p>}
+          <button className="primary" type="button" disabled={action === "functional" && !guidedEnabled} onClick={() => {
             if (action === "mount") {
               const key = "guided-mount-draft-" + (userId || "");
               for (const suffix of ["", "-operation", "-request"]) sessionStorage.removeItem(key + suffix);
               onNavigate("#/start/mount");
-            } else if (action === "cache") {
+            } else if (action === "functional") onNavigate("#/start/functional");
+            else if (action === "cache") {
               const key = "guided-cache-draft-" + (userId || "");
               sessionStorage.removeItem(key);
               sessionStorage.removeItem(key + "-operation");

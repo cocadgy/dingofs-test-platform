@@ -1,6 +1,6 @@
 """User-owned, versioned drafts for the functional test wizard."""
 from fastapi import APIRouter, Depends, Request
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, ValidationError
 from sqlalchemy import JSON, ForeignKey, Index, String, select
 from sqlalchemy.orm import Mapped, mapped_column
 from dingofs_platform.auth.dependencies import current_user
@@ -28,6 +28,37 @@ class CreateDraft(BaseModel):
 
 class UpdateDraft(CreateDraft):
     revision: int = Field(ge=1)
+
+class GuidedModulePlan(BaseModel):
+    model_config = ConfigDict(extra='forbid')
+    module: str
+    environment_profile_id: str = ''
+    environment_profile_revision: int | None = None
+    cases: list[str] = Field(default_factory=list)
+
+class GuidedConfiguration(BaseModel):
+    model_config = ConfigDict(extra='forbid')
+    kind: str
+    version: int
+    cluster_id: str
+    default_environment_id: str
+    module_plans: list[GuidedModulePlan]
+    name: str
+    retries: int = Field(ge=0, le=5)
+    timeout_minutes: int = Field(ge=1, le=1440)
+
+def validate_configuration(value, step):
+    safe(value)
+    if 'kind' not in value and 'version' not in value:
+        return
+    if step > 4:
+        raise Problem(422, 'invalid_draft', '已有环境引导只有四步')
+    try:
+        guided = GuidedConfiguration.model_validate(value)
+    except ValidationError:
+        raise Problem(422, 'invalid_draft', '已有环境草稿字段不受支持') from None
+    if guided.kind != 'existing-environments' or guided.version != 2:
+        raise Problem(422, 'invalid_draft', '已有环境草稿版本不受支持')
 
 def safe(value, depth=0):
     if depth>8: raise Problem(422,'invalid_draft','草稿嵌套过深')
@@ -59,7 +90,7 @@ def listing(request:Request,user=Depends(current_user)):
 
 @router.post('',status_code=201)
 def create(payload:CreateDraft,request:Request,user=Depends(current_user)):
-    safe(payload.configuration)
+    validate_configuration(payload.configuration,payload.step)
     with get_db(request) as db,db.begin():
         actor=actor_in_transaction(db,request)
         row=Draft(creator_id=actor.id,**payload.model_dump())
@@ -71,7 +102,7 @@ def detail(id:str,request:Request,user=Depends(current_user)):
 
 @router.put('/{id}')
 def update(id:str,payload:UpdateDraft,request:Request,user=Depends(current_user)):
-    safe(payload.configuration)
+    validate_configuration(payload.configuration,payload.step)
     with get_db(request) as db,db.begin():
         row=owned(db,id,actor_in_transaction(db,request))
         if row.state!='draft':raise Problem(409,'draft_submitted','草稿已经提交')

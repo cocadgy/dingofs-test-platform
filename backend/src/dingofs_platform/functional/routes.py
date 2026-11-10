@@ -181,6 +181,20 @@ def enqueue(db,actor,payload,cases,digest,hashes,rerun_of=None,fs_mode_override=
     audit(db,actor,'functional.rerun' if rerun_of else 'functional.create','functional/'+row.id,[])
     return view(row,True)
 
+@router.get('/guided/metadata')
+def guided_metadata(request: Request, user=Depends(current_user)):
+    from .guided_options import metadata
+    with get_db(request) as db:
+        return metadata(db, user, request.app.state.settings)
+
+
+@router.post('/guided/compatibility')
+def guided_compatibility(payload: RunSpec, request: Request, user=Depends(current_user)):
+    from .guided_options import compatibility
+    with get_db(request) as db:
+        return compatibility(db, user, payload, request.app.state.settings)
+
+
 @router.get('/options')
 def options(request:Request,user=Depends(current_user)):
     data=catalogue(catalog_path(request))

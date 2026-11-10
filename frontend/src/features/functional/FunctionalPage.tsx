@@ -20,7 +20,7 @@ export function FunctionalPage() {
   const [page, setPage] = useState(route);
   const [options, setOptions] = useState<Options>();
   const [runs, setRuns] = useState<Run[]>([]);
-  const [drafts,setDrafts]=useState<{id:string;name:string;step:number;updated_at:string;revision:number;configuration:{cluster_id?:string;machine_id?:string}}[]>([]);
+  const [drafts,setDrafts]=useState<{id:string;name:string;step:number;updated_at:string;revision:number;configuration:{kind?:string;version?:number;cluster_id?:string;machine_id?:string}}[]>([]);
   const [draftId,setDraftId]=useState(window.location.hash.split("/")[3]||"");
   const [profiles, setProfiles] = useState<Profile[]>([]);
   const [cluster, setCluster] = useState("");
@@ -244,7 +244,7 @@ export function FunctionalPage() {
       {busy && <LogLoading label="正在提交操作…" popup />}
       {!page ? (
         <>
-          {drafts.length>0&&<section className="functional-card"><h2>未完成的测试配置</h2><div className="table-scroll"><table><thead><tr><th>草稿</th><th>当前步骤</th><th>更新时间</th><th>操作</th></tr></thead><tbody>{drafts.map(row=><tr key={row.id}><td>{row.name}</td><td>{row.step} / 6</td><td>{new Date(row.updated_at).toLocaleString()}</td><td><button onClick={()=>{window.location.hash=`#/functional/new/${row.id}`;setPage('new');setDraftId(row.id)}}>继续配置</button><button onClick={()=>void action(async()=>{await api(`/functional/drafts/${row.id}?revision=${row.revision}`,'DELETE');setDrafts(rows=>rows.filter(item=>item.id!==row.id))})}>删除</button></td></tr>)}</tbody></table></div></section>}
+          {drafts.length>0&&<section className="functional-card"><h2>未完成的测试配置</h2><div className="table-scroll"><table><thead><tr><th>草稿</th><th>当前步骤</th><th>更新时间</th><th>操作</th></tr></thead><tbody>{drafts.map(row=><tr key={row.id}><td>{row.name}</td><td>{row.step} / {row.configuration?.kind==="existing-environments" && row.configuration?.version===2 ? 4 : 6}</td><td>{new Date(row.updated_at).toLocaleString()}</td><td><button onClick={()=>{if(row.configuration?.kind==="existing-environments" && row.configuration?.version===2){window.location.hash=`#/start/functional?draft=${encodeURIComponent(row.id)}`;}else{window.location.hash=`#/functional/new/${row.id}`;setPage('new');setDraftId(row.id)}}}>继续配置</button><button onClick={()=>void action(async()=>{await api(`/functional/drafts/${row.id}?revision=${row.revision}`,'DELETE');setDrafts(rows=>rows.filter(item=>item.id!==row.id))})}>删除</button></td></tr>)}</tbody></table></div></section>}
           <RunList runs={runs} onOpen={navigate} />
         </>
       ) : page === "new" && options?.machines?.length ? (

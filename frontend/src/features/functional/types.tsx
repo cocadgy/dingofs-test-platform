@@ -1,3 +1,31 @@
+
+export type ManagementMachine = {id:string;name:string;address:string;ssh_user:string};
+export type GuidedCluster = {id:string;name:string;mds_addresses:string[];management_machine:ManagementMachine;available:boolean};
+export type GuidedMachine = ManagementMachine & {aliases:string[];available:boolean};
+export type GuidedMetadata = {enabled:boolean;clusters:GuidedCluster[];machines?:GuidedMachine[]};
+export type EnvironmentDescriptor = {
+  env_name:string;source_manifest:Record<string,string>;digest:string;
+  mds_addresses:string[];targets:{role:string;host:string;user:string;mutates:boolean;name?:string;address?:string}[];
+  client_count:number|null;cache_count:number|null;storage_type:string|null;
+  programs:Record<string,unknown>;directories:Record<string,unknown>;
+  modules:Record<string,{available:boolean;reasons:string[];impacts:string[];fixed_resources?:string[]}>;
+  issues:string[];
+};
+export type GuidedModulePlan = {
+  module:string;environment_profile_id:string;environment_profile_revision:number;cases:string[];
+};
+export type GuidedConfiguration = {
+  kind:"existing-environments";version:2;cluster_id:string;default_environment_id:string;
+  module_plans:GuidedModulePlan[];name:string;retries:number;timeout_minutes:number;
+};
+export type GuidedCompatibility = {modules:Record<string,{
+  compatible:boolean;reasons:string[];impacts:string[];
+  targets?:EnvironmentDescriptor["targets"]}>};
+export type GuidedPreflight = {
+  can_start:boolean;token:string|null;expires_at:string|null;
+  checks:{code:string;ok:boolean;host?:string;user?:string;conflicts?:{key:string;reason:string}[]}[];
+  required_confirmations:string[];impacts:{module?:string;description:string}[];
+};
 export type Case = {
   path: string;
   id?: string;
@@ -22,6 +50,9 @@ export type Profile = {
   revision: number;
   enabled: boolean;
   source_kind: string;
+  source_file?: string;
+  source_key?: string;
+  source_digest?: string;
   cluster_id: string | null;
   validation: string;
   machine_id?: string;
@@ -43,6 +74,10 @@ export type Profile = {
     storage_type?: string;
     machine_name?: string;
     storage_name?: string;
+    base?: string;
+    issue?: string;
+    template?: boolean;
+    descriptor?: EnvironmentDescriptor;
   };
 };
 export type Run = {
