@@ -1,3 +1,4 @@
+import { FunctionalPage } from "./features/functional/FunctionalPage";
 import { GettingStartedPage } from "./features/getting-started/GettingStartedPage";
 import { PerformancePage } from "./features/performance/PerformancePage";
 import {ConfigurationPage} from "./features/configuration/ConfigurationPage";
@@ -53,6 +54,7 @@ export function App() {
         setHash(window.location.hash);
         if (user?.email) {
           if (window.location.hash.startsWith("#/start")) setKind("start");
+          else if (window.location.hash.startsWith("#/functional")) setKind("functional");
           else if (window.location.hash.startsWith("#/performance")) setKind("performance");
           else if (window.location.hash.startsWith("#/clusters"))
             setKind("clusters");
@@ -70,7 +72,7 @@ export function App() {
     setHash(window.location.hash);
     setKind(
       u.email
-        ? window.location.hash.startsWith("#/start") ? "start" : window.location.hash.startsWith("#/performance") ? "performance" : window.location.hash.startsWith("#/clusters")
+        ? window.location.hash.startsWith("#/start") ? "start" : window.location.hash.startsWith("#/functional") ? "functional" : window.location.hash.startsWith("#/performance") ? "performance" : window.location.hash.startsWith("#/clusters")
           ? "clusters"
           : /^#\/(configuration|cache-profiles|mount-profiles|storage)(\/|$)/.test(window.location.hash)
             ? "configuration"
@@ -210,6 +212,7 @@ export function App() {
             ...sections,
             configuration: "配置管理",
             performance: "性能测试",
+            functional: "功能测试",
             ...(user.role === "admin" ? { users: "用户管理" } : {}),
             profile: "个人设置",
           }).map(([key, label]) => (
@@ -230,6 +233,7 @@ export function App() {
                       "cache-profiles",
                       "configuration",
                       "performance",
+                      "functional",
                     ].includes(key)
                   )
                     window.location.hash = "#/" + key;
@@ -253,6 +257,7 @@ export function App() {
                       "cache-profiles",
                       "configuration",
                       "performance",
+                      "functional",
                     ].includes(key)
                       ? "#/" + key
                       : window.location.pathname + window.location.search,
@@ -286,7 +291,7 @@ export function App() {
         <div
           className={
             "content" +
-            (["start", "dashboard", "machines", "clusters", "storage", "cache-profiles", "configuration", "performance"].includes(
+            (["start", "dashboard", "machines", "clusters", "storage", "cache-profiles", "configuration", "performance", "functional"].includes(
               kind,
             )
               ? " machines-content"
@@ -306,6 +311,8 @@ export function App() {
                 setHash(next);
               }}
             />
+          ) : kind === "functional" && user.email ? (
+            <FunctionalPage />
           ) : kind === "performance" && user.email ? (
             <PerformancePage />
           ) : kind === "dashboard" && user.email ? (

@@ -60,6 +60,9 @@ elif op=='source_files':
         runtime={'entrypoint.sh':directory/'entrypoint.sh',**{name:directory/'scripts'/name for name in ('performance_benchmark.py','performance_plan.py','performance_report.py','performance_tools.py')}}
         if all(path.is_file() for path in runtime.values()):
             files.update({name:file_info(path) for name,path in runtime.items()})
+        functional={name:directory/'dingofs-integration-test'/path for name,path in {'run_tests.py':'run_tests.py','test_suite.py':'src/test_runner/test_suite.py','functional_plan.py':'src/test_runner/functional_plan.py','env_parser.py':'src/config/env_parser.py','env_setup.py':'src/config/env_setup.py','command_utils.py':'src/config/command_utils.py','client_mount_ops.py':'src/client_test/mixins/mount_ops.py','client_cache_group_ops.py':'src/client_test/mixins/cache_group_ops.py','large_scale_cache_setup.py':'src/large_scale_test/cache_setup.py','large_scale_cache_observer.py':'src/large_scale_test/cache_observer.py',**{name+'_executor.py':'src/'+name+'_test/executor.py' for name in ('mount_subdir','trash','cache_node','hot_upgrade','dirstat','mds_manage')}}.items()}
+        if all(path.is_file() for path in functional.values()):
+            files.update({name:file_info(path) for name,path in functional.items()})
         metadata=directory/'scripts/ai_storage_scenarios.py'
         if metadata.is_file():files['ai_storage_scenarios.py']=file_info(metadata)
     print(json.dumps({'architecture':platform.machine(),'files':files}))

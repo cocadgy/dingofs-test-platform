@@ -1,5 +1,10 @@
 from .performance.routes import router as performance
 from .performance.manager import PerformanceManager
+from .functional.routes import router as functional
+from .functional.drafts import router as functional_drafts
+from .functional.environments.routes import router as functional_environments
+from .functional.environments.service import sync_predefined
+from .functional.manager import FunctionalManager
 from .tool_packages.source import router as tool_source
 from .tool_packages.routes import router as tool_packages
 from dingofs_platform.clusters import models as cluster_models  # noqa: F401
@@ -36,9 +41,14 @@ def create_app(settings=None):
 
     @asynccontextmanager
     async def lifespan(app):
+        preset_root=settings.functional_source_root.parent/'conf/env'
+        if preset_root.is_dir():
+            with app.state.session_factory.begin() as db:
+                sync_predefined(db,preset_root)
         app.state.remote_manager.startup()
         if settings.performance_worker_enabled:
             app.state.performance_manager.start()
+            app.state.functional_manager.start()
         if settings.dashboard_monitor_enabled:
             app.state.dashboard_monitor.start()
         try:
@@ -47,11 +57,13 @@ def create_app(settings=None):
             if settings.dashboard_monitor_enabled:
                 app.state.dashboard_monitor.stop()
             app.state.performance_manager.stop()
+            app.state.functional_manager.stop()
             app.state.remote_manager.shutdown()
 
     app = FastAPI(title="DingoFS Test Platform", version="0.1.0", lifespan=lifespan)
     app.state.remote_manager = RemoteManager(app)
     app.state.performance_manager = PerformanceManager(app)
+    app.state.functional_manager = FunctionalManager(app)
     app.state.dashboard_monitor = DashboardMonitor(app)
     app.state.settings = settings
     app.state.engine = create_engine(
@@ -127,5 +139,8 @@ def create_app(settings=None):
     app.include_router(tool_source)
     app.include_router(tool_packages)
     app.include_router(performance)
+    app.include_router(functional_environments)
+    app.include_router(functional)
+    app.include_router(functional_drafts)
     app.include_router(inventory)
     return app

@@ -1,3 +1,4 @@
+from pathlib import Path
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from pydantic import field_validator, Field
 
@@ -30,6 +31,7 @@ class Settings(BaseSettings):
     tool_deploy_timeout: int = Field(default=1800, ge=30, le=7200)
     dashboard_monitor_enabled: bool = False
     performance_worker_enabled: bool = False
+    functional_source_root: Path = Path("/app/integration-test/testcases")
 
     @field_validator("database_url")
     @classmethod

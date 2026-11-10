@@ -1,0 +1,158 @@
+.functional-environments {
+  display: grid;
+  gap: 16px;
+  min-width: 0;
+}
+.functional-environments-toolbar {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+.functional-environments-toolbar input {
+  flex: 1;
+  min-width: 200px;
+}
+.functional-environments-toolbar button {
+  white-space: nowrap;
+}
+.functional-environments-table {
+  overflow: auto;
+  background: white;
+  border: 1px solid #d9e3e7;
+  border-radius: 12px;
+}
+.functional-environments-table table {
+  width: 100%;
+  border-collapse: collapse;
+}
+.functional-environments-table th,
+.functional-environments-table td {
+  padding: 12px 14px;
+  text-align: left;
+  border-bottom: 1px solid #e5ebef;
+  vertical-align: top;
+  font-size: 14px;
+}
+.functional-environments-table th {
+  background: #f1f6f6;
+  font-weight: 600;
+  white-space: nowrap;
+}
+.functional-environments-table td:first-child {
+  max-width: 290px;
+  min-width: 180px;
+  overflow-wrap: anywhere;
+}
+.functional-environments-table td:last-child {
+  position: sticky;
+  right: 0;
+  background: white;
+  min-width: 145px;
+}
+.functional-environments-table td small {
+  display: block;
+  color: #617680;
+  margin-top: 5px;
+  font-size: 12px;
+  font-weight: 400;
+  overflow-wrap: anywhere;
+}
+.functional-environments-row-actions {
+  display: flex;
+  gap: 8px;
+}
+.functional-environments-row-actions button {
+  padding: 6px 10px;
+}
+.environment-state {
+  padding: 4px 9px;
+  border-radius: 16px;
+  white-space: nowrap;
+  display: inline-block;
+  background: #edf2f5;
+  color: #49606f;
+  font-size: 13px;
+}
+.environment-ready {
+  background: #e4f4eb;
+  color: #246844;
+}
+.environment-failed {
+  background: #ffeded;
+  color: #a83232;
+}
+.environment-needs_validation,
+.environment-needs_completion {
+  background: #fff3da;
+  color: #885d0c;
+}
+.functional-environments-editor {
+  padding: 24px;
+  background: white;
+  border: 1px solid #d9e3e7;
+  border-radius: 12px;
+  min-width: 0;
+}
+.functional-environments-fields {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
+  gap: 16px;
+}
+.functional-environments-fields label {
+  display: grid;
+  gap: 6px;
+}
+.functional-environments-fields input,
+.functional-environments-fields select {
+  width: 100%;
+}
+.functional-environments-fields input[type="checkbox"] {
+  width: 16px;
+  height: 16px;
+}
+.functional-environments-member {
+  margin: 12px 0;
+  padding: 18px;
+  border: 1px solid #d8e2e8;
+  border-radius: 10px;
+  background: #f9fbfc;
+}
+.functional-environments-editor section {
+  margin: 24px 0;
+  border-top: 1px solid #e0e7ec;
+  padding-top: 18px;
+}
+.functional-environments-flags > div {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  margin: 8px 0;
+  flex-wrap: wrap;
+}
+.functional-environments-flags code {
+  min-width: 180px;
+  overflow-wrap: anywhere;
+}
+.functional-environments-flags input {
+  flex: 1;
+  min-width: 120px;
+  width: auto;
+}
+.functional-environments-save {
+  display: flex;
+  gap: 12px;
+  position: sticky;
+  bottom: 0;
+  background: #fff;
+  padding: 14px 0;
+  border-top: 1px solid #dce4e8;
+  z-index: 2;
+}
+.functional-environments-notice {
+  padding: 12px 16px;
+  background: #edf6f5;
+  border-radius: 8px;
+  margin: 0;
+}
+.functional-environments-table table{table-layout:fixed;min-width:850px}.functional-environments-table th:nth-child(1){width:30%}.functional-environments-table th:nth-child(2){width:23%}.functional-environments-table th:nth-child(3){width:14%}.functional-environments-table th:nth-child(4){width:18%}.functional-environments-table th:nth-child(5){width:15%}.functional-environments-table td{overflow-wrap:anywhere}.functional-environments-table td:first-child{position:sticky;left:0;background:white;max-width:none}.functional-environments-table td:first-child,.functional-environments-table td:last-child{z-index:1}

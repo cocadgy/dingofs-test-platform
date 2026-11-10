@@ -58,6 +58,7 @@ services:
       - cache-binaries:/var/lib/dingofs-platform/cache-binaries
       - ./ssh:/app/deploy/ssh:ro
       - ../tool-bundles:/app/tool-bundles:ro
+      - ${PLATFORM_INTEGRATION_SOURCE:-../../dingofs-testsuite-tool/dingofs-integration-test}:/app/integration-test:ro
     command: [uvicorn, dingofs_platform.app:create_app, --factory, --host, 0.0.0.0, --port, '8000', --proxy-headers, --forwarded-allow-ips, '*']
     depends_on:
       migrate:
