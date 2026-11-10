@@ -119,19 +119,24 @@ if r['fs_query']:
         answer = query(r['fs_query'])
         if answer.returncode: raise ValueError('query failed')
         data = json.loads(answer.stdout)
+        def collection(value):
+            if isinstance(value, list): return value
+            if not isinstance(value, dict): raise ValueError('schema')
+            keys = [k for k in ('result', 'fs_infos', 'fsInfos', 'filesystems') if k in value]
+            if len(keys) != 1: raise ValueError('schema')
+            child = value[keys[0]]
+            if keys[0] != 'result' and not isinstance(child, list): raise ValueError('schema')
+            return collection(child)
         found = []
-        def visit(v):
-            if isinstance(v, dict):
-                name = next((v[k] for k in ('fs_name','fsname','fsName') if k in v), None)
-                if name is not None:
-                    ident = next((v[k] for k in ('fs_id','fsId','id') if k in v), None)
-                    if not isinstance(name, str) or not name or type(ident) is bool or not str(ident).isdigit(): raise ValueError('schema')
-                    found.append((name, str(ident)))
-                for child in v.values(): visit(child)
-            elif isinstance(v, list):
-                for child in v: visit(child)
-        visit(data)
-        checks['filesystem_schema'] = bool(found) and len({n for n,i in found}) == len(found) and set(r.get('fixed_names', [])) <= {n for n,i in found}
+        for item in collection(data):
+            if not isinstance(item, dict): raise ValueError('schema')
+            name = next((item[k] for k in ('fs_name','fsname','fsName') if k in item), None)
+            ident = next((item[k] for k in ('fs_id','fsId','id') if k in item), None)
+            if not isinstance(name, str) or not name or type(ident) is bool or not str(ident).isdigit(): raise ValueError('schema')
+            found.append((name, str(ident)))
+        # An empty recognized collection proves absence. FixedResources borrows
+        # existing exact names and creates absent ones; preflight does neither.
+        checks['filesystem_schema'] = len({n for n,i in found}) == len(found) and len({i for n,i in found}) == len(found)
     except Exception: checks['filesystem_schema'] = False
 if r['mount_roots']:
     try:
@@ -303,6 +308,20 @@ def _binding(db, control, pinned=None):
     raise Problem(422, 'runtime_install_required', '需要显式安装支持引导功能测试的固定版本工具包')
 
 
+def _source_version_matches(root, runtime):
+    # Include added runtime code/config/cases, not only the previously selected
+    # YAML subset. Reuse at both sides of remote capability/projection work.
+    try:
+        required_sources = {p.relative_to(root).as_posix() for subdir, pattern in (
+            ('src', '*.py'), ('conf', '*.yaml'), ('testcases', '*.yaml'), ('template', '*.py'))
+            for p in (root / subdir).rglob(pattern) if p.is_file()}
+        return bool(required_sources) and required_sources <= runtime['source_manifest'].keys() and all(
+            (root / p).resolve().is_relative_to(root) and hashlib.sha256((root / p).read_bytes()).hexdigest() == h
+            for p, h in runtime['source_manifest'].items())
+    except (OSError, RuntimeError):
+        return False
+
+
 def _evaluate(db, actor, request, pinned=None, owner=None):
     settings = _settings(db)
     if not settings.functional_guided_enabled:
@@ -366,16 +385,7 @@ def _evaluate(db, actor, request, pinned=None, owner=None):
         check('runtime_source_bound', all(runtime['source_manifest'].get(p) == h for p,h in snapshot['source_manifest'].items()))
     # The complete package framework manifest (including Python code) is checked,
     # not merely the selected environment YAML/case subset.
-    try:
-        required_sources = {p.relative_to(root).as_posix() for subdir, pattern in (
-            ('src', '*.py'), ('conf', '*.yaml'), ('testcases', '*.yaml'), ('template', '*.py'))
-            for p in (root / subdir).rglob(pattern) if p.is_file()}
-        source_ok = bool(required_sources) and required_sources <= runtime['source_manifest'].keys() and all((root / p).resolve().is_relative_to(root) and
-                        hashlib.sha256((root / p).read_bytes()).hexdigest() == h
-                        for p,h in runtime['source_manifest'].items())
-    except (OSError, RuntimeError):
-        source_ok = False
-    check('runtime_source_version', source_ok)
+    check('runtime_source_version', _source_version_matches(root, runtime))
     if not all(c['ok'] for c in checks):
         return checks, impacts, binding
     response = _transport(db, control, control.ssh_user,
@@ -395,33 +405,54 @@ def _evaluate(db, actor, request, pinned=None, owner=None):
                            settings.credential_encryption_key)} for (host, user), machine in snapshot_targets.items()]
         projection = project_source(root, snapshot['env_name'], authentication=authentication)
         del authentication
+        projection_bound = _source_version_matches(root, runtime) and all(
+            snapshot['source_manifest'].get(p) == h and runtime['source_manifest'].get(p) == h
+            for p, h in projection['source_manifest'].items())
+        check('projection_source_bound', projection_bound)
+        if not projection_bound:
+            continue
         execution = projection['execution']
         check('storage_configuration', execution['storage_ready'])
         check('authentication_mode_supported', execution['authentication_mode'] == 'password')
         check('source_authentication', execution['authentication_matches'])
         if not execution['authentication_matches'] or not execution['storage_ready']:
             continue
+        modules = set(snapshot['modules'])
+        requirements = {tool for capability in snapshot['modules'].values() for tool in capability['required_tools']}
         for (host, user), machine in snapshot_targets.items():
-            clients = [c for c in execution['clients'] if c['host'] == host]
-            caches = [c for c in execution['caches'] if c['host'] == host]
+            clients = [c for c in execution['clients'] if c['host'] == host and modules - {'cache_node', 'mds_manage'}]
+            caches = [c for c in execution['caches'] if c['host'] == host and modules != {'mds_manage'}]
             tools = {'python3'}
-            if clients: tools |= {'findmnt', 'numactl'}
-            binaries = [c['binary'] for c in clients + caches if c['binary']]
-            requirements = {tool for capability in snapshot['modules'].values() for tool in capability['required_tools']}
-            if 'dingo' in requirements:
-                binaries.append(execution['dingo'])
-            if 'mds-client' in requirements:
-                path = snapshot['programs'].get('mds_client')
-                check('mds_client_configuration', bool(path), host=host, user=user)
-                if path: binaries.append(path)
-            if 'fault-recovery' in requirements:
-                check('fault_recovery_configuration', not snapshot['programs'].get('chaos_tool'))
-            tools.update(requirements - {'dingo', 'mds-client', 'client-binary', 'cache-binary', 'fault-recovery'})
-            if clients and any(not c['binary'] for c in clients): tools.add('dingo-client')
-            if caches and any(not c['binary'] for c in caches): tools.add('dingo-cache')
+            binaries = []
+            if clients: tools.add('findmnt')
+            for client in clients:
+                # OwnedResources uses build_mount_fs_command (wrapper + numactl)
+                # even with client_bin_path. FixedResources uses the direct
+                # binary when configured, otherwise its client-local wrapper.
+                if modules - {'client', 'fault', 'cache_node', 'mds_manage'}:
+                    tools.add('numactl')
+                    binaries.append(client['dingo'])
+                if modules & {'client', 'fault'}:
+                    binaries.append(client['binary'] or client['dingo'])
+                if 'hot_upgrade' in modules:
+                    binaries.append(client['upgrade_binary'])
+            # All owned/fixed/special cache starts use build_join_cache_command;
+            # cache_bin_path is not that builder's executable selector.
+            if caches: tools.add('numactl')
+            binaries.extend(cache['dingo'] for cache in caches)
             fs_query = []
             if host == execution['command_host']:
                 binaries.append(execution['dingo'])
+                needs_mds_client = any('mds-client' in capability['required_tools'] for name, capability
+                                      in snapshot['modules'].items() if name != 'hot_upgrade') or (
+                                      'hot_upgrade' in modules and execution['mds_node_count'] > 0)
+                if needs_mds_client:
+                    path = snapshot['programs'].get('mds_client')
+                    check('mds_client_configuration', bool(path), host=host, user=user)
+                    if path: binaries.append(path)
+                if 'fault-recovery' in requirements:
+                    check('fault_recovery_configuration', not snapshot['programs'].get('chaos_tool'))
+                tools.update(requirements - {'dingo', 'mds-client', 'client-binary', 'cache-binary', 'fault-recovery'})
                 fs_query = [execution['dingo'], 'fs', 'list', '--mdsaddr', ','.join(snapshot['mds_addresses']), '--format', 'json']
             spec = {'user': user, 'tools': sorted(tools), 'binaries': sorted(set(binaries)),
                     'paths': sorted({p for c in clients + caches for p in c['paths']} | {c['mount_path'] for c in clients}),

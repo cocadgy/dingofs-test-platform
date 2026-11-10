@@ -390,3 +390,131 @@ def test_real_read_only_probe_exact_fs_mount_and_process(tmp_path, monkeypatch, 
     exec(compile(module.READ_ONLY_PROBE, '<read-only probe>', 'exec'), {})
     checks = json.loads(capsys.readouterr().out)['checks']
     assert (checks['filesystem_schema'] and checks['mount_identity']) is valid
+
+
+@pytest.mark.parametrize('payload,fixed_names,valid', [
+    ([], [], True),
+    ({'result': {'fs_infos': []}}, [], True),
+    ({'result': {'fs_infos': []}}, ['shared-fixed'], True),
+    ({'result': {'fs_infos': [{'fs_name': 'other', 'fs_id': 12}]}}, ['shared-fixed'], True),
+    ({'result': {'fs_infos': [{'fs_name': 'shared-fixed', 'fs_id': 12}]}}, ['shared-fixed'], True),
+    ({'result': {'fs_infos': [{'fs_name': 'shared-fixed', 'fs_id': 'unknown'}]}}, ['shared-fixed'], False),
+    ({'result': {'fs_infos': [{'fs_name': 'shared-fixed', 'fs_id': 12}] * 2}}, ['shared-fixed'], False),
+    ({'result': {'fs_infos': [{}]}}, [], False),
+    ({'result': {'unexpected': []}}, [], False),
+    ({'result': {'fs_infos': {}}}, [], False),
+    ({}, [], False),
+])
+def test_filesystem_schema_allows_create_or_borrow_without_renaming(monkeypatch, capsys, payload, fixed_names, valid):
+    import os, pwd, sys, subprocess
+    from types import SimpleNamespace
+    command = ['/opt/dingo', 'fs', 'list', '--mdsaddr', 'node1.test:6900', '--format', 'json']
+    def query(argv, **kwargs):
+        assert argv == command, 'only the read-only filesystem query is allowed'
+        return SimpleNamespace(returncode=0, stdout=json.dumps(payload), stderr='')
+    monkeypatch.setattr(subprocess, 'run', query)
+    request = {'user': pwd.getpwuid(os.geteuid()).pw_name, 'tools': [], 'binaries': [],
+        'paths': [], 'ports': [], 'cache': False, 'client': False, 'fs_query': command,
+        'mount_roots': [], 'mds': 'node1.test:6900', 'fixed_names': fixed_names}
+    monkeypatch.setattr(sys, 'argv', ['probe', json.dumps(request)])
+    exec(compile(api().READ_ONLY_PROBE, '<read-only probe>', 'exec'), {})
+    assert json.loads(capsys.readouterr().out)['checks']['filesystem_schema'] is valid
+
+
+@pytest.mark.parametrize('relative', ['conf/env/base.yaml', 'src/config/env_parser.py', 'testcases/quota_test_cases/case.yaml'])
+def test_source_change_during_capability_reply_stops_before_prerequisite_probe(app, ready, relative):
+    original = ready[2]
+    def mutate(machine, user, argv):
+        answer = original(machine, user, argv)
+        if '--functional-capabilities' in argv:
+            path = ready[1] / relative
+            path.write_text(path.read_text().replace('/mnt/functional', '/mnt/changed') + '\n# source changed during capability reply\n')
+        return answer
+    app.state.functional_preflight_transport = mutate
+    result = invoke(app, ready)
+    assert not result.can_start and result.token is None
+    assert any(c['code'] == 'projection_source_bound' and not c['ok'] for c in result.checks)
+    assert len(original.calls) == 1
+    with app.state.session_factory() as db:
+        assert db.scalar(select(FunctionalPreflight)) is None
+
+
+@pytest.mark.parametrize('module_name,client_binary,with_cache,node_count', [
+    ('quota', '/opt/dingo-client', False, 0), ('client', '/opt/dingo-client', False, 0),
+    ('client', '', False, 0), ('quota', '/opt/dingo-client', True, 0), ('cache_node', '', True, 0),
+    ('mds_manage', '/unused/dingo-client', True, 0), ('hot_upgrade', '/unused/dingo-client', False, 0),
+    ('hot_upgrade', '/unused/dingo-client', True, 2)])
+def test_partitioned_tool_inventory_matches_actual_command_and_mount_hosts(admin, app, ready, module_name, client_binary, with_cache, node_count):
+    from dingofs_platform.inventory.credentials import encrypt_password
+    from dingofs_platform.functional.catalog import MODULE_DIRS, catalogue
+    other = machine(admin, 'other')
+    with app.state.session_factory.begin() as db:
+        db.get(Machine, other['id']).ssh_password_ciphertext = encrypt_password(
+            'test-secret', app.state.settings.credential_encryption_key)
+    path = ready[1] / 'conf/env/base.yaml'
+    content = path.read_text().replace('host: node1.test', 'host: other.test')
+    content = content.replace('client_bin_path: /opt/dingo-client',
+        'dingo_tool_path: /client/dingo\n      client_bin_path: ' + json.dumps(client_binary))
+    content += f'  mds_node_count: {node_count}\n'
+    if module_name == 'hot_upgrade':
+        content += '  smooth_upgrade_target_client_binary: /upgrade/dingo-client\n'
+    if with_cache:
+        content += '''  remote_caches:
+    - host: other.test
+      dingo_tool_path: /cache/dingo
+      cache_bin_path: /unused/dingo-cache
+      remote_cache_conf: {--group_name: task-cache}
+'''
+    path.write_text(content)
+    if module_name != 'quota':
+        folder = ready[1] / 'testcases' / MODULE_DIRS[module_name]
+        folder.mkdir()
+        (folder / 'case.yaml').write_text('case_name: fixture\nsteps: []\n')
+    assert admin.post('/api/v1/functional/environments/sync-predefined').status_code == 200
+    profile = next(p for p in admin.get('/api/v1/functional/environments').json() if p['source_key'] == 'env_ready')
+    spec = ready[0].model_copy(update={'catalog_digest': catalogue(ready[1] / 'testcases')['digest'],
+        'module_plans': [ready[0].module_plans[0].model_copy(update={'module': module_name,
+            'environment_profile_revision': profile['revision']})]})
+    ready[2].runtime['source_manifest'] = {p.relative_to(ready[1]).as_posix(): hashlib.sha256(p.read_bytes()).hexdigest()
+        for p in ready[1].rglob('*') if p.is_file()}
+    with app.state.session_factory.begin() as db:
+        job = db.scalar(select(ToolJob).where(ToolJob.action == 'install'))
+        job.result = {**job.result, 'functional_runtime': copy.deepcopy(ready[2].runtime)}
+    def partitioned(machine, user, argv):
+        answer = ready[2](machine, user, argv)
+        if '--functional-capabilities' in argv:
+            return answer
+        probe = json.loads(argv[5])
+        command_bins = {'/opt/dingo'} if module_name == 'hot_upgrade' and not node_count else {'/opt/dingo', '/opt/dingo-mds-client'}
+        available = command_bins if machine.id == ready[3]['id'] else (
+            set() if module_name == 'mds_manage' else
+            {'/upgrade/dingo-client', '/client/dingo', '/cache/dingo'} if module_name == 'hot_upgrade' else
+            {'/cache/dingo'} if module_name == 'cache_node' else
+            {'/opt/dingo-client'} if module_name == 'client' and client_binary else {'/client/dingo', '/cache/dingo'})
+        answer['checks']['binaries'] = set(probe['binaries']) <= available
+        answer['checks']['tools'] = set(probe['tools']) <= (
+            {'python3'} if machine.id == ready[3]['id'] else {'python3', 'findmnt', 'numactl'})
+        return answer
+    app.state.functional_preflight_transport = partitioned
+    result = invoke(app, (spec, *ready[1:]))
+    assert result.can_start, result.model_dump()
+    probes = {mid: json.loads(argv[5]) for mid, _, argv in ready[2].calls if argv[0] == 'python3'}
+    expected = [] if module_name in {'cache_node', 'mds_manage'} else [client_binary] if module_name == 'client' and client_binary else ['/client/dingo']
+    if with_cache and module_name != 'mds_manage': expected.append('/cache/dingo')
+    if module_name == 'hot_upgrade': expected.append('/upgrade/dingo-client')
+    assert probes[other['id']]['binaries'] == sorted(expected)
+    assert probes[ready[3]['id']]['fs_query'] and not probes[other['id']]['fs_query']
+    if module_name == 'mds_manage':
+        assert not probes[other['id']]['paths'] and not probes[other['id']]['ports']
+        assert not probes[other['id']]['client'] and not probes[other['id']]['cache']
+    # Readiness must also fail if an executable actually used on this host is
+    # missing. Moving every tool to the command host must not pass this test.
+    def missing_used_executable(machine, user, argv):
+        answer = partitioned(machine, user, argv)
+        missing_host = other['id'] if expected else ready[3]['id']
+        missing_bins = set(expected) if expected else {'/opt/dingo'}
+        if machine.id == missing_host and argv[0] == 'python3':
+            answer['checks']['binaries'] = not set(json.loads(argv[5])['binaries']) & missing_bins
+        return answer
+    app.state.functional_preflight_transport = missing_used_executable
+    assert not invoke(app, (spec, *ready[1:])).can_start

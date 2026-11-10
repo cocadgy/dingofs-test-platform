@@ -220,12 +220,15 @@ execution = {'user': user.strip(), 'declared_ssh_user': env.ssh_user,
         item['user'] == user.strip() and hmac.compare_digest(item['value'].encode(), secret.encode())
         for item in request.get('authentication', []))),
     'command_host': env.host or env.mds_addr.split(',')[0].rsplit(':', 1)[0],
-    'dingo': env.dingo_tool_path or (env.clients[0].dingo_tool_path if env.clients else '') or '/usr/local/bin/dingo',
+    'mds_node_count': env.mds_node_count,
+    'dingo': env.dingo_tool_path or '/usr/local/bin/dingo',
     'clients': [{'host': c.host, 'fs_name': c.fs_name, 'mount_path': c.mount_path,
                  'binary': c.client_bin_path, 'count': c.client_count,
+                 'dingo': c.dingo_tool_path or env.dingo_tool_path or '/usr/local/bin/dingo',
+                 'upgrade_binary': c.smooth_upgrade_target_client_binary or env.smooth_upgrade_target_client_binary,
                  'paths': [p for p in [c.client_conf.get('--cache_dir', ''), c.client_conf.get('--log_dir', ''), *c.client_cache_dirs] if p],
                  'port': int(c.client_conf.get('--vfs_dummy_server_port', 11000))} for c in env.clients],
-    'caches': [{'host': c.host, 'binary': c.cache_bin_path,
+    'caches': [{'host': c.host, 'binary': c.cache_bin_path, 'dingo': c.dingo_tool_path or '/usr/local/bin/dingo',
                 'paths': [p for p in [c.remote_cache_conf.get('--cache_dir', ''), c.remote_cache_conf.get('--log_dir', ''), *c.remote_cache_dirs] if p],
                 'port': int(c.remote_cache_conf.get('--listen_port', 8000))} for c in env.remote_caches]}
 result = json.dumps({'version': 1, 'settings': {'mount_root': clients[0]['mount_path'] if clients else '/tmp/dingofs-functional',
@@ -263,15 +266,16 @@ def project_source(source_root: Path, env_name: str, *, authentication: list[dic
         if (value.keys() != {'version', 'settings', 'execution', 'omitted'} or value['version'] != 1
                 or type(value['omitted']) is not bool
                 or execution.keys() != {'user', 'declared_ssh_user', 'source_auth_present', 'authentication_mode', 'authentication_matches', 'storage_ready',
-                                        'command_host', 'dingo', 'clients', 'caches'}
+                                        'command_host', 'mds_node_count', 'dingo', 'clients', 'caches'}
                 or not all(isinstance(execution[k], str) for k in ('user', 'declared_ssh_user', 'command_host', 'dingo'))
+                or type(execution['mds_node_count']) is not int
                 or not all(type(execution[k]) is bool for k in ('source_auth_present', 'authentication_matches', 'storage_ready'))):
             raise ValueError
         if execution['authentication_mode'] not in ('password', 'key', 'missing'):
             raise ValueError
         for kind in ('clients', 'caches'):
             for item in execution[kind]:
-                expected = {'host', 'binary', 'paths', 'port'} | ({'fs_name', 'mount_path', 'count'} if kind == 'clients' else set())
+                expected = {'host', 'binary', 'dingo', 'paths', 'port'} | ({'fs_name', 'mount_path', 'count', 'upgrade_binary'} if kind == 'clients' else set())
                 if (item.keys() != expected or not all(isinstance(item[k], str) for k in expected - {'paths', 'port', 'count'})
                         or not isinstance(item['paths'], list) or not all(isinstance(p, str) for p in item['paths'])
                         or type(item['port']) is not int or not 1 <= item['port'] <= 65535

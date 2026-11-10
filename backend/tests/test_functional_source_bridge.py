@@ -174,6 +174,22 @@ def test_portable_projection_filters_malicious_flags_and_values(trusted_source):
     assert 'TOPSECRET' not in json.dumps(value)
 
 
+@pytest.mark.parametrize('env_tool,client_tool,cache_tool,expected', [
+    ('/command/dingo', '/client/dingo', '/cache/dingo', ['/command/dingo', '/client/dingo', '/cache/dingo']),
+    ('/command/dingo', '', '', ['/command/dingo', '/command/dingo', '/usr/local/bin/dingo']),
+    ('', '/client/dingo', '', ['/usr/local/bin/dingo', '/client/dingo', '/usr/local/bin/dingo']),
+])
+def test_projection_preserves_builder_specific_tool_fallbacks(trusted_source, env_tool, client_tool, cache_tool, expected):
+    from dingofs_platform.functional.source_bridge import project_source
+    path = trusted_source / 'conf/env/base.yaml'
+    path.write_text(path.read_text().replace('  mds_addr:', '  dingo_tool_path: ' + json.dumps(env_tool) + '\n  mds_addr:')
+        .replace('      client_count:', '      dingo_tool_path: ' + json.dumps(client_tool) + '\n      client_count:')
+        .replace('      remote_cache_count:', '      dingo_tool_path: ' + json.dumps(cache_tool) + '\n      remote_cache_count:'))
+    execution = project_source(trusted_source, 'env_Original')['execution']
+    assert [execution['dingo'], execution['clients'][0]['dingo'], execution['caches'][0]['dingo']] == expected
+    assert 'password-do-not-display' not in json.dumps(execution)
+
+
 def test_portable_values_cannot_echo_known_source_credentials(trusted_source):
     path = trusted_source / 'conf/env/base.yaml'
     path.write_text(path.read_text().replace('client_count: 2',
