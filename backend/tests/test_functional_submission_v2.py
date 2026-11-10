@@ -230,11 +230,29 @@ def test_v2_endpoint_is_default_closed_and_requires_real_source_and_csrf(admin, 
     assert admin.get('/api/v1/functional/runs').json() == []
 
 
-def test_legacy_manager_does_not_process_v2_parent(app, ready):
+@pytest.mark.parametrize('enabled', [False, True])
+def test_legacy_manager_does_not_process_v2_parent(app, ready, monkeypatch, enabled):
+    from dingofs_platform.functional import manager
+    from dingofs_platform.functional.models import FunctionalModuleRun
+    # This persistence-only fixture intentionally has no admitted runtime binding.
+    # It must enter guided revalidation, never legacy execution or remote launch.
     run_id = persist(app, normalize(ready))
+    calls = []
+    def forbidden(*args, **kwargs):
+        calls.append('legacy-or-remote')
+        raise AssertionError('unbound V2 parent entered legacy or remote execution')
+    monkeypatch.setattr(manager, 'legacy_functional_requests', forbidden)
+    app.state.functional_transport = forbidden
+    app.state.settings.functional_guided_enabled = enabled
     app.state.functional_manager.process(run_id)
     with app.state.session_factory() as db:
-        assert db.get(FunctionalRun, run_id).state == 'queued'
+        row = db.get(FunctionalRun, run_id)
+        assert row.state == 'failed' and row.finished_at is not None
+        children = list(db.scalars(select(FunctionalModuleRun).where(FunctionalModuleRun.run_id == run_id)
+                                   .order_by(FunctionalModuleRun.position)))
+        assert [child.state for child in children] == ['failed', 'not_run']
+        assert all(child.launch_attempted_at is None for child in children)
+    assert calls == []
 
 
 def test_frozen_snapshots_cannot_be_replaced(app, ready):
