@@ -23,7 +23,8 @@ def test_both_paths_fail():
 
 
 @pytest.mark.parametrize('scp_ok',[True,False])
-def test_complete_automatic_flow_with_isolated_hosts(tmp_path,monkeypatch,scp_ok):
+@pytest.mark.parametrize('functional',[False,True])
+def test_complete_automatic_flow_with_isolated_hosts(tmp_path,monkeypatch,scp_ok,functional):
     import os,subprocess,json
     from pathlib import Path
     from dingofs_platform.tool_packages import automatic
@@ -36,11 +37,21 @@ def test_complete_automatic_flow_with_isolated_hosts(tmp_path,monkeypatch,scp_ok
     (directory/'entrypoint.sh').write_text('#!/bin/bash\n')
     for name in ('performance_benchmark.py','performance_plan.py','performance_report.py','performance_tools.py','ai_storage_scenarios.py'):
         (directory/'scripts'/name).write_text('# fixture runtime\n')
+    if functional:
+        if not os.environ.get('DTT_TEST_SOURCE'):
+            pytest.skip('Set DTT_TEST_SOURCE for complete automatic runtime integration')
+        import shutil
+        from test_functional_binary_package import complete_source
+        complete=source/'complete';framework=complete_source(complete)
+        shutil.copytree(framework,directory/'dingofs-integration-test')
+        for name in ('dingofs-testsuite-tool','entrypoint.sh','functional_runtime.py'):
+            shutil.copyfile(Path(os.environ['DTT_TEST_SOURCE'])/name,directory/name)
+        (directory/'dingofs-integration-test/testcases/quota_test_cases/alias.yaml').symlink_to('case.yaml')
     image='sha256:'+'a'*64
     for home in (source,target):
         bindir=home/'bin';bindir.mkdir()
         # Fake only the container runtime. Remote Python helpers and file copying run normally.
-        docker='#!/bin/sh\necho "$*" >> "$HOME/commands"\ncase "$1" in\npull) '+'exit 0'+';;\nimage) echo "'+image+' amd64";;\nsave) printf fixture > "$3";;\nesac\n'
+        docker='#!/bin/sh\necho "$*" >> "$HOME/commands"\ncase "$1" in\npull) '+'exit 0'+';;\nimage) if [ "$3" = --format ]; then echo "'+image+' amd64"; else echo \'[{"Id":"'+image+'","Architecture":"amd64","Os":"linux"}]\'; fi;;\nsave) printf fixture > "$3";;\nesac\n'
         (bindir/'docker').write_text(docker);(bindir/'docker').chmod(0o755)
     class File:
         def __init__(self,path,mode):self.file=open(path,mode)
@@ -85,6 +96,10 @@ def test_complete_automatic_flow_with_isolated_hosts(tmp_path,monkeypatch,scp_ok
     assert 'DTT_PERFORMANCE_RUNTIME_DIR' in (installed/'dtt').read_text()
     assert (installed/'performance_plan.py').is_file()
     assert (installed/'ai_storage_scenarios.py').is_file()
+    if functional:
+        assert result['functional_runtime']['version']==2
+        assert (Path(result['immutable_path']).parent/'dingofs-integration-test/testcases/quota_test_cases/alias.yaml').is_symlink()
+        assert result['functional_runtime']['source_manifest']['conf/storage.yaml']
     source_commands=(source/'commands').read_text() if (source/'commands').exists() else ''
     assert 'save -o' in source_commands
     target_commands=(target/'commands').read_text()

@@ -9,6 +9,10 @@ import re
 import shutil
 import subprocess
 import tempfile
+import sys
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]/'backend/src'))
+from dingofs_platform.tool_packages.functional_bundle import functional_source_files, FUNCTIONAL_FEATURES
 
 
 def digest(path):
@@ -50,16 +54,34 @@ def main():
             manifest['entrypoint'] = 'dingofs-testsuite-tool'
             for name in ('dingofs-testsuite-tool','dtt-ai-analyze','analysis.schema.json'):
                 shutil.copyfile(args.source/name, stage/name)
+            source_files,source_manifest,source_aliases=functional_source_files(args.source)
+            if source_manifest:
+                for name,path in source_files.items():
+                    target=stage/name
+                    target.parent.mkdir(parents=True,exist_ok=True,mode=0o700)
+                    shutil.copyfile(path,target)
+                    target.chmod(0o600)
+                manifest['source_manifest']=source_manifest
+                manifest['functional_features']=FUNCTIONAL_FEATURES
+                manifest['source_aliases']=source_aliases
+            # Retain the established optional performance overlay in offline bundles.
+            performance=('performance_benchmark.py','performance_plan.py','performance_report.py','performance_tools.py')
+            if (args.source/'entrypoint.sh').is_file() and all((args.source/'scripts'/name).is_file() for name in performance):
+                shutil.copyfile(args.source/'entrypoint.sh',stage/'entrypoint.sh')
+                for name in performance:
+                    shutil.copyfile(args.source/'scripts'/name,stage/name)
+            if (args.source/'scripts/ai_storage_scenarios.py').is_file():
+                shutil.copyfile(args.source/'scripts/ai_storage_scenarios.py',stage/'ai_storage_scenarios.py')
             print('导出 dtt 镜像，包含 fio、elbencho…', flush=True)
             subprocess.run([args.runtime,'save','-o',str(stage/'image.tar'),manifest['image_id']],check=True)
         else:
             manifest['entrypoint'] = args.tool
             shutil.copyfile(args.source, stage/args.tool)
-        manifest['files'] = {p.name:digest(p) for p in sorted(stage.iterdir())}
+        manifest['files'] = {p.relative_to(stage).as_posix():digest(p) for p in sorted(stage.rglob('*')) if p.is_file()}
         (stage/'manifest.json').write_text(json.dumps(manifest,indent=2)+'\n')
-        for path in stage.iterdir():
-            path.chmod(0o644)
-        stage.chmod(0o755)
+        for path in stage.rglob('*'):
+            path.chmod(0o700 if path.is_dir() else 0o600)
+        stage.chmod(0o700)
         os.rename(stage,destination)
         print('已生成：' + str(destination))
         print('在配置管理 → 工具包管理中登记：' + destination.name)

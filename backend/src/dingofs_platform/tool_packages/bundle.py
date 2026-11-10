@@ -3,6 +3,7 @@ import hashlib
 import json
 import re
 from pathlib import Path, PurePosixPath
+from .functional_bundle import functional_capability
 
 TOOLS = ('dtt', 'dingo', 'dingo-client', 'dingo-cache')
 
@@ -38,7 +39,7 @@ def inspect_bundle(base, directory):
     if root.is_symlink() or not root.resolve().is_relative_to(base):
         raise ValueError('工具包路径不合法')
     manifest_path = safe_file(root, 'manifest.json')
-    if manifest_path.stat().st_size > 65536:
+    if manifest_path.stat().st_size > 8 * 1024 * 1024:
         raise ValueError('工具包清单过大')
     manifest = json.loads(manifest_path.read_text())
     if not isinstance(manifest, dict):
@@ -49,7 +50,7 @@ def inspect_bundle(base, directory):
     if not re.fullmatch(r'[A-Za-z0-9_.+-]{1,80}', manifest.get('version', '')):
         raise ValueError('版本格式错误')
     files = manifest.get('files')
-    if not isinstance(files, dict) or not 1 <= len(files) <= 1000:
+    if not isinstance(files, dict) or not 1 <= len(files) <= 20000:
         raise ValueError('工具包文件清单为空或过大')
     if manifest.get('entrypoint') not in files:
         raise ValueError('缺少入口文件')
@@ -62,6 +63,7 @@ def inspect_bundle(base, directory):
             raise ValueError('dtt 工具包必须包含镜像 image.tar 和 image_id')
         if not {'dtt-ai-analyze', 'analysis.schema.json'} <= files.keys():
             raise ValueError('缺少 dtt 配套文件')
+        functional_capability(manifest)
     size = 0
     for name, expected in files.items():
         path = safe_file(root, name)

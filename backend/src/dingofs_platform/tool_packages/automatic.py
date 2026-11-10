@@ -24,7 +24,7 @@ def choose_image(transfer, pull):
 
 
 def helper(request):
-    return 'REQUEST = '+repr(request)+'\n'+Path(__file__).with_name('automatic_helper.py').read_text()
+    return 'REQUEST = '+repr(request)+'\n'+Path(__file__).with_name('functional_bundle.py').read_text()+'\n'+Path(__file__).with_name('automatic_helper.py').read_text()
 
 
 def deploy(target_config, source_config, options, timeout_s, report):
@@ -43,6 +43,8 @@ def deploy(target_config, source_config, options, timeout_s, report):
         stage=target.python(helper({'operation':'stage','size_bytes':size}),'准备目标目录')['staging']
         scp_code=Path(__file__).with_name('scp_helper.py').read_text()
         def copy_file(name,file,timeout=None,progress_range=None):
+            if '/' in name:
+                target.python(helper({'operation':'parents','staging':stage,'name':name}), '准备文件父目录')
             report(phase='SCP 传输 '+name,message=f'SCP 平台:{file["path"]} → 目标:{stage}/{name} ({file["size"]} bytes)\n')
             source.python(scp_code,'SCP 直传 '+name,input_data={
                 'host':target_config.host,'port':target_config.port,
@@ -79,6 +81,10 @@ def deploy(target_config, source_config, options, timeout_s, report):
             'entrypoint':'dingofs-testsuite-tool' if options['tool']=='dtt' else options['tool'],
             'architecture':identity['architecture'],'files':{name:file['sha256'] for name,file in files.items()}}
         if image:bundle['image_id']=image['image_id']
+        if metadata.get('source_manifest'):
+            bundle['source_manifest']=metadata['source_manifest']
+            bundle['functional_features']=metadata['functional_features']
+            bundle['source_aliases']=metadata['source_aliases']
         if image.get('method')=='platform-transfer' and exported:
             bundle['files']['image.tar']=exported['archive']['sha256']
             size+=exported['archive']['size']

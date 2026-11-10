@@ -8,4 +8,4 @@ def probe_script():
 
 
 def install_script(bundle, staging):
-    return 'BUNDLE = ' + repr(bundle) + '\nSTAGING = ' + repr(staging) + '\n' + Path(__file__).with_name('help_result.py').read_text() + '\n' + Path(__file__).with_name('shell_entry.py').read_text() + '\n' + Path(__file__).with_name('install_helper.py').read_text()
+    return 'BUNDLE = ' + repr(bundle) + '\nSTAGING = ' + repr(staging) + '\n' + Path(__file__).with_name('functional_bundle.py').read_text() + '\n' + Path(__file__).with_name('help_result.py').read_text() + '\n' + Path(__file__).with_name('shell_entry.py').read_text() + '\n' + Path(__file__).with_name('install_helper.py').read_text()
