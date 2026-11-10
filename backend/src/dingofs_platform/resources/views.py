@@ -10,6 +10,7 @@ from .commands import is_mutating
 ACTIVE = ("pending", "running", "needs_password")
 MESSAGES = {
     "operation_conflict": "目标资源被其他操作占用或远端结果尚未确认",
+    "retry_unverified": "重试链已有后续任务或远端结果未确认，请查看最新任务并先复核",
     "python_missing": "目标用户环境中未找到 python3，无法核验并停止缓存进程",
     "batch_failed": "批量操作已完成，但部分目标失败，请查看逐项结果",
     "timeout": "操作超时，远端结果可能未知，请先核实状态后再操作",
@@ -153,13 +154,27 @@ def lease_requests(db, cid, action, parameters, *, steps=None, actor=None):
     Cluster RPCs only share their control host runtime. A common control host
     does not make unrelated clusters mutually exclusive.
     """
-    if not is_mutating(action):
+    preparation = action in ('cache.plan', 'mount.plan')
+    if preparation:
+        # The catalog labels plans read-only, but TAG plans upload/install a
+        # binary. Resolve only those actual mutation targets, not path checks.
+        if steps is not None:
+            steps = [step for step in steps if step.get('record', {}).get('binary_source') == 'tag']
+            if not steps:
+                return []
+        else:
+            members = parameters.get('members' if action == 'cache.plan' else 'clients', [])
+            members = [member for member in members if member.get('binary_source') == 'tag']
+            if not members:
+                return []
+            parameters = {'members': members}
+    elif not is_mutating(action):
         return []
     cluster = db.get(Cluster, cid)
     requests = [LeaseRequest('cluster:' + cid)]
     if cluster:
         requests.append(LeaseRequest('runtime:' + cluster.management_machine_id, 'shared'))
-    local = action.startswith('mount.') or action in ('cache.create', 'cache.stop', 'trash.restore')
+    local = preparation or action.startswith('mount.') or action in ('cache.create', 'cache.stop', 'trash.restore')
     if not local:
         return requests
     ids = set()
@@ -203,11 +218,12 @@ def lease_requests(db, cid, action, parameters, *, steps=None, actor=None):
         if action == 'trash.restore' and cluster:
             ids.add(cluster.management_machine_id)
     for mid in sorted(ids):
-        requests.extend([LeaseRequest('machine:' + mid), LeaseRequest('runtime:' + mid, 'shared')])
+        requests.extend([LeaseRequest('machine:' + mid), LeaseRequest('runtime:' + mid,
+                         'exclusive' if preparation else 'shared')])
     return requests
 
 
-def verified_retry_root(db, cid, action, parameters, actor_id):
+def verified_retry_root(db, cid, action, parameters, actor_id, *, current_operation_id=None):
     """Keep an exact failed create/retry chain under its original lease owner.
 
     A transport exception/unknown outcome never authorizes retry. remote_ended
@@ -218,6 +234,10 @@ def verified_retry_root(db, cid, action, parameters, actor_id):
     previous_id = parameters.get('retry_operation_id')
     if not previous_id:
         return None
+    from dingofs_platform.auth.users import lock_accounts
+    # Serialize descendant inspection with API creation and worker transitions.
+    # This is the first lock in the accounts -> leases -> inventory hierarchy.
+    lock_accounts(db)
     from .execution import valid
     seen = set()
     while previous_id:
@@ -234,4 +254,14 @@ def verified_retry_root(db, cid, action, parameters, actor_id):
                 or not results or not all(result.get('remote_ended') is True for result in results)):
             raise Problem(409, 'retry_unverified', '原任务远端结果未确认，请先复核后再重试')
         previous_id = previous.parameters.get('retry_operation_id')
+    lineage = seen | ({current_operation_id} if current_operation_id else set())
+    # A valid retry extends the latest chain, never forks an older ancestor.
+    # Any branch leaves this chain at an immediate child, so checking children
+    # of every ancestor also catches deeper unknown descendants. The executing
+    # operation itself is allowed; pending siblings and its children are not.
+    descendants = db.scalars(select(ResourceOperation.id).where(
+        ResourceOperation.cluster_id == cid, ResourceOperation.action == action,
+        ResourceOperation.parameters['retry_operation_id'].as_string().in_(lineage)))
+    if any(candidate not in lineage for candidate in descendants):
+        raise Problem(409, 'retry_unverified', MESSAGES['retry_unverified'])
     return previous

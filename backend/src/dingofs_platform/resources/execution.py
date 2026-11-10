@@ -115,12 +115,16 @@ def run(request, oid, password=None, *, claimed=False):
         if not op or op.state != ("running" if claimed else "pending"):
             return
         try:
-            retry_root = verified_retry_root(db, op.cluster_id, op.action, op.parameters, op.actor_id)
+            retry_root = verified_retry_root(db, op.cluster_id, op.action, op.parameters, op.actor_id,
+                                             current_operation_id=op.id)
         except Problem as exc:
             lock_inventory(db)
             terminal(db, op, 'failed', exc.code)
             return
         root = retry_root or op
+        # Zero-start release is owner-wide proof, not invocation-local proof.
+        # A retry inherits the original operation's partial remote mutations.
+        remote_attempted = remote_attempted or retry_root is not None
         requests = lease_requests(db, root.cluster_id, root.action, root.parameters, steps=root.steps)
         owner = 'resource:' + root.id
         lock_keys(db, requests)
