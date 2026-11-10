@@ -69,12 +69,17 @@ def view(row,detail=False,actor=None):
             targets=[route for route in routes if (route['source_host'],route['user']) in target_ids]
             item={key:getattr(child,key) for key in ('id','module','position','state','cases','started_at',
                 'deadline','finished_at','cancel_requested','error','result','environment_snapshot')}
+            item['termination_cause']=('timeout' if child.remote_identity.get('timeout') else
+                child.remote_identity.get('termination_cause') or child.result.get('termination_cause'))
             item.update(env_name=child.environment_snapshot['env_name'],stage=child.result.get('stage','waiting'),
                 execution_targets=[{'machine_id':route['machine_id'],'name':route['machine_name'],
                                     'ip':route['address'],'user':route['user']} for route in targets],
                 events=list(db.scalars(select(FunctionalEvent.record).where(FunctionalEvent.child_id==child.id)
                                        .order_by(FunctionalEvent.seq))))
             value['children'].append(item)
+        causes=[child['termination_cause'] for child in value['children']]
+        value['termination_cause']=('timeout' if 'timeout' in causes else
+            'manual' if row.cancel_requested or 'manual' in causes else None)
     return value
 
 def cluster_and_machine(db,actor,id,machine_id=None):

@@ -62,3 +62,62 @@ def test_report_missing_child_does_not_redirect_to_parent_or_latest(admin, app, 
     with app.state.session_factory.begin() as db:
         db.get(FunctionalModuleRun, child_id).result = {'report_status': 'missing'}
     assert admin.get(url).status_code == 404
+
+
+@pytest.mark.parametrize('damage', [None, 'missing', 'changed', 'public', 'writable', 'symlink', 'cache', 'extra', 'unauthorized'])
+def test_historical_report_uses_private_archive_after_current_upgrade(admin, app, ready, tmp_path, damage):
+    import json
+    from dingofs_platform.functional.models import FunctionalRun
+    run_id, child_id = report_run(admin, app, ready)
+    with app.state.session_factory() as db:
+        manifest = db.get(FunctionalRun, run_id).snapshot['runtime_binding']['functional_runtime']['source_manifest']
+    key = hashlib.sha256(json.dumps(manifest, sort_keys=True, separators=(',', ':')).encode()).hexdigest()
+    archive = tmp_path / 'archives'
+    archive.mkdir(mode=0o700)
+    entry = archive / key
+    archived = entry / 'source'
+    shutil.copytree(ready[1], archived)
+    for path in sorted(entry.rglob('*'), reverse=True):
+        path.chmod(0o500 if path.is_dir() else 0o400)
+    entry.chmod(0o500)
+    object.__setattr__(app.state.settings, 'functional_source_archive_root', archive)
+    (ready[1] / 'conf/env/base.yaml').write_text('current version B has different credentials and code')
+    calls = []
+    def remote(*args):
+        calls.append(True)
+        return {'data': base64.b64encode(b'<html>test-secret private-ak private-sk</html>').decode()}
+    app.state.functional_report_transport = remote
+    target = archived / 'conf/storage.yaml'
+    if damage == 'missing': entry.rename(archive / ('0' * 64))
+    if damage in ('changed', 'writable'):
+        target.chmod(0o600)
+        if damage == 'changed':
+            target.write_text('modified archive credential')
+            target.chmod(0o400)
+    if damage == 'public': target.chmod(0o444)
+    if damage == 'symlink':
+        target.parent.chmod(0o700)
+        target.unlink()
+        target.symlink_to(ready[1] / 'conf/storage.yaml')
+        target.parent.chmod(0o500)
+    if damage in ('cache', 'extra'):
+        archived.chmod(0o700)
+        extra = archived / ('injected.pyc' if damage == 'cache' else 'extra.py')
+        extra.write_bytes(b'not pinned')
+        extra.chmod(0o400)
+        archived.chmod(0o500)
+    if damage == 'unauthorized':
+        assert admin.post('/api/v1/auth/login', json={
+            'username': 'member', 'password': 'test-password-123'}).status_code == 200
+    url = f'/api/v1/functional/runs/{run_id}/modules/{child_id}/report/index.html'
+    try:
+        response = admin.get(url)
+        if damage is None:
+            assert response.status_code == 200, response.text
+            assert response.content == b'<html>[REDACTED] [REDACTED] [REDACTED]</html>'
+        else:
+            assert response.status_code == (403 if damage == 'unauthorized' else 503)
+            assert not calls
+    finally:
+        for path in archive.rglob('*'):
+            if path.is_dir() and not path.is_symlink(): path.chmod(0o700)

@@ -33,6 +33,7 @@ class ChildResult:
     report_path: str | None
     may_continue: bool
     end_proof: bool
+    termination_cause: str | None
 
 
 _STATUSES = ('PASS', 'FAIL', 'SKIP', 'KNOWN_BUG')
@@ -312,4 +313,6 @@ def evaluate_child(snapshot: dict, events: list[dict], remote_state: dict) -> Ch
                        [path for path in cases if final.get(path, {}).get('status') == 'FAIL'],
                        missing, not_run, suite_errors, cleanup, recovery,
                        retained_resources, report_status, report_path,
-                       may_continue, ended)
+                       may_continue, ended,
+                       'timeout' if remote_state.get('timeout') else
+                       remote_state.get('termination_cause') or ('manual' if cancelled else None))

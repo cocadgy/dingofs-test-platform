@@ -70,10 +70,11 @@ def _not_run(child, reason):
                     'report_status': 'missing', 'report_path': None, 'end_proof': False, 'may_continue': False}
 
 
-def _finish(db, parent, children, requests, state, *, releasable=False):
-    parent.state, parent.finished_at = state, now()
+def _finish(db, parent, children, requests, state, *, releasable=False, observing=False):
+    parent.state, parent.finished_at = state, None if observing else now()
     parent.phase = '等待资源复核' if state == 'needs_attention' else '已结束'
-    parent.progress = 100
+    if not observing:
+        parent.progress = 100
     for child in children:
         if child.state == 'queued' and child.launch_attempted_at is None:
             _not_run(child, '前序任务未安全完成或父任务已取消')
@@ -99,6 +100,11 @@ def _payload(parent, child):
 
 def advance_parent(db: Session, run_id: str) -> DispatchDecision:
     parent, children, requests = _locked(db, run_id)
+    if parent and parent.state == 'needs_attention':
+        child = next((c for c in children if _observing_grace(c)), None)
+        if child:
+            return DispatchDecision('poll', child.id, _payload(parent, child),
+                                    deepcopy(child.remote_identity.get('cursor', {})), True)
     if not parent or parent.state not in ACTIVE:
         return DispatchDecision('done')
     if parent.cancel_requested and all(c.launch_attempted_at is None for c in children):
@@ -141,13 +147,14 @@ def advance_parent(db: Session, run_id: str) -> DispatchDecision:
         if parent.cancel_requested or child.deadline is not None and now() >= child.deadline:
             if not child.cancel_requested:
                 child.cancel_requested, child.cancel_requested_at = True, now()
-                child.remote_identity = {**child.remote_identity, 'timeout': not parent.cancel_requested}
+                child.remote_identity = {**child.remote_identity, 'timeout': not parent.cancel_requested,
+                                         'termination_cause': 'manual' if parent.cancel_requested else 'timeout'}
             child.state, parent.state = 'cancelling', 'cancelling'
         if child.cancel_requested_at and now() >= child.cancel_requested_at + timedelta(seconds=600):
             child.state = 'needs_attention'
+            child.remote_identity = {**child.remote_identity, 'observe_after_grace': True}
             child.error = '取消后 600 秒仍未确认安全结束；保留资源占用。'
-            _finish(db, parent, children, requests, 'needs_attention')
-            return DispatchDecision('done')
+            _finish(db, parent, children, requests, 'needs_attention', observing=True)
         return DispatchDecision('poll', child.id, _payload(parent, child),
                                 deepcopy(child.remote_identity.get('cursor', {})), child.cancel_requested)
     state = 'failed' if any(child.state == 'failed' for child in previous) else 'success'
@@ -155,13 +162,22 @@ def advance_parent(db: Session, run_id: str) -> DispatchDecision:
     return DispatchDecision('done')
 
 
+def _observing_grace(child):
+    return (child.state == 'needs_attention' and child.launch_attempted_at is not None
+            and child.remote_identity.get('observe_after_grace') is True
+            and not child.result.get('end_proof'))
+
+
 def record_observation(db: Session, run_id: str, child_id: str, observation: dict):
     parent, children, requests = _locked(db, run_id)
-    if not parent or parent.state not in ACTIVE:
+    if not parent:
         return
     child = next(c for c in children if c.id == child_id)
+    observing = parent.state == 'needs_attention' and _observing_grace(child)
+    if parent.state not in ACTIVE and not observing:
+        return
     identity = deepcopy(child.remote_identity)
-    if child.state not in ACTIVE or observation.get('cursor_before', {}) != identity.get('cursor', {}):
+    if (child.state not in ACTIVE and not observing) or observation.get('cursor_before', {}) != identity.get('cursor', {}):
         return
     if observation.get('zero_start') == {'child_id': child.id, 'launch_token': identity['launch_token']} and not identity.get('process'):
         _not_run(child, '启动前已确认取消')
@@ -171,7 +187,8 @@ def record_observation(db: Session, run_id: str, child_id: str, observation: dic
         _finish(db, parent, children, requests, 'cancelled', releasable=True)
         return
     if observation.get('missing') or observation.get('transport_error'):
-        child.state, parent.state = 'unknown', 'unknown'
+        if not observing:
+            child.state, parent.state = 'unknown', 'unknown'
         child.error = '远端状态未确认；仅查询，不会重复启动。'
         return
     process = observation.get('process')
@@ -203,7 +220,8 @@ def record_observation(db: Session, run_id: str, child_id: str, observation: dic
     targets = {(target['host'], target['user']) for target in child.environment_snapshot['targets']}
     snapshot['expected_targets'] = [r for r in binding['resolved_targets']
         if (r['source_host'], r['user']) in targets]
-    remote = {**observation, 'cancel_requested': child.cancel_requested, 'timeout': identity.get('timeout', False)}
+    remote = {**observation, 'cancel_requested': child.cancel_requested, 'timeout': identity.get('timeout', False),
+              'termination_cause': identity.get('termination_cause')}
     if observation.get('has_more'):
         remote.pop('end_proof', None)
     if batch and batch.get('partial_tail') and observation.get('end_proof'):
@@ -233,6 +251,8 @@ def record_observation(db: Session, run_id: str, child_id: str, observation: dic
     # A persisted attempt without a process identity is uncertain, not queued.
     if evaluated.child_state == 'queued' and child.launch_attempted_at is not None:
         evaluated = replace(evaluated, child_state='unknown')
+    if observing and not evaluated.end_proof:
+        evaluated = replace(evaluated, child_state='needs_attention')
     if batch:
         for event in batch['events']:
             db.add(FunctionalEvent(child_id=child.id, seq=event['seq'], record=event))
@@ -268,7 +288,9 @@ def record_observation(db: Session, run_id: str, child_id: str, observation: dic
     parent.progress = int(100 * completed / max(1, sum(len(c.cases) for c in children)))
     if child.state in ('success', 'failed', 'cancelled', 'needs_attention'):
         child.finished_at = now() if evaluated.end_proof else None
-        if not evaluated.may_continue:
+        if observing and not evaluated.end_proof:
+            _finish(db, parent, children, requests, 'needs_attention', observing=True)
+        elif not evaluated.may_continue:
             safe_cancel = (evaluated.end_proof and evaluated.cleanup_status == 'cleaned'
                            and evaluated.recovery_status in ('recovered', 'not_required')
                            and not evaluated.retained_resources and not remote.get('protocol_error')

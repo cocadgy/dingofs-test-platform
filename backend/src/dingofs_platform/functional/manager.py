@@ -5,13 +5,13 @@ import logging
 import json
 import shlex
 import threading
-from sqlalchemy import select
+from sqlalchemy import select, and_, or_
 from dingofs_platform.inventory.models import Machine
 from dingofs_platform.storage.service import resolve as resolve_storage
 from .environments.render import render_environment
 from dingofs_platform.inventory.credentials import decrypt_password
 from dingofs_platform.inventory.ssh_transport import SSHConfig
-from .models import FunctionalRun,ACTIVE
+from .models import FunctionalRun,FunctionalModuleRun,ACTIVE
 from .transport import Transport
 from dingofs_platform.operations.leases import (legacy_functional_requests, ensure_leases, lock_keys,
     release_verified, completion_evidence)
@@ -42,7 +42,14 @@ class FunctionalManager:
             try:
                 self.running={id:f for id,f in self.running.items() if not f.done()}
                 with self.app.state.session_factory() as db:
-                    query=select(FunctionalRun.id).where(FunctionalRun.state.in_(ACTIVE))
+                    observing=select(FunctionalModuleRun.id).where(
+                        FunctionalModuleRun.run_id==FunctionalRun.id,
+                        FunctionalModuleRun.state=='needs_attention',
+                        FunctionalModuleRun.launch_attempted_at.is_not(None),
+                        FunctionalModuleRun.finished_at.is_(None),
+                        FunctionalModuleRun.remote_identity['observe_after_grace'].as_boolean()==True).exists()
+                    query=select(FunctionalRun.id).where(or_(FunctionalRun.state.in_(ACTIVE),
+                        and_(FunctionalRun.version==2,FunctionalRun.state=='needs_attention',observing)))
                     ids=list(db.scalars(query.order_by(FunctionalRun.updated_at)))
                 for id in ids:
                     if len(self.running)>=4:break

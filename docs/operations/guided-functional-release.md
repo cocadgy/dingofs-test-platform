@@ -9,8 +9,8 @@ release gate. Local transport fixtures are not evidence of a real workload.
 | Repository | Reviewed candidate | Branch |
 | --- | --- | --- |
 | Integration framework I | `17b5e05e8c74caea41df4b630086445f5978763b` | `feat/guided-functional-lifecycle` |
-| DTT D | `7e74101a0e77c2434aca7003f4410bdfa6e74aa8` | `feat/guided-functional-runtime` |
-| Platform P | Record final reviewed Task 11 + Task 14 commit at release | `feat/guided-functional-existing` |
+| DTT D | `f644a4023bcd35a4c92ff00b8867e51df5f6bf2b` | `feat/guided-functional-runtime` |
+| Platform P | Record final reviewed consolidated-fix commit at release | `feat/guided-functional-existing` |
 
 Verify D's `dingofs-integration-test` gitlink equals the I commit. Record release
 API/web image IDs and immutable tags, DTT image ID, installer file hashes, source
@@ -42,6 +42,57 @@ is suitable; directories may be 0750 and sensitive configuration 0640 for that
 group. Verify each parent directory is traversable by UID 10001. Never make the
 secret `conf` tree world-readable, and never chmod/chown original repositories.
 Keep old immutable sources for historical report redaction and rollback.
+
+### Historical report source archive
+
+Set `PLATFORM_FUNCTIONAL_SOURCE_ARCHIVES` to a dedicated private host directory,
+separate from release backups, environment files and tool-installation data.
+Compose requires this directory, refuses automatic creation and mounts it
+read-only at `/app/functional-source-archives`. The API setting is
+`PLATFORM_FUNCTIONAL_SOURCE_ARCHIVE_ROOT=/app/functional-source-archives`.
+This archive is independent of the current `/app/integration-test` bind.
+Once configured, it is authoritative: a missing or invalid historical entry
+returns `report_redaction_unavailable`, without trying current credentials.
+Development configurations that omit the archive retain exact-current-source
+verification only; they do not support report access across source upgrades.
+
+Publish one entry for every full `functional_runtime.source_manifest` admitted
+by the server. The layout is `<archive>/<manifest-key>/source/<relative-file>`.
+Use the full installer manifest, not the selected-child descriptor's subset.
+For a source staged before installation, obtain that same full manifest from
+the existing DTT `functional_runtime.collect_source` collector with its reviewed
+alias map, or platform `functional_source_files` (second return value). Record
+and compare it with the actual install capability before admitting work.
+
+The platform provides the canonical key/verification helper; with the candidate
+API interpreter/package and a private JSON file containing only that manifest:
+
+```sh
+python -B -m dingofs_platform.functional.source_archive key --manifest "$SOURCE_MANIFEST_FILE"
+python -B -m dingofs_platform.functional.source_archive verify \
+  --manifest "$SOURCE_MANIFEST_FILE" --archive "$PLATFORM_FUNCTIONAL_SOURCE_ARCHIVES"
+```
+
+The key is SHA256 of the manifest's sorted compact JSON (default ASCII escaping).
+Prepare a new staging directory outside the mounted archive, copy exactly the
+manifest entries from the reviewed immutable source, and materialize approved
+in-tree file aliases as regular bytes. Do not copy `.git`, bytecode, extra files,
+or undeclared directories. Verify every file hash. Set the archive root to 0700,
+the entry/source/subdirectories to 0500, and files to 0400, owned by API UID
+10001 (or root only when the API can actually read them). This archive intentionally
+does not use group-readable source-copy permissions. Publish by an atomic rename
+under the manifest key without overwriting any existing entry. Run `verify` again
+as UID10001 through the actual read-only API bind with networking disabled.
+The helper prints only the key; never print environment contents or credentials.
+
+Every report read rejects symlinks, untrusted owners, group/other permissions,
+writable entry contents, added/missing files and changed hashes, before importing
+the archived parser and again after collecting redaction credentials. Bounds are
+16,384 files, 32 MiB per file, 256 MiB total and 4 MiB manifest JSON. Sources are
+reviewed administrator-provided code; integrity checks are not an untrusted-code
+sandbox. Retain entries for as long as their reports remain accessible, including
+rollback versions. Never prune based only on the current source version. Archive
+publication/retention is an operator action, not an HTTP path or upload option.
 
 The tool-source configuration is separate from the API bind. In Configuration
 Management → Tool Packages, use the reviewed immutable D directory containing
@@ -96,6 +147,29 @@ behavior. Turning creation off must not stop monitoring accepted queued, active
 or unknown V2 runs. Keep a compatible worker and frozen runtime/source available
 until every accepted task has authoritative terminal evidence. An unknown child
 is polled after restart; it is never launched again to resolve uncertainty.
+
+After the 600-second cancellation grace, an attempted child in `needs_attention`
+continues observation across worker restarts. No later module starts; leases
+remain until the existing end/recovery/cleanup checks prove safe completion.
+The parent end timestamp stays unset until final evidence arrives. Public V2
+parent/child responses and child results expose `termination_cause`: `timeout`,
+`manual`, or null. The terminal state remains `cancelled` after a safe timeout,
+with its cause preserved; a subsequent manual stop cannot overwrite timeout.
+Existing cancelled-run rerun rules remain unchanged.
+
+New requests may queue behind a database-verified, positively running V2
+functional owner. Unknown, cancelling, retained or unrelated operation owners
+remain admission failures. `resource_wait` and `prerequisites_deferred` explain
+that admission has not reserved resources or proven occupied hosts ready. The
+worker must acquire the full exclusive lease union and freshly validate source,
+permissions, runtime and all deferred host prerequisites before launching.
+
+New complete-source DTT packages also preserve custom/legacy exact-plan calls
+with `--case-plan` and `--int-env-file`. They verify the installed package before
+host launch and container imports, mount the whole framework read-only, and add
+the custom environment through a private temporary configuration copy. Legacy
+calls retain their own lifecycle semantics; they do not acquire guided context
+authorization. Private HOME, execution UID and bytecode refusal also apply.
 
 ## Migration rehearsal and deployment sequence
 

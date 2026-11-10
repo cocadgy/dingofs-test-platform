@@ -36,6 +36,7 @@ from .models import FunctionalPreflight, FunctionalRun, ACTIVE
 from .schemas import RunSpec
 from .source_bridge import inspect_source, project_source
 from .submission import NormalizedSubmission, _digest, normalize_submission
+from .queueing import queueable_conflicts
 
 FEATURES = {'exact_case_plan_v1', 'runtime_context_v1', 'owned_cleanup_v1',
             'lifecycle_events_v2', 'cancel_boundary_v1', 'inspection_v1'}
@@ -377,12 +378,16 @@ def _evaluate(db, actor, request, pinned=None, owner=None, *, admitted=False):
                 impacts.append({'module': module, 'description': impact})
     requests = functional_requests(db, cluster.id, control.id, request.environment_snapshots.values(), actor=fresh_actor)
     conflicts = check_conflicts(db, requests, owner)
+    queueable = not admitted and queueable_conflicts(db, conflicts)
+    occupied = {c.key.removeprefix('machine:') for c in conflicts if c.key.startswith('machine:')} if queueable else set()
     if admitted:
         held = {(lease.key, lease.mode) for lease in db.scalars(select(OperationLease).where(
             OperationLease.owner == owner, OperationLease.released_at.is_(None), OperationLease.depth > 0))}
         if any((item.key, item.mode) not in held for item in requests):
             raise Problem(409, 'preflight_changed', '已接收任务的资源占用未确认')
-    check('resource_available', not conflicts, conflicts=[{'key': c.key, 'owner': c.owner, 'reason': c.reason} for c in conflicts])
+    check('resource_wait' if queueable else 'resource_available', not conflicts or queueable,
+          reason='等待正在运行的功能测试释放资源；启动前重新预检' if queueable else '',
+          conflicts=[{'key': c.key, 'owner': c.owner, 'reason': c.reason} for c in conflicts])
     for (host, user), machine in targets.items():
         check('authentication_supported', bool(user) and user == machine.ssh_user and bool(machine.ssh_password_ciphertext),
               host=host, user=user)
@@ -400,6 +405,11 @@ def _evaluate(db, actor, request, pinned=None, owner=None, *, admitted=False):
     binding['approved_targets'] = [{'host': host, 'user': user, 'role': role, 'mutates': mutates}
                                    for host, user, role, mutates in sorted(approved)]
     binding['control_connection'] = [control.address, control.ssh_port, control.ssh_user]
+    deferred = sorted([[host, user] for (host, user), machine in targets.items() if machine.id in occupied])
+    if pinned and pinned.get('deferred_targets'):
+        binding['deferred_targets'] = pinned['deferred_targets']
+    elif deferred:
+        binding['deferred_targets'] = deferred
     if pinned and binding != {k: v for k, v in pinned.items() if k != 'observations'}:
         raise Problem(409, 'preflight_changed', '固定运行时安装记录已改变')
     runtime = binding['functional_runtime']
@@ -443,6 +453,10 @@ def _evaluate(db, actor, request, pinned=None, owner=None, *, admitted=False):
         modules = set(snapshot['modules'])
         requirements = {tool for capability in snapshot['modules'].values() for tool in capability['required_tools']}
         for (host, user), machine in snapshot_targets.items():
+            if machine.id in occupied:
+                check('prerequisites_deferred', True, host=host, user=user,
+                      reason='目标正由功能测试占用；目录、挂载、端口与工具将在取得独占资源后重新验证')
+                continue
             clients = [c for c in execution['clients'] if c['host'] == host and modules - {'cache_node', 'mds_manage'}]
             caches = [c for c in execution['caches'] if c['host'] == host and modules != {'mds_manage'}]
             tools = {'python3'}
@@ -561,6 +575,12 @@ def revalidate_binding(db, actor, request, binding, *, owner=None, admitted_run_
         raise
     except Exception:
         raise Problem(409, 'preflight_changed', '只读复检失败') from None
+    # Deferred hosts were never asserted ready at admission. Every dispatch
+    # probes them, while existing nondeferred observations must remain exact.
+    if binding.get('deferred_targets'):
+        deferred = binding['deferred_targets']
+        actual = {**actual, 'observations': [item for item in actual.get('observations', [])
+                   if [item['host'], item['user']] not in deferred]}
     if actual != binding or not all(c['ok'] for c in checks):
         raise Problem(409, 'preflight_changed', '权限、工具或源版本已改变，请重新预检')
     return binding

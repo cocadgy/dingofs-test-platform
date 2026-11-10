@@ -1,6 +1,19 @@
 import { useState } from "react";
 import type { GuidedMetadata, Profile } from "./types";
 
+const fieldLabels:Record<string,string> = {
+  dingo:'Dingo',mds_client:'MDS 客户端',client_binaries:'客户端二进制',cache_binaries:'缓存二进制',chaos_tool:'故障工具',
+  mounts:'挂载目录',client_cache:'客户端缓存目录',client_logs:'客户端日志目录',remote_cache:'远端缓存目录',
+};
+function summaryValue(value:unknown):string {
+  if (typeof value === 'string') return value || '未知';
+  if (Array.isArray(value)) return value.length ? value.map(summaryValue).join('、') : '未知';
+  return '未知';
+}
+function SummaryFields({values}:{values:Record<string,unknown>}) {
+  return <>{Object.entries(values).map(([key,value]) => <p key={key}>{fieldLabels[key] || key}：{summaryValue(value)}</p>)}</>;
+}
+
 function registeredTarget(metadata:GuidedMetadata, host:string) {
   return metadata.machines?.find(machine =>
     machine.name === host || machine.address === host || machine.aliases.includes(host));
@@ -82,8 +95,9 @@ export function EnvironmentStep({metadata,profiles,clusterId,environmentId,onClu
         return machine ? `${machine.name}（${machine.address}，${item.user}，${item.role}）`
           : `${item.host}（${item.user}，${item.role}；未登记或无权限）`;
       }).join("、") || "按用例决定"}</p>
-      <p>文件系统命名：按模块环境约定 · 程序：{Object.values(descriptor.programs).filter(value => typeof value === "string").join("、") || "按环境配置"}</p>
-      <p>目录：{Object.values(descriptor.directories).filter(value => typeof value === "string").join("、") || "按环境配置"}</p>
+      <p>文件系统命名：按模块环境约定</p>
+      <strong>程序</strong><SummaryFields values={descriptor.programs}/>
+      <strong>目录</strong><SummaryFields values={descriptor.directories}/>
     </div>}
   </section>;
 }

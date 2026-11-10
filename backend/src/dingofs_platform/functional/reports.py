@@ -32,13 +32,18 @@ print(json.dumps(list(values)))
 '''
 
 
-def load_report_secrets(source_root, env_name, manifest):
+def load_report_secrets(source_root, env_name, manifest, *, archive_root=None):
     """Fail closed if the exact original code/config version is unavailable."""
     try:
-        root = Path(source_root).resolve(strict=True)
+        from .source_archive import resolve_archive
+        root = (resolve_archive(archive_root, manifest) if archive_root is not None
+                else Path(source_root).resolve(strict=True))
         if not manifest or not {'src/test_runner/functional_redaction.py', 'src/config/env_parser.py'} <= manifest.keys():
             raise ValueError('incomplete manifest')
         def verify():
+            if archive_root is not None:
+                resolve_archive(archive_root, manifest)
+                return
             required = {p.relative_to(root).as_posix() for folder, pattern in (
                 ('src', '*.py'), ('conf', '*.yaml'), ('testcases', '*.yaml'), ('template', '*.py'))
                 for p in (root / folder).rglob(pattern) if p.is_file()}
@@ -180,7 +185,8 @@ def download_report(db, actor, run_id, child_id, path):
     if [machine.address, machine.ssh_port, machine.ssh_user] != binding.get('control_connection'):
         raise Problem(409, 'report_machine_changed', '原报告机器连接身份已改变')
     secrets = load_report_secrets(Path(settings.functional_source_root).parent,
-        child.environment_snapshot['env_name'], binding.get('functional_runtime', {}).get('source_manifest'))
+        child.environment_snapshot['env_name'], binding.get('functional_runtime', {}).get('source_manifest'),
+        archive_root=settings.functional_source_archive_root)
     # Reject unsupported attachment types before any remote read.
     safe_report_bytes(relative, [], secrets)
     password = decrypt_password(machine.ssh_password_ciphertext, settings.credential_encryption_key)

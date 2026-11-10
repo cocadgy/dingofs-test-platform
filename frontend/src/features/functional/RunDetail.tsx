@@ -35,6 +35,8 @@ function V2RunDetail({ run, busy, onStop, onRerun, onVerifyResources, verificati
       <p>跳过 {sum("skipped") ?? "—"} · 已知问题 {sum("known_bugs") ?? "—"} · 套件错误 {suiteErrors ?? "—"}</p>
       {completed !== null && selected > 0 && <progress aria-label="用例完成进度" max={selected} value={completed} />}
       <p>当前阶段：{run.phase || "等待执行"}</p>
+      {run.termination_cause && <p>终止原因：{run.termination_cause === 'timeout' ? '达到执行时限' :
+        run.termination_cause === 'manual' ? '用户停止' : run.termination_cause}</p>}
       {run.error && <p role="alert" className="error">{run.error}</p>}
       <div className="functional-actions">
         {canManage && onVerifyResources && ["success", "failed", "cancelled", "needs_attention"].includes(run.state) &&

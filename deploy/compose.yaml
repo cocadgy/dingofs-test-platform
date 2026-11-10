@@ -38,6 +38,7 @@ services:
       PLATFORM_FUNCTIONAL_WORKER_ENABLED: "true"
       PLATFORM_GUIDED_FUNCTIONAL_ENABLED: ${PLATFORM_GUIDED_FUNCTIONAL_ENABLED:-false}
       PLATFORM_FUNCTIONAL_SOURCE_ROOT: /app/integration-test/testcases
+      PLATFORM_FUNCTIONAL_SOURCE_ARCHIVE_ROOT: /app/functional-source-archives
       PLATFORM_COOKIE_SECURE: ${PLATFORM_COOKIE_SECURE:-true}
       PLATFORM_CREDENTIAL_ENCRYPTION_KEY: ${PLATFORM_CREDENTIAL_ENCRYPTION_KEY:-}
       PLATFORM_SSH_KNOWN_HOSTS: /app/deploy/ssh/known_hosts
@@ -64,6 +65,12 @@ services:
       - type: bind
         source: ${PLATFORM_INTEGRATION_SOURCE:?Set immutable reviewed integration source directory}
         target: /app/integration-test
+        read_only: true
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ${PLATFORM_FUNCTIONAL_SOURCE_ARCHIVES:?Set dedicated private functional source archive directory}
+        target: /app/functional-source-archives
         read_only: true
         bind:
           create_host_path: false

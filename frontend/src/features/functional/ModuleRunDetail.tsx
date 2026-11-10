@@ -16,6 +16,7 @@ export function ModuleRunDetail({ runId, child }: { runId: string; child: Module
   const [showEvents, setShowEvents] = useState(false);
   const label = moduleLabels[child.module] || child.module;
   const result = child.result || {};
+  const cause = child.termination_cause || result.termination_cause;
   const counts = verifiedCaseCounts(child);
   const final = new Map((result.case_results || []).map((row) => [row.case_path, row]));
   const missing = new Set(result.missing || []);
@@ -29,6 +30,7 @@ export function ModuleRunDetail({ runId, child }: { runId: string; child: Module
       <div role="region" aria-label={label} className="functional-module-body">
         <p>阶段：{child.stage || result.stage || "等待执行"}</p>
         <p>环境：{child.env_name}</p>
+        {cause && <p>模块终止原因：{cause === 'timeout' ? '达到执行时限' : cause === 'manual' ? '用户停止' : cause}</p>}
         <div className="functional-targets">
           <strong>本次执行机器（提交时快照）</strong>
           {child.execution_targets.length ? child.execution_targets.map((machine) => (

@@ -21,7 +21,8 @@ from dingofs_platform.inventory.models import Cluster, Machine
 from dingofs_platform.inventory.permissions import require_manage
 from dingofs_platform.inventory.service import audit
 from dingofs_platform.operations.models import OperationLease  # noqa: F401 register shared metadata
-from dingofs_platform.operations.leases import functional_requests, require_available
+from dingofs_platform.operations.leases import functional_requests, check_conflicts
+from .queueing import queueable_conflicts
 from .contracts import EnvironmentDescriptor
 from .drafts import Draft
 from .models import FunctionalRun, FunctionalModuleRun
@@ -125,8 +126,10 @@ def create_run(db: Session, actor: User, request: NormalizedSubmission, *,
     if not machine or machine.archived or machine.maintenance:
         raise Problem(409, 'machine_unavailable', '集群管理机器不可用')
     require_manage(actor, machine)
-    require_available(db, functional_requests(db, cluster.id, machine.id,
-                      request.environment_snapshots.values(), actor=actor))
+    conflicts = check_conflicts(db, functional_requests(db, cluster.id, machine.id,
+                               request.environment_snapshots.values(), actor=actor))
+    if conflicts and not queueable_conflicts(db, conflicts):
+        raise Problem(409, 'operation_conflict', '目标资源被其他操作占用或远端结果尚未确认')
     # Savepoint keeps a concurrent uniqueness loser usable in its outer transaction.
     try:
         with db.begin_nested():
@@ -152,6 +155,8 @@ def create_run(db: Session, actor: User, request: NormalizedSubmission, *,
                                 snapshot=deepcopy(snapshot), deadline=None,
                                 idempotency_key=request.idempotency_key, request_digest=request.request_digest)
             db.add(row)
+            if conflicts:
+                row.phase = '等待正在运行的功能测试释放资源；启动前重新预检'
             db.flush()
             for position, plan in enumerate(request.module_plans):
                 child_id = str(uuid4())

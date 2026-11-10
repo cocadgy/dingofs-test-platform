@@ -23,7 +23,7 @@ export type GuidedCompatibility = {modules:Record<string,{
   targets?:EnvironmentDescriptor["targets"]}>};
 export type GuidedPreflight = {
   can_start:boolean;token:string|null;expires_at:string|null;
-  checks:{code:string;ok:boolean;host?:string;user?:string;conflicts?:{key:string;reason:string}[]}[];
+  checks:{code:string;ok:boolean;reason?:string;host?:string;user?:string;conflicts?:{key:string;reason:string}[]}[];
   required_confirmations:string[];impacts:{module?:string;description:string}[];
 };
 export type Case = {
@@ -87,6 +87,7 @@ export type FunctionalEventV2 = {
   case_path: string | null; attempt: number | null; data: Record<string, unknown>;
 };
 export type ChildResult = {
+  termination_cause?: string | null;
   child_state: string; stage: string;
   case_counts: { passed: number; failed: number; skipped: number; known_bugs: number; completed: number; total: number };
   case_results: { case_path: string; attempt: number; status: string }[];
@@ -100,6 +101,7 @@ export type ChildResult = {
   report_path: string | null; may_continue: boolean; end_proof: boolean;
 };
 export type ModuleRunView = {
+  termination_cause?: string | null;
   id: string; module: string; position: number; env_name: string; state: string;
   stage: string; execution_targets: MachineIdentity[]; events: FunctionalEventV2[];
   environment_snapshot: Record<string, unknown>; cases: string[];
@@ -141,6 +143,7 @@ export function verifiedCaseCounts(child: ModuleRunView): ChildResult["case_coun
     ? counts : null;
 }
 export type Run = {
+  termination_cause?: string | null;
   id: string;
   name: string;
   state: string;

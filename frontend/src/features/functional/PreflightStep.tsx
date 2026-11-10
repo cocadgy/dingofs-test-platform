@@ -43,6 +43,7 @@ export function PreflightStep({configuration,profiles,metadata,compatibility,pre
       <strong>{preflight.can_start ? "预检通过" : "预检未通过"}</strong>
       {preflight.checks.map((check,index) => <p key={index}>
         {check.ok ? "通过" : "未通过"} · {check.code}
+        {check.reason ? ` · ${check.reason}` : ""}
         {check.host ? ` · ${check.host}` : ""}{check.user ? ` · ${check.user}` : ""}
         {check.conflicts?.map(item => ` · ${item.key}：${item.reason}`).join("")}
       </p>)}

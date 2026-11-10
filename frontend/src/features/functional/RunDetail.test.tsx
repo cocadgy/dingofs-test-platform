@@ -40,6 +40,20 @@ const v2 = (overrides: Partial<Run> = {}): Run => ({
 });
 const show = (run: Run) => render(<RunDetail run={run} busy={false} onStop={vi.fn()} onRerun={vi.fn()} />);
 
+test.each(['cancelling', 'needs_attention', 'cancelled'])("timeout cause is visible in parent and child during %s", state => {
+  show(v2({state, termination_cause: 'timeout', children: [child({state, termination_cause: 'timeout',
+    result: result({termination_cause: 'timeout'})})]}));
+  expect(screen.getByText('终止原因：达到执行时限')).toBeInTheDocument();
+  fireEvent.click(screen.getByText('基础文件操作'));
+  expect(within(screen.getByRole('region', {name: '基础文件操作'})).getByText('模块终止原因：达到执行时限')).toBeInTheDocument();
+});
+
+test('manual cancellation remains visibly distinct from deadline termination', () => {
+  show(v2({state: 'cancelled', termination_cause: 'manual'}));
+  expect(screen.getByText('终止原因：用户停止')).toBeInTheDocument();
+  expect(screen.queryByText(/达到执行时限/)).not.toBeInTheDocument();
+});
+
 test("test_setup_has_machine_ip_user_before_cases", () => {
   show(v2({ children: [child({ stage: "setup" })] }));
   fireEvent.click(screen.getByText("基础文件操作"));

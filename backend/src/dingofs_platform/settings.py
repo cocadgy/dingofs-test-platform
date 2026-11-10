@@ -33,6 +33,7 @@ class Settings(BaseSettings):
     performance_worker_enabled: bool = False
     functional_worker_enabled: bool = False
     functional_source_root: Path = Path("/app/integration-test/testcases")
+    functional_source_archive_root: Path | None = None
     functional_guided_enabled: bool = Field(
         default=False, validation_alias="PLATFORM_GUIDED_FUNCTIONAL_ENABLED"
     )

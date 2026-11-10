@@ -53,6 +53,7 @@ def job(app, ready, monkeypatch):
 def advance(app, job):
     with app.state.session_factory.begin() as db:
         db.info['functional_settings'] = app.state.settings
+        db.info['functional_preflight_transport'] = getattr(app.state, 'functional_preflight_transport', None)
         return scheduler().advance_parent(db, job)
 
 
@@ -167,9 +168,9 @@ def test_retained_failure_marks_remaining_not_run(app, job, tmp_path, cleanup, r
     assert held(app, job)
 
 
-def test_timeout_starts_at_child_start_and_grace_is_600_seconds(app, job, monkeypatch):
+def test_timeout_starts_at_child_start_and_grace_is_600_seconds(app, job, monkeypatch, tmp_path):
     module = scheduler()
-    instant = datetime(2026, 11, 10, tzinfo=timezone.utc)
+    instant = datetime.now(timezone.utc) - timedelta(days=5)
     monkeypatch.setattr(module, 'now', lambda: instant)
     decision = advance(app, job)
     first = children(app, job)[0]
@@ -188,10 +189,80 @@ def test_timeout_starts_at_child_start_and_grace_is_600_seconds(app, job, monkey
     instant += timedelta(seconds=599)
     assert advance(app, job).action == 'poll'
     instant += timedelta(seconds=1)
-    assert advance(app, job).action == 'done'
+    assert advance(app, job).action == 'poll'
     first, second = children(app, job)
     assert first.state == 'needs_attention' and second.state == 'not_run'
     assert held(app, job)
+    with app.state.session_factory() as db:
+        assert db.get(FunctionalRun, job).finished_at is None
+    from dingofs_platform.functional.manager import FunctionalManager
+    from dingofs_platform.functional.routes import view
+    from dingofs_platform.functional.event_reader import read_events
+    outcome = finished(decision)
+    outcome['process'].update(pid=10, start_time='900', started_at=first.started_at.isoformat())
+    outcome['end_proof'].update(pid=10, start_time='900')
+    event_file = tmp_path / 'late-events'
+    event_file.write_text(''.join(json.dumps(row) + '\n' for row in outcome.pop('events')))
+    outcome['event_batch'] = asdict(read_events(event_file, 0))
+    class Fake:
+        def __init__(self, config): pass
+        def start_child(self, payload): raise AssertionError('must not launch after escalation')
+        def poll_child(self, payload, cursor, cancel=False):
+            assert payload['child_id'] == first.id and cancel
+            return {**outcome, 'cursor_before': cursor}
+    app.state.functional_transport = Fake
+    restarted = FunctionalManager(app)
+    class InlinePool:
+        def submit(self, fn, run_id):
+            fn(run_id)
+            restarted.stop_event.set()
+    restarted.pool = InlinePool()
+    monkeypatch.setattr(restarted.stop_event, 'wait', lambda _: restarted.stop_event.set())
+    restarted.loop()
+    with app.state.session_factory() as db:
+        result = view(db.get(FunctionalRun, job), True)
+        assert result['state'] == 'cancelled'
+        assert result['termination_cause'] == 'timeout'
+        assert result['finished_at'] == instant
+        assert result['children'][0]['result']['end_proof'] is True
+        assert result['children'][0]['result']['termination_cause'] == 'timeout'
+    assert children(app, job)[1].launch_attempted_at is None
+    assert advance(app, job).action == 'done'
+    assert not held(app, job)
+
+
+@pytest.mark.parametrize('cause', ['manual', 'timeout'])
+def test_public_termination_cause_survives_later_manual_request(admin, app, job, monkeypatch, tmp_path, cause):
+    from dingofs_platform.functional.routes import view
+    decision = advance(app, job)
+    instant = datetime(2026, 11, 10, tzinfo=timezone.utc)
+    monkeypatch.setattr(scheduler(), 'now', lambda: instant)
+    with app.state.session_factory.begin() as db:
+        parent = db.get(FunctionalRun, job)
+        child = db.get(FunctionalModuleRun, decision.child_id)
+        if cause == 'timeout': child.deadline = instant
+        else: parent.cancel_requested = True
+    assert advance(app, job).cancel
+    response = admin.post('/api/v1/functional/runs/' + job + '/stop')
+    assert response.status_code == 200, response.text
+    assert response.json()['termination_cause'] == cause
+    with app.state.session_factory.begin() as db:
+        parent = db.get(FunctionalRun, job)
+        parent.cancel_requested = True
+        public = view(parent, True)
+        assert public['termination_cause'] == cause
+        assert public['children'][0]['termination_cause'] == cause
+    assert advance(app, job).cancel
+    ingest(app, job, decision, finished(decision), tmp_path)
+    with app.state.session_factory() as db:
+        public = view(db.get(FunctionalRun, job), True)
+        assert public['state'] == 'cancelled'
+        assert public['termination_cause'] == cause
+        assert public['children'][0]['result']['termination_cause'] == cause
+    assert not held(app, job)
+    response = admin.get('/api/v1/functional/runs/' + job)
+    assert response.json()['termination_cause'] == cause
+    assert response.json()['children'][0]['result']['termination_cause'] == cause
 
 
 def test_cancel_before_launch_has_zero_remote_side_effects(app, job):
