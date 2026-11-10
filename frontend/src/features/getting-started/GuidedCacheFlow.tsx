@@ -39,6 +39,7 @@ export function GuidedCacheFlow({ admin, userId, route, onNavigate, onDirty }: P
   const machines = (snapshot?.machines || []).filter(item => item.can_manage);
   const profiles = (snapshot?.cache_profiles || []).filter(item => item.enabled);
   const active = !!operation && pendingStates.includes(operation.state);
+  const completed = operation?.action === "cache.create" && operation.state === "succeeded";
   const sourceText = draft.source === "default" ? "机器默认程序" : draft.source === "tag" ? "TAG " + draft.tag : "使用目标机器已有程序（目录逐台指定）";
   const count = draft.rows.reduce((sum, row) => sum + row.count, 0);
   const capacity = draft.rows.reduce((sum, row) => sum + row.count * row.capacity, 0);
@@ -73,7 +74,7 @@ export function GuidedCacheFlow({ admin, userId, route, onNavigate, onDirty }: P
     return () => { live = false; };
   }, [admin, userId, route]);
   useEffect(() => { setSnapshot(undefined); void loadSnapshot(); }, [loadSnapshot, route]);
-  useEffect(() => { sessionStorage.setItem(key, JSON.stringify(draft)); onDirty(!!draft.clusterId || !!draft.name || active); }, [key, draft, active, onDirty]);
+  useEffect(() => { sessionStorage.setItem(key, JSON.stringify(draft)); onDirty(!completed && (!!draft.clusterId || !!draft.name || active)); }, [key, draft, active, completed, onDirty]);
   useEffect(() => {
     const id = sessionStorage.getItem(operationKey);
     if (id) api<Operation>("/resource-operations/" + encodeURIComponent(id)).then(value => {

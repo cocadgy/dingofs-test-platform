@@ -10,7 +10,8 @@ const machines = [
 ];
 const cluster = { id: "c", external_name: "prod", machine_name: "control", machine_address: "10.0.0.3", os_user: "dingofs", creator_id: "u", revision: 1, binding_state: "verified" };
 afterEach(() => { cleanup(); sessionStorage.clear(); vi.mocked(api).mockReset(); });
-function setup(planState = "succeeded") {
+function setup(planState = "succeeded", createState = "succeeded") {
+  const onDirty = vi.fn();
   sessionStorage.setItem("guided-cache-draft-u", JSON.stringify({ ...blankCacheDraft(), clusterId: "c", name: "shared",
     rows: machines.map((machine, i) => ({ ...newCacheRow(machine), directory: "/cache", count: i + 1 })) }));
   vi.mocked(api).mockImplementation(async (path, method, body) => {
@@ -18,11 +19,12 @@ function setup(planState = "succeeded") {
     if (path === "/clusters/c/resources") return { catalog: [{ action: "cache.plan" }], machines, resources: [], operations: [], cache_profiles: [] };
     if (path === "/clusters/c/resource-operations" && method === "POST") {
       const action = (body as {action: string}).action;
-      return { id: action === "cache.plan" ? "plan-id" : "create-id", action, state: action === "cache.plan" ? planState : "succeeded" };
+      return { id: action === "cache.plan" ? "plan-id" : "create-id", action, state: action === "cache.plan" ? planState : createState };
     }
     throw Error(path);
   });
-  render(<GuidedCacheFlow admin userId="u" route="#/start/cache" onNavigate={vi.fn()} onDirty={vi.fn()} />);
+  render(<GuidedCacheFlow admin userId="u" route="#/start/cache" onNavigate={vi.fn()} onDirty={onDirty} />);
+  return onDirty;
 }
 async function confirm() {
   await waitFor(() => expect(screen.getByRole("button", { name: "下一步" })).toBeEnabled());
@@ -44,6 +46,24 @@ test("failed preparation never starts any cache nodes", async () => {
   setup("failed"); await confirm();
   expect(await screen.findByRole("button", { name: "返回修改并重新检查" })).toBeInTheDocument();
   expect(vi.mocked(api).mock.calls.some(([, ,body]) => (body as {action?:string})?.action === "cache.create")).toBe(false);
+});
+test("completed cache creation clears the unsaved-draft navigation guard", async () => {
+  const onDirty = setup();
+  await confirm();
+  await screen.findByRole("heading", { name: "缓存组创建完成" });
+  await waitFor(() => expect(onDirty).toHaveBeenLastCalledWith(false));
+});
+test("failed preparation keeps the unsaved-draft navigation guard", async () => {
+  const onDirty = setup("failed");
+  await confirm();
+  await screen.findByRole("button", { name: "返回修改并重新检查" });
+  expect(onDirty).toHaveBeenLastCalledWith(true);
+});
+test("successful cache planning does not clear the guard when creation fails", async () => {
+  const onDirty = setup("succeeded", "failed");
+  await confirm();
+  await screen.findByRole("button", { name: "重试失败及未完成节点" });
+  expect(onDirty).toHaveBeenLastCalledWith(true);
 });
 test("explicit binary directory can be overridden per machine", () => {
   const draft = { ...blankCacheDraft(), source: "path" as const, binaryDirectory: "/opt/cache",

@@ -1,4 +1,5 @@
 import hashlib
+import json
 import pytest
 from dingofs_platform.resources import cache_binary as binary
 
@@ -16,7 +17,38 @@ def test_client_path_accepts_known_version_exit_one(tmp_path):
     assert info['version'] == VERSION
     assert info['path'] == str(path)
 
-@pytest.mark.parametrize('output,code', [('error loading shared library', 1), ('', 1), (VERSION, 2), (VERSION + '\nFatal error', 1)])
+@pytest.mark.parametrize('version', [
+    'main-fe4384a0b [local]',
+    'dingo-client main-fe4384a0b [local]',
+])
+def test_client_path_accepts_local_main_version_exit_one(tmp_path, version):
+    path = executable(tmp_path, version)
+    info = binary.prepare_cache_binary({'binary_source': 'path', 'binary_directory': str(tmp_path)}, component='dingo-client')
+    assert info['version'] == version
+    assert info['path'] == str(path)
+
+def test_default_client_accepts_local_main_version_exit_one(tmp_path, monkeypatch):
+    home = tmp_path / 'home'
+    installed = home / '.dingo/components/installed.json'
+    installed.parent.mkdir(parents=True)
+    client_dir = tmp_path / 'client'
+    client_dir.mkdir()
+    executable(client_dir, 'dingo-client main-fe4384a0b [local]')
+    installed.write_text(json.dumps([{'name': 'dingo-client', 'active': True, 'path': str(client_dir)}]))
+    monkeypatch.setattr(binary.Path, 'home', lambda: home)
+
+    info = binary.prepare_cache_binary({'binary_source': 'default'}, component='dingo-client')
+
+    assert info['version'] == 'dingo-client main-fe4384a0b [local]'
+    assert info['source'] == 'default'
+
+@pytest.mark.parametrize('output,code', [
+    ('error loading shared library', 1), ('', 1), (VERSION, 2), (VERSION + '\nFatal error', 1),
+    ('main-fe4384a0b [local]', 2),
+    ('main-fe4384a0b [local]\nFatal error', 1),
+    ('main-not-a-hash [local]', 1),
+    ('dingo-cache main-fe4384a0b [local]', 1),
+])
 def test_client_real_errors_are_not_accepted(tmp_path, output, code):
     executable(tmp_path, output, code)
     with pytest.raises(ValueError, match='dingo-client'):

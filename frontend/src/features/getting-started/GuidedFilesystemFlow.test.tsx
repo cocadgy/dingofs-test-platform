@@ -184,6 +184,35 @@ test("returning from storage creation restores the filesystem draft and selected
   expect(sessionStorage.getItem("guided-filesystem-storage-return")).toBeNull();
 });
 
+test("returning from storage without creating resumes the details step with the draft intact", async () => {
+  mockApi();
+  const onNavigate = vi.fn();
+  const onDirty = vi.fn();
+  const props = { admin: true, userId: "user-1", onNavigate, onDirty };
+  const view = render(<GettingStartedPage {...props} route="filesystem" />);
+  fireEvent.change(await screen.findByLabelText("目标集群"), { target: { value: "cluster-1" } });
+  await waitFor(() => expect(screen.getByRole("button", { name: "下一步" })).toBeEnabled());
+  fireEvent.click(screen.getByRole("button", { name: "下一步" }));
+  fireEvent.change(screen.getByLabelText("文件系统名称"), { target: { value: "return-without-create" } });
+  fireEvent.change(screen.getByLabelText("时间后缀"), { target: { value: "milliseconds" } });
+  fireEvent.change(screen.getByLabelText("分区类型"), { target: { value: "monolithic" } });
+  fireEvent.click(screen.getByRole("combobox", { name: "存储配置" }));
+  fireEvent.click(screen.getByRole("option", { name: "s3-prod · S3" }));
+  fireEvent.click(screen.getByRole("button", { name: "添加存储配置" }));
+  expect(onNavigate).toHaveBeenLastCalledWith("#/start/filesystem/storage");
+  view.rerender(<GettingStartedPage {...props} route="filesystem-storage" />);
+  fireEvent.click(screen.getByRole("button", { name: "返回创建文件系统" }));
+  expect(onNavigate).toHaveBeenLastCalledWith("#/start/filesystem");
+  view.rerender(<GettingStartedPage {...props} route="filesystem" />);
+  expect(await screen.findByLabelText("文件系统名称")).toHaveValue("return-without-create");
+  expect(screen.getByText("步骤 2 / 3")).toBeInTheDocument();
+  expect(screen.getByLabelText("时间后缀")).toHaveValue("milliseconds");
+  expect(screen.getByLabelText("分区类型")).toHaveValue("monolithic");
+  await waitFor(() => expect(screen.getByRole("combobox", { name: "存储配置" })).toHaveTextContent("s3-prod"));
+  expect(screen.getByRole("button", { name: "下一步" })).toBeEnabled();
+  expect(vi.mocked(api).mock.calls.some(([, method]) => method === "POST")).toBe(false);
+});
+
 test("guided storage page uses the available desktop width", () => {
   const css = readFileSync("src/features/getting-started/getting-started.css", "utf8");
   expect(css).toMatch(/\.getting-started:has\(\.storage-profiles-page\)\s*\{[^}]*max-width:\s*1280px/);

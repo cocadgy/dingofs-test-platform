@@ -38,14 +38,16 @@ export function GuidedMountFlow({ admin, userId, route, onNavigate, onDirty }: P
   const machines = (snapshot?.machines || []).filter(m => m.can_manage);
   const profiles = (snapshot?.mount_profiles || []).filter(p => p.enabled);
   const active = busy || !!operation && pendingStates.includes(operation.state) || !!query && pendingStates.includes(query.state);
+  const completed = operation?.action === 'mount.create' && operation.state === 'succeeded';
   let filesystems: string[] = [], groups: ReturnType<typeof cacheGroupResources> = [];
   try { if (fsQuery?.state === 'succeeded') filesystems = filesystemOptions(fsQuery, 'newest').map(f => f.name); } catch { /* failed parsing blocks Next */ }
   try { if (cacheQuery?.state === 'succeeded') groups = cacheGroupResources(cacheQuery, snapshot?.resources || []); } catch { /* refresh remains available */ }
   const update = (patch: Partial<MountDraft>) => { setDraft(d => ({ ...d, ...patch })); setError(''); };
   const rowUpdate = (id: string, patch: Partial<MountRow>) => setDraft(d => ({ ...d, rows: d.rows.map(r => r.machineId === id ? { ...r, ...patch } : r) }));
   const back = () => onNavigate('#/start/mount');
+  const returnToFilesystem = () => { sessionStorage.setItem('guided-filesystem-storage-return', '1'); onNavigate('#/start/mount/filesystem'); };
   useEffect(() => { live.current = true; return () => { live.current = false; onDirty(false); }; }, [onDirty]);
-  useEffect(() => { sessionStorage.setItem(key, JSON.stringify(draft)); onDirty(!!draft.clusterId || draft.rows.length > 0 || active); }, [key, draft, active, onDirty]);
+  useEffect(() => { sessionStorage.setItem(key, JSON.stringify(draft)); onDirty(!completed && (!!draft.clusterId || draft.rows.length > 0 || active)); }, [key, draft, active, completed, onDirty]);
   useEffect(() => {
     let current = true;
     (async () => {
@@ -138,7 +140,7 @@ export function GuidedMountFlow({ admin, userId, route, onNavigate, onDirty }: P
   }
   if (route.endsWith('/machine')) return <section className="getting-started"><h1>添加机器</h1><GuidedMachineForm onDirty={onDirty} onBack={back} continueLabel="继续挂载文件系统" onCreated={id => { newMachine.current = id; onNavigate(route.includes('/cluster/') ? '#/start/mount/cluster' : '#/start/mount'); }} /></section>;
   if (route === '#/start/mount/cluster') return <section className="getting-started"><h1>添加集群</h1><DiscoverClusters guided admin={admin} userId={userId} initialMachineId={newMachine.current || undefined} onAddMachine={() => onNavigate('#/start/mount/cluster/machine')} onClose={back} onImported={ids => { update({ clusterId: ids[0], fsName: '', rows: [] }); setStep(1); back(); }} /></section>;
-  if (route === '#/start/mount/filesystem/storage') return <section className="getting-started"><h1>添加存储配置</h1><button onClick={() => onNavigate('#/start/mount/filesystem')}>返回创建文件系统</button><StorageProfilesPage onDirty={onDirty} onCreated={id => { const saved = JSON.parse(sessionStorage.getItem('guided-filesystem-draft') || '{}'); sessionStorage.setItem('guided-filesystem-draft', JSON.stringify({ ...saved, storageId: id })); sessionStorage.setItem('guided-filesystem-storage-return', '1'); onNavigate('#/start/mount/filesystem'); }} /></section>;
+  if (route === '#/start/mount/filesystem/storage') return <section className="getting-started"><h1>添加存储配置</h1><button onClick={returnToFilesystem}>返回创建文件系统</button><StorageProfilesPage onDirty={onDirty} onCreated={id => { const saved = JSON.parse(sessionStorage.getItem('guided-filesystem-draft') || '{}'); sessionStorage.setItem('guided-filesystem-draft', JSON.stringify({ ...saved, storageId: id })); returnToFilesystem(); }} /></section>;
   if (route === '#/start/mount/filesystem') return <section className="getting-started"><h1>创建文件系统</h1><button onClick={back}>返回挂载引导</button><GuidedFilesystemFlow admin={admin} userId={userId} onDirty={onDirty} onNavigate={hash => onNavigate(hash.replace('#/start/filesystem', '#/start/mount/filesystem').replace('#/start/cluster', '#/start/mount/cluster'))} onCreated={(clusterId, fsName) => { update({ clusterId, fsName }); initialQuery.current = ''; setStep(1); back(); }} /></section>;
   return <section className="getting-started guided-cache-flow"><p className="eyebrow">GETTING STARTED / MOUNT</p><h1>挂载文件系统</h1><section className="getting-started-card">
     <p className="muted">{step < 5 ? `步骤 ${step} / 4` : '执行结果'}</p>

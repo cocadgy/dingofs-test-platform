@@ -52,9 +52,12 @@ def inspect_cache_binary(path, expected_commit="", component="dingo-cache"):
     version = output[:2048]
     # This client release returns EXIT_FAILURE after printing --version.
     # Accept only its complete, known version format, never arbitrary error output.
-    client_version_exit = component == "dingo-client" and result.returncode == 1 and re.fullmatch(
-        r"v\d+\.\d+(?:\.\d+)?(?:[-.][A-Za-z0-9]+)*, ci/cd build-[A-Za-z0-9._/-]+:[0-9a-fA-F]{7,40} \+ (?:release|debug)", output
-    ) is not None
+    client_version_exit = component == "dingo-client" and result.returncode == 1 and (
+        re.fullmatch(
+            r"v\d+\.\d+(?:\.\d+)?(?:[-.][A-Za-z0-9]+)*, ci/cd build-[A-Za-z0-9._/-]+:[0-9a-fA-F]{7,40} \+ (?:release|debug)", output
+        ) is not None
+        or re.fullmatch(r"(?:dingo-client )?main-[0-9a-f]{7,40} \[local\]", output) is not None
+    )
     if (result.returncode != 0 and not client_version_exit) or not version:
         raise ValueError("无法运行 " + component + " 或读取版本（退出码 " + str(result.returncode) + "）：" + version)
     if expected_commit and not re.search(r"(?<![0-9a-f])" + re.escape(expected_commit) + r"[0-9a-f]*", version.lower()):
