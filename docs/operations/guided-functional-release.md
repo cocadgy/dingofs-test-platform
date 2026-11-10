@@ -1,8 +1,11 @@
 # Guided functional release and acceptance
 
-Status: local integration and release preparation only. Production deployment,
-tool installation and the 126 browser smoke remain pending the controller's
-release gate. Local transport fixtures are not evidence of a real workload.
+Status (2026-11-11): implementation, affected regression tests and the final
+independent code review are complete. All three feature branches are pushed.
+Production deployment, tool installation and the 126 browser smoke remain
+pending. Automatic approval rejected the fresh production-database backup
+before execution; production migration and service switching were not attempted.
+Local transport fixtures are not evidence of a real workload.
 
 ## Immutable release inventory
 
@@ -10,13 +13,17 @@ release gate. Local transport fixtures are not evidence of a real workload.
 | --- | --- | --- |
 | Integration framework I | `17b5e05e8c74caea41df4b630086445f5978763b` | `feat/guided-functional-lifecycle` |
 | DTT D | `f644a4023bcd35a4c92ff00b8867e51df5f6bf2b` | `feat/guided-functional-runtime` |
-| Platform P | Record final reviewed consolidated-fix commit at release | `feat/guided-functional-existing` |
+| Platform P code | `01b52495af085f60594f02690017cce9415d28e6` | `feat/guided-functional-existing` |
 
 Verify D's `dingofs-integration-test` gitlink equals the I commit. Record release
 API/web image IDs and immutable tags, DTT image ID, installer file hashes, source
 manifest digest, source directory and the final P commit in the release record.
 Push I, then D with its updated gitlink, then P, only on the approved branches.
 Do not switch or rewrite the original dirty working trees.
+
+The three pushes above completed in that order, with remote SHA readback. A
+later documentation-only commit records this release status; candidate images
+contain exactly the P code commit listed above, not unreviewed application edits.
 
 The read-only baseline audit on 2026-11-10 observed API image
 `sha256:f534a8a772340c6a64dd3e4e5a2564d32c8607979bab2e35e3dbe16e482e219b`
@@ -28,6 +35,44 @@ Reinspect selected image IDs, mounts, Compose labels and health immediately
 before release; this historical inventory must not substitute for that check.
 Retain the exact previous effective configuration privately, without printing
 environment arrays or credentials.
+
+## Verified candidate and remaining release gate
+
+Final affected checks: backend **542 passed** (11 existing Starlette/AnyIO and
+Alembic warnings); DTT **40 passed plus 9 subtests**, including five actual
+installed-package/container checks; frontend **43 passed**; mocked-API browser
+flow **1 passed**; TypeScript/Vite builds passed. Docker execution was isolated
+with networking disabled and fake remote transport. Unrelated previously
+reproduced baseline suite failures and five existing development/build dependency
+advisories remain; this is not a whole-repository-green or security-clean claim.
+
+The single scoped final re-review closed I1–I5 and M1 with no new blocking
+regression. Candidate images are:
+
+- API `dingofs-test-platform-api:guided-functional-01b5249`,
+  `sha256:a55c56cd09618b560bf3a56d7036f8f0efff883cfb7c8ec2a17fd21a2252926a`.
+- Web `dingofs-test-platform-web:guided-functional-01b5249`,
+  `sha256:52a1f17c4c8e238dccabcb189bc4aa6cbb11ef877955c68ca1d1bb4002efd2aa`.
+
+The actual API UID 10001 verified current and historical source binds read-only.
+The historical full-source key is
+`facca2fc534340633e26f789776f0166bef89b88353217983b7b14161aec3ad9`
+(1,042 files, eight materialized aliases). An isolated restore of the previously
+verified private backup migrated from `2f6d6db8c141` to `7b1c9e4a602d`, retained
+18 functional runs, 12 performance runs, 13 machines and seven clusters, and
+returned enabled readiness 200. No application lifespan/workers or real remote
+targets ran in that rehearsal.
+
+The attempted **fresh pre-switch backup was denied before pg_dump executed**;
+its target file does not exist and no fresh restore has been verified. Do not
+substitute the older rehearsal for this remaining gate or retry through another
+access route. Obtain explicit authorization for a local private production-DB
+backup, create and restore-verify it, then recheck current activity before the
+controlled deployment sequence below. The live API/web remain
+`guided-fixes-20261110` and the live database remains `2f6d6db8c141` at the last
+read-only check. No tool-source update, tool installation or workload submission
+was performed. External daily tests still occupy the 126 environment; real smoke
+must also wait for that independent conflict to clear.
 
 ## Source, installer and permissions
 
