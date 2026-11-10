@@ -32,6 +32,7 @@ class Settings(BaseSettings):
     dashboard_monitor_enabled: bool = False
     performance_worker_enabled: bool = False
     functional_source_root: Path = Path("/app/integration-test/testcases")
+    functional_guided_enabled: bool = False
 
     @field_validator("database_url")
     @classmethod

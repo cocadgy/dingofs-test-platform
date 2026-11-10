@@ -1,7 +1,7 @@
 """User-owned, versioned drafts for the functional test wizard."""
 from fastapi import APIRouter, Depends, Request
 from pydantic import BaseModel, ConfigDict, Field
-from sqlalchemy import JSON, ForeignKey, String, select
+from sqlalchemy import JSON, ForeignKey, Index, String, select
 from sqlalchemy.orm import Mapped, mapped_column
 from dingofs_platform.auth.dependencies import current_user
 from dingofs_platform.auth.users import actor_in_transaction
@@ -12,6 +12,7 @@ router = APIRouter(prefix='/api/v1/functional/drafts', tags=['functional-drafts'
 
 class Draft(Record, Base):
     __tablename__ = 'functional_drafts'
+    __table_args__ = (Index('ix_functional_drafts_owner_state', 'creator_id', 'state'),)
     creator_id: Mapped[str] = mapped_column(ForeignKey('users.id'))
     name: Mapped[str] = mapped_column(String(120))
     step: Mapped[int] = mapped_column(default=1)

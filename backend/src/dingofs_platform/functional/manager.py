@@ -40,7 +40,7 @@ class FunctionalManager:
             try:
                 self.running={id:f for id,f in self.running.items() if not f.done()}
                 with self.app.state.session_factory() as db:
-                    ids=list(db.scalars(select(FunctionalRun.id).where(FunctionalRun.state.in_(ACTIVE)).order_by(FunctionalRun.updated_at)))
+                    ids=list(db.scalars(select(FunctionalRun.id).where(FunctionalRun.version==1,FunctionalRun.state.in_(ACTIVE)).order_by(FunctionalRun.updated_at)))
                 for id in ids:
                     if len(self.running)>=4:break
                     if id not in self.running:self.running[id]=self.pool.submit(self.process,id)
@@ -51,7 +51,7 @@ class FunctionalManager:
         try:
             with factory.begin() as db:
                 row=db.get(FunctionalRun,id,with_for_update=True)
-                if not row or row.state not in ACTIVE:return
+                if not row or row.version!=1 or row.state not in ACTIVE:return
                 # A resumed job may still be running remotely, even if polling fails.
                 remote_attempted=row.state!='queued'
                 machine=db.get(Machine,row.machine_id);snapshot=row.snapshot

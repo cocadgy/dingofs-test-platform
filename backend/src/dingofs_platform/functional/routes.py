@@ -26,7 +26,8 @@ from dingofs_platform.inventory.ssh_transport import SSHConfig
 from .catalog import catalogue,validate_selection
 from .manager import now
 from .models import FunctionalRun,ACTIVE
-from .schemas import RunInput
+from .schemas import RunInput, RunInputV2
+from . import submission  # noqa: F401 register guided persistence metadata
 from .report_redaction import redact_report
 from .environments.models import FunctionalEnvironmentProfile
 from .environments.validation import validate_target
@@ -169,7 +170,12 @@ def options(request:Request,user=Depends(current_user)):
     return data
 
 @router.post('/runs',status_code=202)
-def create(payload:RunInput,request:Request,user=Depends(current_user)):
+def create(payload:RunInput|RunInputV2,request:Request,user=Depends(current_user)):
+    if isinstance(payload,RunInputV2):
+        if not request.app.state.settings.functional_guided_enabled:
+            raise Problem(503,'guided_runs_disabled','引导功能测试尚未启用')
+        # Task 10 replaces this guard after preflight and scheduler are connected.
+        raise Problem(503,'guided_runs_unavailable','引导预检和调度尚未就绪')
     data=catalogue(catalog_path(request))
     if data['digest']!=payload.catalog_digest:raise Problem(409,'catalog_changed','用例目录已更新，请刷新后重新选择')
     try:cases=validate_selection(data,payload.selected)

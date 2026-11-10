@@ -1,4 +1,5 @@
 from dingofs_platform.functional import models as functional_models  # noqa: F401
+from dingofs_platform.operations import models as operation_models  # noqa: F401
 from dingofs_platform.functional import drafts as functional_drafts  # noqa: F401
 from dingofs_platform.functional.environments import models as functional_environment_models  # noqa: F401
 from dingofs_platform.performance import models as performance_models  # noqa: F401
@@ -20,6 +21,12 @@ from dingofs_platform.audit import models as audit  # noqa: F401 - register SQLA
 
 
 def run():
+    supplied_connection = context.config.attributes.get('connection')
+    if supplied_connection is not None:
+        context.configure(connection=supplied_connection, target_metadata=Base.metadata, compare_type=True)
+        with context.begin_transaction():
+            context.run_migrations()
+        return
     url = Settings().database_url
     if context.is_offline_mode():
         context.configure(url=url, target_metadata=Base.metadata, literal_binds=True)
