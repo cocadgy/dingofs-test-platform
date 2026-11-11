@@ -2,9 +2,10 @@
 
 Status (2026-11-11): implementation, affected regression tests and the final
 independent code review are complete. All three feature branches are pushed.
-Production deployment, tool installation and the 126 browser smoke remain
-pending. Automatic approval rejected the fresh production-database backup
-before execution; production migration and service switching were not attempted.
+The authorized fresh production backup and restore verification completed;
+production migration and API/web image switching have now completed. Tool
+installation and real 126 workload acceptance remain pending. See the live
+verification record below for the browser and enabled-readiness result.
 Local transport fixtures are not evidence of a real workload.
 
 ## Immutable release inventory
@@ -63,16 +64,47 @@ verified private backup migrated from `2f6d6db8c141` to `7b1c9e4a602d`, retained
 returned enabled readiness 200. No application lifespan/workers or real remote
 targets ran in that rehearsal.
 
-The attempted **fresh pre-switch backup was denied before pg_dump executed**;
-its target file does not exist and no fresh restore has been verified. Do not
-substitute the older rehearsal for this remaining gate or retry through another
-access route. Obtain explicit authorization for a local private production-DB
-backup, create and restore-verify it, then recheck current activity before the
-controlled deployment sequence below. The live API/web remain
-`guided-fixes-20261110` and the live database remains `2f6d6db8c141` at the last
-read-only check. No tool-source update, tool installation or workload submission
-was performed. External daily tests still occupy the 126 environment; real smoke
-must also wait for that independent conflict to clear.
+The first fresh-backup attempt was denied before execution. The user then
+explicitly authorized a local private production database backup. The new
+`private/platform-before-guided-01b5249.dump` is mode 0600 under a 0700 directory,
+2,022,849 bytes, SHA256
+`0a69c7afdf8fb4c44dffb69c81a0daa25ef0674a992786c9627837a53d403b3b`.
+Its isolated, no-network PostgreSQL restore succeeded and retained the expected
+legacy revision and counts. The temporary restore container was removed after
+identity verification; the private backup is retained.
+
+The controlled production migration exited zero at `7b1c9e4a602d`, retaining
+18 functional and 12 performance runs. Only API/web were switched to the image
+IDs above; database and external daily containers were not recreated. With
+creation disabled, authenticated history verification passed and the tool source
+was updated/read back at revision 2: immutable `source-dtt-f644a40`, registered
+126 machine, pinned tools image digest, and `allow_cached=false`. This was a
+configuration update, not a tool installation or workload submission.
+
+Initial API startup parsed all predefined environments before serving requests
+and exceeded the original five-healthcheck startup window. API subsequently
+became ready without a code change. The private release override now sets
+`services.api.healthcheck.start_period: 300s`; the enabled API was recreated
+with this grace period. Keep this setting with the release Compose invocation;
+do not bypass readiness or increase its ordinary request timeout. The release
+uses explicit `PLATFORM_GUIDED_FUNCTIONAL_ENABLED=true` and the two immutable
+source/archive environment paths on every Compose invocation.
+
+External daily tests still occupy 126; real workload acceptance must wait for
+that independent conflict to clear. Local transport fixtures are not evidence
+of actual remote installation or workload cleanup.
+
+### Live verification (2026-11-11)
+
+The enabled API returned HTTP 200 with
+`{"status":"ok","guided_functional":"ready"}`. Real Chromium login at
+`http://172.30.14.126:58080` and navigation through Start → Functional Test
+passed: the environment-selection page showed seven registered clusters and
+104 environment options, with no page/API errors or premature completion page.
+The browser allowed only same-origin reads and authentication; zero workload
+submissions and zero tool installations occurred. The second startup completed
+within the 300-second grace period. This is deployed-entry validation, not a
+completed real integration test or remote cleanup acceptance.
 
 ## Source, installer and permissions
 
