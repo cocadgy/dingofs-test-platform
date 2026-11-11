@@ -94,6 +94,26 @@ External daily tests still occupy 126; real workload acceptance must wait for
 that independent conflict to clear. Local transport fixtures are not evidence
 of actual remote installation or workload cleanup.
 
+On 2026-11-11 the daily process stopped and the single 126 trash smoke was
+selected. Compatibility passed, but preflight returned
+`runtime_install_required`. A DTT automatic installation using the pinned
+source and image ran for the original 1800-second limit and failed during
+per-file source transfer; its retained `tool:` machine/runtime leases correctly
+blocked a blind retry. The installed legacy DTT still probes `ready`, which
+does not prove the new runtime ABI. The private release override now sets
+`PLATFORM_TOOL_DEPLOY_TIMEOUT=7200` (the application's supported maximum) and
+the API was restarted; enabled readiness returned 200. Recheck exact remote
+installation residue and use a verified lease-release workflow before retrying.
+The previous export left a 7.39 GB private temporary image file under the
+platform export directory; inspect its identity and use before exact cleanup.
+No real functional run was submitted.
+
+The user's request to empty MinIO bucket `jenkins126/dingofs` was blocked by
+automatic approval as an irreversible full-bucket deletion. Do not retry via
+another command or direct filesystem deletion. At the final read-only check,
+disk4 was about 1% used and one `mds-manage-test` prefix remained. This bucket
+state is separate from the functional runtime installation failure.
+
 ### Live verification (2026-11-11)
 
 The enabled API returned HTTP 200 with
