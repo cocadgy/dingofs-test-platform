@@ -24,7 +24,8 @@ def test_both_paths_fail():
 
 @pytest.mark.parametrize('scp_ok',[True,False])
 @pytest.mark.parametrize('functional',[False,True])
-def test_complete_automatic_flow_with_isolated_hosts(tmp_path,monkeypatch,scp_ok,functional):
+@pytest.mark.parametrize('unlimited',[False,True])
+def test_complete_automatic_flow_with_isolated_hosts(tmp_path,monkeypatch,scp_ok,functional,unlimited):
     import os,subprocess,json
     from pathlib import Path
     from dingofs_platform.tool_packages import automatic
@@ -68,9 +69,12 @@ def test_complete_automatic_flow_with_isolated_hosts(tmp_path,monkeypatch,scp_ok
         def remove(self,path):os.unlink(path)
     phases=[]
     class LocalRemote:
-        def __init__(self,config,deadline,report,label):self.home=config.home;self.report=report
+        def __init__(self,config,deadline,report,label):
+            self.home=config.home;self.report=report
+            assert (deadline is None) == unlimited
         def python(self,code,phase,input_data=None,progress_range=None):
             if input_data is not None:
+                if unlimited:assert input_data['timeout'] is None
                 import shutil
                 if not scp_ok:
                     raise RuntimeError('SCP unavailable')
@@ -82,13 +86,13 @@ def test_complete_automatic_flow_with_isolated_hosts(tmp_path,monkeypatch,scp_ok
             if result.returncode:raise RuntimeError(result.stderr)
             return json.loads(result.stdout.strip().splitlines()[-1])
         def sftp(self):return Sftp()
-        def remaining(self):return 1800
+        def remaining(self):return float('inf') if unlimited else 1800
         def close(self):pass
     monkeypatch.setattr(automatic,'Remote',LocalRemote)
     from types import SimpleNamespace
     target_config=SimpleNamespace(home=target,host='target',port=22,username='user',password='secret')
     source_config=SimpleNamespace(home=source)
-    result=automatic.deploy(target_config,source_config,{'tool':'dtt','directory':str(directory),'image':DTT_IMAGE,'allow_cached':False},30,lambda **kw:None)
+    result=automatic.deploy(target_config,source_config,{'tool':'dtt','directory':str(directory),'image':DTT_IMAGE,'allow_cached':False},None if unlimited else 30,lambda **kw:None)
     assert result['method']==('platform-transfer' if scp_ok else 'registry')
     assert result['image_id']==image
     installed=target/'.local/share/dingofs-platform/tools/dtt/current'

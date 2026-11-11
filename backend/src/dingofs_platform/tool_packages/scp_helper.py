@@ -41,7 +41,7 @@ with tempfile.TemporaryDirectory(prefix='dpt-scp-') as directory:
     master, slave = pty.openpty()
     process = None
     tail = ''
-    deadline = time.monotonic() + request['timeout']
+    deadline = None if request['timeout'] is None else time.monotonic() + request['timeout']
     try:
         def terminal_session():
             os.setsid()
@@ -51,7 +51,7 @@ with tempfile.TemporaryDirectory(prefix='dpt-scp-') as directory:
         os.close(slave)
         slave = None
         while True:
-            if time.monotonic() >= deadline:
+            if deadline is not None and time.monotonic() >= deadline:
                 raise TimeoutError('SCP 传输超时')
             if select.select([master], [], [], .2)[0]:
                 try:
@@ -67,7 +67,7 @@ with tempfile.TemporaryDirectory(prefix='dpt-scp-') as directory:
                 print(text, end='', flush=True)
             elif process.poll() is not None:
                 break
-        rc = process.wait(timeout=max(.1, deadline-time.monotonic()))
+        rc = process.wait(timeout=None if deadline is None else max(.1, deadline-time.monotonic()))
         if rc:
             raise RuntimeError('SCP 传输失败 (exit '+str(rc)+'): '+tail)
         print(json.dumps({'success': True}), flush=True)

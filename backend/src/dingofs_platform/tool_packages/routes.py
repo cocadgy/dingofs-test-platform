@@ -1,7 +1,7 @@
 from datetime import datetime, timezone, timedelta
 from typing import Literal
 from fastapi import APIRouter, Depends, Request, BackgroundTasks
-from pydantic import BaseModel, Field, ConfigDict
+from pydantic import BaseModel, Field, ConfigDict, StrictBool, model_validator
 from sqlalchemy import select
 from dingofs_platform.auth.dependencies import current_user, require_admin
 from dingofs_platform.auth.users import actor_in_transaction
@@ -31,6 +31,13 @@ class JobInput(BaseModel):
     action: Literal['check', 'install', 'auto_install']
     package_id: str | None = None
     tool: Literal['dtt','dingo','dingo-client','dingo-cache'] | None = None
+    no_timeout: StrictBool = False
+
+    @model_validator(mode='after')
+    def validate_unlimited_install(self):
+        if self.no_timeout and self.action != 'auto_install':
+            raise ValueError('不限总时长仅适用于自动安装')
+        return self
 
 
 @router.get('/tool-packages')
@@ -106,6 +113,7 @@ def start(id: str, payload: JobInput, request: Request, background: BackgroundTa
             options = {key:getattr(source,key) for key in ('directory','image','allow_cached')}
             options['tool'] = payload.tool
             options['source_machine_id'] = source.machine_id
+            options['no_timeout'] = payload.no_timeout
             source_config = SSHConfig(source_machine.address,source_machine.ssh_port,source_machine.ssh_user,
                 decrypt_password(source_machine.ssh_password_ciphertext,settings.credential_encryption_key))
         elif payload.action == 'install':

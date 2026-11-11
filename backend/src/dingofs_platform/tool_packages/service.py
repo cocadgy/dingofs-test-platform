@@ -9,11 +9,18 @@ from dingofs_platform.operations.leases import (tool_requests, ensure_leases, lo
 
 
 def view(row):
-    return {c.name: getattr(row, c.name) for c in row.__table__.columns if c.name != 'manifest'}
+    result = {c.name: getattr(row, c.name) for c in row.__table__.columns if c.name != 'manifest'}
+    if isinstance(row, ToolJob) and unlimited(row):
+        result['deadline'] = None
+    return result
+
+
+def unlimited(row):
+    return row.action == 'auto_install' and (row.options or {}).get('no_timeout') is True
 
 
 def expire(db, row):
-    if row.state == 'running' and row.deadline <= datetime.now(timezone.utc):
+    if row.state == 'running' and not unlimited(row) and row.deadline <= datetime.now(timezone.utc):
         row.state = 'interrupted'
         row.phase = '任务中断或超时'
         row.log += '\n任务未返回确定结果，请重新检查工具状态；不会自动重试安装。\n'
@@ -57,8 +64,8 @@ def run_job(app, id, config, source_config=None):
             if bundle['digest'] != package.digest:
                 raise ValueError('平台工具包已改变，请重新登记新版本')
         transport = getattr(app.state, 'tool_transport', execute)
-        remaining = int((row.deadline - datetime.now(timezone.utc)).total_seconds()) - 30
-        if remaining <= 0:
+        remaining = None if unlimited(row) else int((row.deadline - datetime.now(timezone.utc)).total_seconds()) - 30
+        if remaining is not None and remaining <= 0:
             raise TimeoutError('工具包校验超时，请重新检查工具状态')
         if row.action == 'auto_install':
             from .automatic import deploy

@@ -28,7 +28,7 @@ def helper(request):
 
 
 def deploy(target_config, source_config, options, timeout_s, report):
-    deadline=time.monotonic()+timeout_s
+    deadline=None if timeout_s is None else time.monotonic()+timeout_s
     source=None
     target=Remote(target_config,deadline,report,'目标机器')
     exported=None
@@ -50,7 +50,7 @@ def deploy(target_config, source_config, options, timeout_s, report):
                 'host':target_config.host,'port':target_config.port,
                 'username':target_config.username,'password':target_config.password,
                 'source':file['path'],'destination':stage+'/'+name,
-                'timeout':timeout or max(1,min(source.remaining(),target.remaining())-15)},
+                'timeout':None if deadline is None else timeout or max(1,min(source.remaining(),target.remaining())-15)},
                 progress_range=progress_range)
         image={}
         if options['tool']=='dtt':
@@ -94,6 +94,8 @@ def deploy(target_config, source_config, options, timeout_s, report):
             try:
                 copy_file(name,file)
             except Exception:
+                # An exhausted deployment deadline is not a recoverable SCP failure.
+                source.remaining();target.remaining()
                 # Small launchers are also required with a registry image. If direct
                 # source-to-target SSH is unavailable, relay only these small files.
                 report(message='启动文件 SCP 失败，使用 SFTP 中转：'+name+'\n')
