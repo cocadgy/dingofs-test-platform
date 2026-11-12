@@ -65,7 +65,7 @@ if BUNDLE['tool'] == 'dtt':
     entry = stage / 'dtt'
     if functional_runtime:
         aliases=BUNDLE.get('source_aliases',{})
-        for alias,target in aliases.items():
+        for alias,target in (aliases.items() if BUNDLE.get('source_location') != 'image' else []):
             alias_path=stage/'dingofs-integration-test'/alias
             target_path=stage/'dingofs-integration-test'/target
             # Only replace just-verified transferred files in this new stage.
@@ -79,7 +79,8 @@ if BUNDLE['tool'] == 'dtt':
         for name in ('dtt','config/image','config/runtime','functional-aliases.json'):
             functional_runtime['files'][name]=hashlib.sha256((stage/name).read_bytes()).hexdigest()
         (stage/'functional-runtime.json').write_text(json.dumps({
-            'architecture':BUNDLE['architecture'],'functional_runtime':functional_runtime}))
+            'architecture':BUNDLE['architecture'],'functional_runtime':functional_runtime,
+            **({'source_location':'image'} if BUNDLE.get('source_location')=='image' else {})}))
         (stage/'functional-runtime.json').chmod(0o600)
         verified=subprocess.run([str(entry),'--functional-capabilities','--format','json'],
             check=True,stdout=subprocess.PIPE,stderr=subprocess.PIPE,text=True,timeout=120)

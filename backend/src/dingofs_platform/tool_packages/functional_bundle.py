@@ -1,6 +1,7 @@
 """Shared offline/automatic functional bundle policy (stdlib, no source imports)."""
 import hashlib
 import json
+import re
 from pathlib import Path
 
 FUNCTIONAL_FEATURES = ['exact_case_plan_v1', 'runtime_context_v1', 'owned_cleanup_v1',
@@ -66,10 +67,21 @@ def functional_capability(bundle):
     source = bundle.get('source_manifest')
     if source is None:
         return None
+    image_source = bundle.get('source_location') == 'image'
     if (bundle.get('functional_features') != FUNCTIONAL_FEATURES or not isinstance(source, dict)
             or not set(FUNCTIONAL_REQUIRED + ['functional_protocol.json']) <= source.keys()
-            or any(bundle['files'].get('dingofs-integration-test/' + name) != sha for name, sha in source.items())):
+            or (not image_source and any(bundle['files'].get('dingofs-integration-test/' + name) != sha for name, sha in source.items()))):
         raise ValueError('Invalid functional runtime package manifest')
+    if image_source:
+        if not re.fullmatch(r'sha256:[0-9a-f]{64}', bundle.get('image_id', '')):
+            raise ValueError('Image sources require immutable image ID')
+        for name, sha in source.items():
+            if (not isinstance(name,str) or not name or Path(name).is_absolute()
+                    or any(part in ('', '.', '..') for part in name.split('/'))
+                    or '\\' in name or not isinstance(sha,str) or not re.fullmatch(r'[0-9a-f]{64}',sha)):
+                raise ValueError('Invalid image source path or hash')
+        if not any(name.startswith('conf/') for name in source) or not any(name.startswith('testcases/') for name in source):
+            raise ValueError('Incomplete image configuration/cases')
     aliases=bundle.get('source_aliases',{})
     if not isinstance(aliases,dict):
         raise ValueError('Invalid functional source aliases')

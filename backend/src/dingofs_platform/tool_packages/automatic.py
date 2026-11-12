@@ -33,6 +33,23 @@ def deploy(target_config, source_config, options, timeout_s, report):
     target=Remote(target_config,deadline,report,'目标机器')
     exported=None
     try:
+        if options.get('source_mode', 'directory') == 'image':
+            if options['tool'] != 'dtt':
+                raise ValueError('Image source is only supported for dtt')
+            code = ('REQUEST = '+repr({'image':options['image']})+'\n'
+                    +Path(__file__).with_name('functional_bundle.py').read_text()+'\n'
+                    +Path(__file__).with_name('image_helper.py').read_text())
+            extracted = target.python(code, '从目标镜像提取并校验启动文件')
+            bundle, stage = extracted['bundle'], extracted['staging']
+            report(progress=80)
+            installed = target.python(install_script(bundle,stage), '校验并安装工具')
+            report(progress=95)
+            result = target.python(probe_script(), '验证已安装工具')
+            selected = next(item for item in result['items'] if item['tool']=='dtt')
+            if selected['status'] != 'ready':
+                raise RuntimeError('工具安装验证失败：'+selected.get('details',''))
+            return {**result,**installed,'method':'image','cached':False,
+                    'image_id':bundle['image_id'],'transfer_error':''}
         identity=target.python(helper({'operation':'identity'}),'检查目标架构')
         source=Remote(source_config,deadline,report,'平台机器')
         metadata=source.python(helper({'operation':'source_files','directory':options['directory'],'tool':options['tool']}),'读取平台工具文件')

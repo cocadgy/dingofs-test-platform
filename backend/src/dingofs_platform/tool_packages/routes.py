@@ -32,9 +32,12 @@ class JobInput(BaseModel):
     package_id: str | None = None
     tool: Literal['dtt','dingo','dingo-client','dingo-cache'] | None = None
     no_timeout: StrictBool = False
+    source_mode: Literal['directory', 'image'] = 'directory'
 
     @model_validator(mode='after')
     def validate_unlimited_install(self):
+        if self.source_mode == 'image' and (self.action != 'auto_install' or self.tool != 'dtt'):
+            raise ValueError('镜像来源仅适用于 dtt 自动安装')
         if self.no_timeout and self.action != 'auto_install':
             raise ValueError('不限总时长仅适用于自动安装')
         return self
@@ -114,6 +117,7 @@ def start(id: str, payload: JobInput, request: Request, background: BackgroundTa
             options['tool'] = payload.tool
             options['source_machine_id'] = source.machine_id
             options['no_timeout'] = payload.no_timeout
+            options['source_mode'] = payload.source_mode
             source_config = SSHConfig(source_machine.address,source_machine.ssh_port,source_machine.ssh_user,
                 decrypt_password(source_machine.ssh_password_ciphertext,settings.credential_encryption_key))
         elif payload.action == 'install':
