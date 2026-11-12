@@ -31,3 +31,4 @@ No changes to main branch or registry; no filesystem test execution during insta
 - Interrupted prior installation verified with zero matching processes/open handles and unchanged previous command link; its two leases released using verified recovery, staging retained.
 - New image-mode installation 47e6f06a-fb95-445d-8b05-5e4605020bcd succeeded at 100% in approximately 8 seconds, with no total timeout. Active command independently reports protocol v2 and the expected image/source manifest. No host integration-test directory exists in the new package.
 - No registry push, no filesystem workload, no previous installation/staging deletion.
+- Post-install read-only platform preflight: runtime/source/version/projection checks all passed. env_126_trash cannot start yet because its existing mount identity check failed; this is a separate environment verification blocker, not an installation failure. No test was submitted and no mount was modified.
