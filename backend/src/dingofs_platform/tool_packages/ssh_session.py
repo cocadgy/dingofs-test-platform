@@ -63,15 +63,20 @@ class Remote:
 
     def python(self, code, phase, input_data=None, progress_range=None, max_bytes=1024*1024):
         self.report(phase=phase, message=f'[{self.label}] {phase}\n')
-        command='python3 -u -c '+shlex.quote(code)
+        # Only this fixed bootstrap goes into SSH exec/argv. Large scripts and
+        # credentials travel over stdin, avoiding SSH packet and ARG_MAX limits.
+        bootstrap = ('import io,json,sys; payload=json.load(sys.stdin); '
+            'sys.stdin=io.TextIOWrapper(io.BytesIO(payload["stdin"].encode("utf-8")),encoding="utf-8"); '
+            'exec(compile(payload["code"],"<remote>","exec"),{"__name__":"__main__"})')
+        command='python3 -u -c '+shlex.quote(bootstrap)
         if self.deadline is not None:
             command='timeout --signal=TERM --kill-after=10s '+str(max(1,int(self.remaining())-10))+'s '+command
         channel=self.client.get_transport().open_session(timeout=min(15,self.remaining()))
         stdout, stderr=bytearray(),bytearray()
         try:
             channel.exec_command('bash -lc '+shlex.quote(command))
-            if input_data is not None:
-                channel.sendall(json.dumps(input_data).encode())
+            channel.sendall(json.dumps({'code':code,
+                'stdin':json.dumps(input_data) if input_data is not None else ''}).encode())
             channel.shutdown_write()
             last_probe=time.monotonic()
             while True:
