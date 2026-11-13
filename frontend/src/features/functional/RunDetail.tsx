@@ -2,9 +2,10 @@ import { useState } from "react";
 import { Run, Status, elapsed, active, moduleLabels, verifiedCaseCounts } from "./types";
 import { ModuleRunDetail } from "./ModuleRunDetail";
 
-function V2RunDetail({ run, busy, onStop, onRerun, onVerifyResources, verification }: {
+function V2RunDetail({ run, busy, onStop, onRerun, onVerifyResources, onRetentionChange, verification }: {
   run: Run; busy: boolean; onStop: () => void; onRerun: (failed: boolean) => void;
   onVerifyResources?: () => void; verification?: string;
+  onRetentionChange?: (reacquire: boolean) => void;
 }) {
   const children = [...(run.children || [])].sort((a, b) => a.position - b.position);
   const totals = children.map(verifiedCaseCounts);
@@ -39,6 +40,10 @@ function V2RunDetail({ run, busy, onStop, onRerun, onVerifyResources, verificati
         run.termination_cause === 'manual' ? '用户停止' : run.termination_cause}</p>}
       {run.error && <p role="alert" className="error">{run.error}</p>}
       <div className="functional-actions">
+        {run.can_release_retained && onRetentionChange && ["failed", "cancelled", "needs_attention", "success"].includes(run.state) &&
+          <button disabled={busy} onClick={() => onRetentionChange(run.result?.retention_release?.released === true)}>
+            {run.result?.retention_release?.released ? "重新占用以清理" : "保留残留并释放占用"}
+          </button>}
         {canManage && onVerifyResources && ["success", "failed", "cancelled", "needs_attention"].includes(run.state) &&
           <button disabled={busy} onClick={onVerifyResources}>重新检查残留资源</button>}
         {canManage && ["queued", "running"].includes(run.state) && <button disabled={busy} onClick={onStop}>停止测试（当前用例结束后生效）</button>}
@@ -49,6 +54,10 @@ function V2RunDetail({ run, busy, onStop, onRerun, onVerifyResources, verificati
         <a href="#/start/functional">返回引导配置</a>
       </div>
       {verification && <p role="status">{verification}</p>}
+      {run.result?.retention_release?.released && <p className="warning">
+        残留已保留、占用已释放。保留 {run.result.retention_release.retained_count} 条资源记录，未执行清理。
+        后续清理前请重新占用；新测试需要重新预检并使用独立目录。
+      </p>}
     </section>
     <section className="functional-card">
       <h3>模块进度与结果</h3>
@@ -67,6 +76,7 @@ export function RunDetail({
   onStop,
   onRerun,
   onVerifyResources,
+  onRetentionChange,
   verification,
 }: {
   run: Run;
@@ -74,13 +84,14 @@ export function RunDetail({
   onStop: () => void;
   onRerun: (failed: boolean) => void;
   onVerifyResources?: () => void;
+  onRetentionChange?: (reacquire: boolean) => void;
   verification?: string;
 }) {
   const [tab, setTab] = useState("results");
   const [onlyFailed, setOnlyFailed] = useState(false);
   const [query, setQuery] = useState("");
   if (run.version === 2) return <V2RunDetail run={run} busy={busy} onStop={onStop} onRerun={onRerun}
-    onVerifyResources={onVerifyResources} verification={verification} />;
+    onVerifyResources={onVerifyResources} onRetentionChange={onRetentionChange} verification={verification} />;
   const cases = run.result?.cases || [];
   const total = Object.values(run.snapshot.selected || {}).reduce(
     (n, rows) => n + rows.length,

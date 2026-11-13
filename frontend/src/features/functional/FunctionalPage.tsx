@@ -441,12 +441,27 @@ export function FunctionalPage() {
           run={detail}
           busy={busy}
           verification={verification}
+          onRetentionChange={(reacquire) => {
+            const message = reacquire
+              ? "重新占用旧任务的资源以便后续清理？若新测试正在使用这些资源，将拒绝操作。本次不会执行清理。"
+              : "确认保留此任务的所有残留并释放占用？平台会先核验远端任务已结束及环境恢复状态，不删除挂载、文件系统或其他残留。新测试必须重新预检，使用独立目录。";
+            if (!window.confirm(message)) return;
+            void action(async () => {
+              setVerification("");
+              await api(`/functional/runs/${encodeURIComponent(detail.id)}/resources/${reacquire ? "reacquire-retained" : "release-retained"}`,
+                "POST", { confirmed: true });
+              setDetail(await api<Run>(`/functional/runs/${encodeURIComponent(detail.id)}`));
+              setVerification(reacquire ? "已重新占用，可按原流程核验并清理残留；本次未执行清理。" : "已核验并释放占用；旧资源记录和失败结果保持不变。");
+            });
+          }}
           onVerifyResources={() => void action(async () => {
             setVerification("");
             const checked = await api<{ remaining_resources: string[]; remote_ended: boolean; recovery_ok: boolean }>(
               `/functional/runs/${encodeURIComponent(detail.id)}/resources/verify`, "POST");
             setDetail(await api<Run>(`/functional/runs/${encodeURIComponent(detail.id)}`));
-            setVerification(checked.remaining_resources.length
+            setVerification(detail.result?.retention_release?.released
+              ? "已检查；旧残留仍按保留记录管理。占用已显式释放，不代表清理完成。"
+              : checked.remaining_resources.length
               ? `仍有 ${checked.remaining_resources.length} 项资源未确认释放；本次仅检查，未执行清理。`
               : checked.remote_ended && checked.recovery_ok
                 ? "已确认资源释放；本次仅检查，未执行清理。"

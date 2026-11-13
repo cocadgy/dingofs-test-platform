@@ -151,10 +151,12 @@ export type Run = {
   progress: number;
   version?: number;
   can_manage?: boolean;
+  can_release_retained?: boolean;
   children?: ModuleRunView[];
   error: string;
   log?: string;
   result?: {
+    retention_release?: { released: boolean; retained_count: number; observed_at?: string };
     cases?: { module: string; case: string; status: string; time?: string }[];
   };
   snapshot: {

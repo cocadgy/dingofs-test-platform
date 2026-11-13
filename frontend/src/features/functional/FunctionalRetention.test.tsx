@@ -3,7 +3,7 @@ import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/re
 import { FunctionalPage } from "./FunctionalPage";
 import { api } from "../../api/client";
 vi.mock("../../api/client", () => ({ api: vi.fn() }));
-afterEach(() => { cleanup(); vi.mocked(api).mockReset(); window.location.hash = "#/"; });
+afterEach(() => { cleanup(); vi.restoreAllMocks(); vi.mocked(api).mockReset(); window.location.hash = "#/"; });
 
 function setup(remaining: string[], error = false, canManage = true) {
   window.location.hash = "#/functional/retained";
@@ -27,6 +27,55 @@ function setup(remaining: string[], error = false, canManage = true) {
   });
   render(<FunctionalPage />);
 }
+
+function setupRelease(error = false, isAdmin = true) {
+  window.location.hash = "#/functional/retained";
+  let released = false;
+  vi.mocked(api).mockImplementation(async (path, method, body) => {
+    if (path === "/functional/options") return { clusters: [], modules: {}, digest: "a".repeat(64) };
+    if (path === "/functional/environments") return [];
+    if (path.endsWith("/release-retained") || path.endsWith("/reacquire-retained")) {
+      expect(method).toBe("POST"); expect(body).toEqual({ confirmed: true });
+      if (error) throw new Error("远端结束身份无法重新确认");
+      released = path.endsWith("/release-retained");
+      return { released, retained_count: 2 };
+    }
+    if (path === "/functional/runs/retained") return {
+      id: "retained", name: "保留现场任务", version: 2, can_manage: true, can_release_retained: isAdmin,
+      state: "needs_attention", snapshot: {}, children: [], phase: "保留现场", log: "", error: "",
+      result: released ? { retention_release: { released: true, retained_count: 2 } } : {},
+    };
+    throw new Error("unexpected API: " + path);
+  });
+  render(<FunctionalPage />);
+}
+
+test("admin confirms release, retains warning, and can reacquire before cleanup", async () => {
+  setupRelease(); vi.spyOn(window, "confirm").mockReturnValue(true);
+  fireEvent.click(await screen.findByRole("button", { name: "保留残留并释放占用" }));
+  expect(await screen.findByText(/残留已保留、占用已释放/)).toBeInTheDocument();
+  fireEvent.click(await screen.findByRole("button", { name: "重新占用以清理" }));
+  await waitFor(() => expect(screen.getByRole("status")).toHaveTextContent("已重新占用"));
+});
+
+test("cancelled acknowledgement sends no release request", async () => {
+  setupRelease(); vi.spyOn(window, "confirm").mockReturnValue(false);
+  fireEvent.click(await screen.findByRole("button", { name: "保留残留并释放占用" }));
+  expect(vi.mocked(api).mock.calls.filter(([path]) => path.endsWith("/release-retained"))).toHaveLength(0);
+});
+
+test("release failure never displays successful release", async () => {
+  setupRelease(true); vi.spyOn(window, "confirm").mockReturnValue(true);
+  fireEvent.click(await screen.findByRole("button", { name: "保留残留并释放占用" }));
+  expect(await screen.findByRole("alert")).toHaveTextContent("远端结束身份无法重新确认");
+  expect(screen.queryByText(/残留已保留、占用已释放/)).not.toBeInTheDocument();
+});
+
+test("non-admin manager has no retention release button", async () => {
+  setupRelease(false, false);
+  await screen.findByRole("heading", { name: "保留现场任务" });
+  expect(screen.queryByRole("button", { name: "保留残留并释放占用" })).not.toBeInTheDocument();
+});
 
 test("readonly residual verification reports remaining leases and refreshes the task", async () => {
   setup(["cluster:c1"]);
