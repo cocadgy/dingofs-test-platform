@@ -154,7 +154,13 @@ if r['mount_roots']:
         mounts = list(walk(json.loads(answer.stdout)['filesystems']))
         for mount in mounts:
             target = mount['target']
-            if not any(target == p or target.startswith(p.rstrip('/') + '/') for p in r['mount_roots']): continue
+            # Adapters allocate unique task-owned children under these roots.
+            # Existing descendant mounts belong to other runs and are untouched.
+            # Verify the root itself and enclosing FUSE mounts, which can affect
+            # creation/access even though they are outside the new child path.
+            enclosing_fuse = str(mount.get('fstype', '')).startswith('fuse')
+            if not any(target == p or (enclosing_fuse and p.startswith(target.rstrip('/') + '/'))
+                       for p in r['mount_roots']): continue
             source = mount['source']
             if not str(mount.get('id', '')).isdigit() or mount['fstype'] not in ('fuse.dingofs', 'fuse.dingo'): raise ValueError('mount identity')
             if source.startswith('DingoFS:'): fs = source[len('DingoFS:'):]
