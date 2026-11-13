@@ -35,6 +35,7 @@ from .environments.models import FunctionalEnvironmentProfile
 from .environments.validation import validate_target
 from .environments.service import member_machine_ids, validate_settings
 from .drafts import Draft
+from .retention_release import RetentionConfirmation, release_retained_run
 
 router=APIRouter(prefix='/api/v1/functional',tags=['functional'])
 
@@ -60,6 +61,7 @@ def view(row,detail=False,actor=None):
     if row.version==2:
         value['version']=2
         value['can_manage']=bool(actor and can_manage(actor,row))
+        value['can_release_retained']=bool(actor and actor.role=='admin' and not actor.disabled)
         db=object_session(row)
         routes=row.snapshot.get('runtime_binding',{}).get('resolved_targets',[])
         value['children']=[]
@@ -371,6 +373,25 @@ def verify_resources(id:str,request:Request,user=Depends(current_user)):
         db.info['functional_settings']=request.app.state.settings
         db.info['functional_retention_transport']=getattr(request.app.state,'functional_retention_transport',None)
         return asdict(verify_retained_resources(db,actor,id))
+
+
+def retention_change(id, payload, request, reacquire=False):
+    with get_db(request) as db, db.begin():
+        actor = actor_in_transaction(db, request)
+        db.info['functional_settings'] = request.app.state.settings
+        from .transport import Transport
+        db.info['functional_transport'] = getattr(request.app.state, 'functional_transport', Transport)
+        return release_retained_run(db, actor, id, confirmed=payload.confirmed, reacquire=reacquire)
+
+
+@router.post('/runs/{id}/resources/release-retained')
+def release_resources(id: str, payload: RetentionConfirmation, request: Request, user=Depends(current_user)):
+    return retention_change(id, payload, request)
+
+
+@router.post('/runs/{id}/resources/reacquire-retained')
+def reacquire_resources(id: str, payload: RetentionConfirmation, request: Request, user=Depends(current_user)):
+    return retention_change(id, payload, request, True)
 
 
 @router.get('/runs/{id}/report/{path:path}')
