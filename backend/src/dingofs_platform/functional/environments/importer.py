@@ -31,12 +31,15 @@ class PresetDescriptor:
     descriptor: EnvironmentDescriptor
 
 
-def scan_predefined(root: Path) -> list[PresetDescriptor]:
+def scan_predefined(root: Path, *, selected_key: str | None = None) -> list[PresetDescriptor]:
     """Enumerate metadata locally; resolve only through the trusted framework.
 
     ``root`` must be the server-configured checkout's conf/env directory.
     ``runnable`` retains the legacy source-completeness meaning; compatibility
     with selected cases and remote execution still require guided preflight.
+    A selected key limits expensive framework inspection to one environment.
+    Index all names to retain duplicate detection and inheritance-template rules;
+    the trusted framework still resolves and hashes the selected dependencies.
     """
     root = Path(root)
     if root.name != 'env' or root.parent.name != 'conf' or '..' in root.parts:
@@ -69,6 +72,8 @@ def scan_predefined(root: Path) -> list[PresetDescriptor]:
     referenced = {base for _, base in sources.values() if base}
     descriptors: list[PresetDescriptor] = []
     for key in sorted(sources):
+        if selected_key is not None and key != selected_key:
+            continue
         path, base = sources[key]
         value = inspect_source(trusted, key, {})
         hosts = tuple(sorted({target.host for target in value.targets if target.role == 'client'}))

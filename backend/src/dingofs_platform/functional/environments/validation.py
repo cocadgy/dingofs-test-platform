@@ -20,7 +20,7 @@ def validate_target(row, cluster, machine, source_root, modules, known_hosts=Non
         validate_modules(modules)
     else:
         from .importer import scan_predefined
-        source=next((d for d in scan_predefined(Path(source_root).parent/'conf/env')
+        source=next((d for d in scan_predefined(Path(source_root).parent/'conf/env', selected_key=row.source_key)
                      if d.key==row.source_key and d.source_file==row.source_file),None)
         if not source or source.source_digest!=row.source_digest:
             raise Problem(409,'environment_source_changed','预置环境源文件已变化，请先同步')
