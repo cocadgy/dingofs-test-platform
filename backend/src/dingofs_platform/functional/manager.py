@@ -30,13 +30,54 @@ def redact(value,secrets):
 class FunctionalManager:
     def __init__(self,app):
         self.app=app;self.stop_event=threading.Event();self.pool=None;self.thread=None;self.running={}
+        self.report_pool=None;self.report_pending={};self.report_lock=threading.Lock()
     def start(self):
         self.pool=ThreadPoolExecutor(max_workers=4,thread_name_prefix='functional')
         self.thread=threading.Thread(target=self.loop,daemon=True);self.thread.start()
     def stop(self):
         self.stop_event.set()
+        with self.report_lock:
+            report_pool=self.report_pool
+        if report_pool:report_pool.shutdown(wait=False,cancel_futures=True)
         if self.thread:self.thread.join(3)
         if self.pool:self.pool.shutdown(wait=False,cancel_futures=True)
+
+    def queue_report_prefetch(self,run_id,child_id):
+        """Best effort: two report workers, at most eight running/queued children.
+
+        Full queues skip warming; authenticated first access can always retry.
+        Never consume the functional observation/cancellation worker pool.
+        """
+        key=(run_id,child_id)
+        with self.report_lock:
+            if self.stop_event.is_set() or key in self.report_pending or len(self.report_pending)>=8:
+                return False
+            try:
+                if self.report_pool is None:
+                    self.report_pool=ThreadPoolExecutor(max_workers=2,thread_name_prefix='functional-report')
+                future=self.report_pool.submit(self._prefetch_report,run_id,child_id)
+            except RuntimeError:
+                logging.getLogger(__name__).warning('functional report prefetch queue unavailable for run %s child %s',run_id,child_id)
+                return False
+            self.report_pending[key]=future
+        def finished(future):
+            with self.report_lock:
+                self.report_pending.pop(key,None)
+        # Register outside the lock: an already-finished future invokes it inline.
+        future.add_done_callback(finished)
+        return True
+
+    def _prefetch_report(self,run_id,child_id):
+        if self.stop_event.is_set():return
+        try:
+            from .reports import prefetch_report
+            with self.app.state.session_factory() as db:
+                db.info['functional_settings']=self.app.state.settings
+                db.info['functional_report_transport']=getattr(self.app.state,'functional_report_transport',None)
+                prefetch_report(db,run_id,child_id)
+        except Exception:
+            logging.getLogger(__name__).warning('functional report prefetch failed for run %s child %s',run_id,child_id)
+
     def loop(self):
         while not self.stop_event.is_set():
             try:
@@ -194,13 +235,7 @@ class FunctionalManager:
             observation={'transport_error':True,'cursor_before':decision.cursor}
         with factory.begin() as db:
             record_observation(db,id,decision.child_id,observation)
-        # Remote retrieval must never hold the observation transaction or change
-        # a committed test outcome when the report cache is unavailable.
-        try:
-            from .reports import prefetch_report
-            with factory() as db:
-                db.info['functional_settings']=self.app.state.settings
-                db.info['functional_report_transport']=getattr(self.app.state,'functional_report_transport',None)
-                prefetch_report(db,id,decision.child_id)
-        except Exception:
-            logging.getLogger(__name__).warning('functional report prefetch failed for run %s child %s',id,decision.child_id)
+            child=db.get(FunctionalModuleRun,decision.child_id)
+            report_ready=bool(child and (child.result or {}).get('report_status')=='ready')
+        # Submit only after commit; report SSH cannot delay the next observation.
+        if report_ready:self.queue_report_prefetch(id,decision.child_id)

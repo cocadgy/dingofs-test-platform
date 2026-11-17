@@ -182,6 +182,7 @@ def test_prefetch_populates_snapshot_for_offline_access(admin, app, ready):
 
 
 def test_manager_prefetch_runs_after_commit_and_failure_keeps_result(admin, app, ready, monkeypatch):
+    import threading
     from types import SimpleNamespace
     from dingofs_platform.functional.manager import FunctionalManager
     run_id, child_id = report_run(admin, app, ready)
@@ -195,12 +196,29 @@ def test_manager_prefetch_runs_after_commit_and_failure_keeps_result(admin, app,
         db.get(FunctionalModuleRun, child_id).state = 'success'
     monkeypatch.setattr('dingofs_platform.functional.scheduler.record_observation', observe)
     seen = []
+    started, release, returned = threading.Event(), threading.Event(), threading.Event()
     def prefetch(db, parent, child):
         with app.state.session_factory() as other:
             seen.append(other.get(FunctionalModuleRun, child).state)
+        started.set()
+        assert release.wait(5)
         raise RuntimeError('cache unavailable')
     monkeypatch.setattr('dingofs_platform.functional.reports.prefetch_report', prefetch)
-    FunctionalManager(app).process_guided(run_id)
-    assert seen == ['success']
+    manager = FunctionalManager(app)
+    def process():
+        manager.process_guided(run_id)
+        returned.set()
+    thread = threading.Thread(target=process)
+    thread.start()
+    try:
+        assert started.wait(3)
+        assert returned.wait(.5), 'report retrieval blocked functional observation worker'
+        # A second poll must also complete while the same child's warming is blocked.
+        manager.process_guided(run_id)
+        assert seen == ['success']
+    finally:
+        release.set()
+        thread.join(5)
+        manager.stop()
     with app.state.session_factory() as db:
         assert db.get(FunctionalModuleRun, child_id).state == 'success'

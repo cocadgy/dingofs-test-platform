@@ -3,7 +3,6 @@
 No live SSH or workload is permitted. Tests use TEST_DATABASE_URL exclusively.
 """
 import ast
-import base64
 import copy
 from dataclasses import asdict
 import hashlib
@@ -17,6 +16,7 @@ import pytest
 from sqlalchemy import select
 
 from test_functional_preflight import ready, deny_real_ssh
+from test_functional_report_api import bundle
 from test_functional_scheduler import finished
 from dingofs_platform.functional.event_reader import read_events
 from dingofs_platform.functional.manager import FunctionalManager
@@ -26,7 +26,7 @@ from dingofs_platform.tool_packages.models import ToolJob
 
 
 @pytest.fixture(autouse=True)
-def isolated(app, monkeypatch):
+def isolated(app, monkeypatch, tmp_path):
     url = app.state.engine.url
     assert url.database.endswith('_test') and url.host in ('127.0.0.1', 'localhost')
     from dingofs_platform.functional.transport import Transport
@@ -41,6 +41,12 @@ def isolated(app, monkeypatch):
             denied()
         return original(sock, address)
     monkeypatch.setattr(socket.socket, 'connect', connect)
+    app.state.settings.functional_report_cache_root = tmp_path / 'report-cache'
+    app.state.functional_report_transport = lambda *args: {'missing': True}
+    yield
+    app.state.functional_manager.stop()
+    if app.state.functional_manager.report_pool:
+        app.state.functional_manager.report_pool.shutdown(wait=True, cancel_futures=True)
 
 
 @pytest.fixture
@@ -114,6 +120,10 @@ def test_two_environments_submit_two_single_module_children_and_isolated_reports
     row = submit(admin, two_environments[0])
     assert [c['env_name'] for c in row['children']] == ['env_ready', 'env_second']
     launches = remote_transport(app, tmp_path)
+    def report(config, code):
+        child = next(c for c in row['children'] if c['id'] in code)
+        return bundle({'index.html': f"<html>{child['module']} test-secret private-ak</html>".encode()})
+    app.state.functional_report_transport = report
     for _ in range(3):
         app.state.functional_manager.process(row['id'])
     detail = admin.get('/api/v1/functional/runs/' + row['id']).json()
@@ -121,14 +131,10 @@ def test_two_environments_submit_two_single_module_children_and_isolated_reports
     assert [payload['module'] for payload in launches] == ['quota', 'client']
     assert [payload['env_name'] for payload in launches] == ['env_ready', 'env_second']
     assert all(len(c['events']) == 3 and c['result']['case_counts']['passed'] == 1 for c in detail['children'])
-    def report(config, code):
-        child = next(c for c in detail['children'] if c['id'] in code)
-        return {'data': base64.b64encode(f"<html>{child['module']} test-secret private-ak</html>".encode()).decode()}
-    app.state.functional_report_transport = report
     for child in detail['children']:
         response = admin.get(f"/api/v1/functional/runs/{row['id']}/modules/{child['id']}/report/index.html")
         assert response.status_code == 200, response.text
-        assert response.text == f"<html>{child['module']} [REDACTED] [REDACTED]</html>"
+        assert response.text == f"<html>{child['module']} test-secret private-ak</html>"
     with app.state.session_factory() as db:
         assert db.query(ToolJob).count() == 1, 'preflight/submission must not install tools'
         assert not list(db.scalars(select(OperationLease).where(OperationLease.released_at.is_(None))))
