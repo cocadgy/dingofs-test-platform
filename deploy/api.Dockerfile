@@ -4,7 +4,8 @@ COPY backend/requirements.lock backend/requirements.lock
 RUN pip install --no-cache-dir -r backend/requirements.lock
 COPY backend backend
 RUN pip install --no-cache-dir --no-deps ./backend && useradd --uid 10001 --create-home platform \
-    && mkdir -p /var/lib/dingofs-platform/cache-binaries \
-    && chown platform:platform /var/lib/dingofs-platform/cache-binaries
+    && mkdir -p /var/lib/dingofs-platform/cache-binaries /var/lib/dingofs-platform/report-cache \
+    && chown platform:platform /var/lib/dingofs-platform/cache-binaries /var/lib/dingofs-platform/report-cache \
+    && chmod 700 /var/lib/dingofs-platform/report-cache
 USER platform
 EXPOSE 8000
