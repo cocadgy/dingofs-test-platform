@@ -5,10 +5,11 @@ import time
 from dingofs_platform.tool_packages.ssh_session import Remote
 
 
-def bootstrap_code(payload):
+def bootstrap_code():
     runner=Path(__file__).with_name('remote_runner.py').read_text()
-    return 'REQUEST='+repr(payload)+'\nRUNNER='+repr(runner)+'''\nimport fcntl,json,os,subprocess,sys
+    return 'RUNNER='+repr(runner)+'''\nimport fcntl,json,os,subprocess,sys
 from pathlib import Path
+REQUEST=json.load(sys.stdin)
 root=Path.home()/'.local/share/dingofs-platform/performance'/REQUEST['id']
 root.mkdir(parents=True,exist_ok=True)
 with (root/'bootstrap.lock').open('w') as lock:
@@ -55,11 +56,11 @@ else:
 class Transport:
     def __init__(self,config):self.config=config
 
-    def call(self,code):
+    def call(self,code,input_data=None):
         # Reports may be larger than the default tool RPC envelope.
         remote=Remote(self.config,time.monotonic()+60,lambda **kw:None,'性能测试')
-        try:return remote.python(code,'性能任务采集',max_bytes=40*1024*1024)
+        try:return remote.python(code,'性能任务采集',input_data=input_data,max_bytes=40*1024*1024)
         finally:remote.close()
 
-    def start(self,payload):return self.call(bootstrap_code(payload))
+    def start(self,payload):return self.call(bootstrap_code(),payload)
     def poll(self,id,cancel=False):return self.call(snapshot_code(id,cancel))

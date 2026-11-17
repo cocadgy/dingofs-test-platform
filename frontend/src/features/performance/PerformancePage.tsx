@@ -353,7 +353,6 @@ export function PerformancePage() {
                 <input
                   type="number"
                   min={1}
-                  max={1440}
                   required
                   value={timeout}
                   onChange={(e) => setTimeoutMinutes(+e.target.value)}

@@ -97,6 +97,19 @@ test("select multiple tools with independent settings and preview before create"
   expect(screen.queryByRole("button", { name: "确认并开始测试" })).toBeNull();
 });
 
+test("performance timeout accepts values above one day without a browser max", async () => {
+  vi.mocked(api).mockImplementation(async (path) =>
+    path === "/performance/options" ? options : [],
+  );
+  render(<PerformancePage />);
+  fireEvent.click(screen.getByRole("button", { name: "新建测试" }));
+  fireEvent.click(screen.getByRole("button", { name: "添加工具" }));
+  const timeout = screen.getByLabelText("任务总超时（分钟）");
+  expect(timeout).not.toHaveAttribute("max");
+  fireEvent.change(timeout, { target: { value: "10080" } });
+  expect(timeout).toHaveValue(10080);
+});
+
 test("shows failure and captured report without treating it as success", async () => {
   window.location.hash = "#/performance/job";
   const row = {

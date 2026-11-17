@@ -93,7 +93,8 @@ class PerformanceManager:
                     row=db.get(PerformanceRun,id)
                     cancel=row.cancel_requested or now()>row.deadline
                 result=transport.poll(id,cancel)
-                if result.get('missing'):raise RuntimeError('远端任务记录不存在，结果未确认；不会自动重新执行')
+                if result.get('missing'):
+                    raise RuntimeError('远端任务记录不存在，结果未确认；不会自动重新执行')
                 with factory.begin() as db:
                     lock_keys(db,requests)
                     row=db.get(PerformanceRun,id,with_for_update=True)

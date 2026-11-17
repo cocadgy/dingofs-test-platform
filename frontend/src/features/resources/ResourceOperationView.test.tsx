@@ -480,16 +480,17 @@ test("actual commands are visible beside failed process logs", () => {
       }}
     />,
   );
-  expect(screen.getByRole("heading", { name: "实际执行命令" })).toBeVisible();
+  expect(screen.getByText("实际执行命令")).toBeVisible();
   expect(
     screen.getByText("dingo cache start --listen_port=21009"),
   ).toBeVisible();
 });
 
-test("stop shows the equivalent signal command and actual system call", () => {
+test("stop shows the equivalent signal command and actual system call", async () => {
   render(<ResourceOperationView label="停止成员" canManage={false} onChange={() => {}}
     operation={{id:"signal", action:"cache.stop", state:"succeeded", result:{steps:[{returncode:0,data:{process_stopped:true,executed_commands:[{command:"kill -TERM -- 123",method:"pidfd_send_signal",equivalent:true,status:"started",count:1}]}}]}}} />);
-  expect(screen.getByText("kill -TERM -- 123")).toBeInTheDocument();
+  fireEvent.click(screen.getByText("实际执行命令"));
+  expect(await screen.findByText("kill -TERM -- 123")).toBeInTheDocument();
   expect(screen.getByText(/实际通过 pidfd_send_signal/)).toBeInTheDocument();
 });
 

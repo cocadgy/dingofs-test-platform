@@ -1,3 +1,4 @@
+import { BatchConfirmation } from "./BatchConfirmation";
 import { MountScan } from "./MountScan";
 import { BadouMascot } from "../../components/BadouMascot";
 import { useState } from "react";
@@ -38,6 +39,8 @@ export function ClusterResources({
   const [historyState, setHistoryState] = useState("");
   const {
     snapshot,
+    confirmation,
+    resolveConfirmation,
     error,
     loading,
     active,
@@ -67,14 +70,28 @@ export function ClusterResources({
         : availableGroups[0];
   const pending = operations.find((item) => pendingStates.includes(item.state));
   const showExecutionIndicator =
-    active && (!pending || pending.state === "pending" || pending.state === "running");
+    active &&
+    (!pending || pending.state === "pending" || pending.state === "running");
   return (
     <section className="cluster-resources" aria-label="集群资源管理">
+      {confirmation && (
+        <BatchConfirmation
+          request={confirmation}
+          cluster={name}
+          onResolve={resolveConfirmation}
+        />
+      )}
       {showExecutionIndicator && (
-        <div className="resource-execution-indicator" role="status" aria-label="命令执行中">
+        <div
+          className="resource-execution-indicator"
+          role="status"
+          aria-label="命令执行中"
+        >
           <BadouMascot animated size="large" />
           <strong>{pending ? labelFor(pending) : "正在提交命令"}</strong>
-          <span>{pending?.state === "pending" ? "正在等待执行…" : "执行中，请稍候…"}</span>
+          <span>
+            {pending?.state === "pending" ? "正在等待执行…" : "执行中，请稍候…"}
+          </span>
         </div>
       )}
       <div className="resource-workspace-toolbar">
@@ -82,7 +99,7 @@ export function ClusterResources({
           当前集群 <strong>{name}</strong>
         </span>
         <button type="button" disabled={loading} onClick={refresh}>
-          {loading ? "正在刷新…" : "刷新已保存记录"}
+          {loading ? "正在刷新…" : "重新读取平台记录"}
         </button>
       </div>
       {!canManage && (
@@ -110,7 +127,7 @@ export function ClusterResources({
           </button>
         </div>
       )}
-      {error && (!snapshot || area === "history") && (
+      {error && (
         <p role="alert" className="error">
           {error}
         </p>
@@ -151,6 +168,7 @@ export function ClusterResources({
             </div>
           ))}
           <ResourceHistory
+            hideInventoryQueries
             area={area}
             selectedGroup={selectedGroup}
             operations={operations}
@@ -159,10 +177,16 @@ export function ClusterResources({
             userId={userId}
             onChange={accept}
             onOpenLog={(item, filename) => {
-              const action = snapshot.catalog.find((entry) => entry.action === "mount.logs");
+              const action = snapshot.catalog.find(
+                (entry) => entry.action === "mount.logs",
+              );
               const resourceId = item.payload?.resource_id;
               if (action && typeof resourceId === "string")
-                void execute(action, { resource_id: resourceId, filename, lines: 500 });
+                void execute(action, {
+                  resource_id: resourceId,
+                  filename,
+                  lines: 500,
+                });
             }}
             onShowHistory={() => setArea("history")}
             historySearch={historySearch}

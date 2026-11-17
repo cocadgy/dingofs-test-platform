@@ -1,4 +1,5 @@
-import {BatchActions, useBatchSelection} from "./BatchSelection";
+import { copyText } from "../../clipboard";
+import { BatchActions, useBatchSelection } from "./BatchSelection";
 import { CacheMemberManagementButtons } from "./CacheMemberManagementButtons";
 import { LazyDetails } from "./LazyDetails";
 import { Fragment, useState } from "react";
@@ -61,6 +62,7 @@ export function SavedResourcesTable({
       : undefined) ||
     stateLabels[value] ||
     value;
+  const [copyFeedback, setCopyFeedback] = useState("");
   const [expanded, setExpanded] = useState(new Set<string>());
   const [query, setQuery] = useState("");
   const [state, setState] = useState("");
@@ -73,11 +75,19 @@ export function SavedResourcesTable({
   };
   const configUrl = (resource: SavedResource) => {
     if (resource.kind !== "mount" || resource.state !== "mounted") return null;
-    const machine = machines.find((item) => item.id === resource.data.machine_id);
+    const machine = machines.find(
+      (item) => item.id === resource.data.machine_id,
+    );
     const host = machine?.address?.trim();
     const port = Number(resource.data.vfs_dummy_server_port);
-    if (!host || !Number.isInteger(port) || port < 1 || port > 65535 ||
-        !/^[a-zA-Z0-9.:-]+$/.test(host)) return null;
+    if (
+      !host ||
+      !Number.isInteger(port) ||
+      port < 1 ||
+      port > 65535 ||
+      !/^[a-zA-Z0-9.:-]+$/.test(host)
+    )
+      return null;
     return `http://${host.includes(":") ? `[${host}]` : host}:${port}/`;
   };
   const states = [...new Set(resources.map((resource) => resource.state))];
@@ -100,23 +110,72 @@ export function SavedResourcesTable({
   const hasCache = resources.some((resource) => resource.kind === "cache");
   const hasMount = resources.some((resource) => resource.kind === "mount");
 
-  const rowIds = (resource: SavedResource): string[] => resource.kind === "cache"
-    ? (Array.isArray(resource.data.members) ? resource.data.members.map(m => String(m.member_id)) : [])
-    : [resource.id];
+  const rowIds = (resource: SavedResource): string[] =>
+    resource.kind === "cache"
+      ? Array.isArray(resource.data.members)
+        ? resource.data.members.map((m) => String(m.member_id))
+        : []
+      : [resource.id];
   const ids = resources.flatMap(rowIds);
   const selection = useBatchSelection(ids, disabled);
-  const members = resources.flatMap(r => r.kind === "cache" && Array.isArray(r.data.members) ? r.data.members : []);
-  const choices = hasCache ? [
-    {key:"cache.stop",label:"批量平滑停止",eligible:(id:string)=>members.some(m=>m.member_id===id && m.can_stop && m.state!=="离线")},
-    {key:"cache.force_stop",label:"批量强制停止",eligible:(id:string)=>members.some(m=>m.member_id===id && m.can_stop && m.state!=="离线")},
-    {key:"cache.delete_batch",label:"批量删除成员",eligible:(id:string)=>members.some(m=>m.member_id===id && m.selectable)},
-  ] : [
-    {key:"mount.unmount",label:"批量卸载",eligible:(id:string)=>resources.some(r=>r.id===id && r.state==="mounted")},
-    {key:"mount.delete",label:"批量删除记录",eligible:(id:string)=>resources.some(r=>r.id===id && r.state==="unmounted")},
-  ];
-  const batchChoices = choices.filter(choice=>actions.some(a=>a.action===(choice.key==="cache.force_stop"?"cache.stop":choice.key)));
-  const selectionBox = (targets: string[], label: string) => <input type="checkbox" aria-label={label}
-    disabled={disabled || !targets.length} checked={selection.checked(targets)} onChange={()=>selection.toggle(targets)}/>;
+  const members = resources.flatMap((r) =>
+    r.kind === "cache" && Array.isArray(r.data.members) ? r.data.members : [],
+  );
+  const choices = hasCache
+    ? [
+        {
+          key: "cache.stop",
+          label: "批量平滑停止",
+          eligible: (id: string) =>
+            members.some(
+              (m) => m.member_id === id && m.can_stop && m.state !== "离线",
+            ),
+        },
+        {
+          key: "cache.force_stop",
+          label: "批量强制停止",
+          eligible: (id: string) =>
+            members.some(
+              (m) => m.member_id === id && m.can_stop && m.state !== "离线",
+            ),
+        },
+        {
+          key: "cache.delete_batch",
+          label: "批量删除成员",
+          eligible: (id: string) =>
+            members.some((m) => m.member_id === id && m.selectable),
+        },
+      ]
+    : [
+        {
+          key: "mount.unmount",
+          label: "批量卸载",
+          eligible: (id: string) =>
+            resources.some((r) => r.id === id && r.state === "mounted"),
+        },
+        {
+          key: "mount.delete",
+          label: "批量删除记录",
+          eligible: (id: string) =>
+            resources.some((r) => r.id === id && r.state === "unmounted"),
+        },
+      ];
+  const batchChoices = choices.filter((choice) =>
+    actions.some(
+      (a) =>
+        a.action ===
+        (choice.key === "cache.force_stop" ? "cache.stop" : choice.key),
+    ),
+  );
+  const selectionBox = (targets: string[], label: string) => (
+    <input
+      type="checkbox"
+      aria-label={label}
+      disabled={disabled || !targets.length}
+      checked={selection.checked(targets)}
+      onChange={() => selection.toggle(targets)}
+    />
+  );
 
   if (!resources.length)
     return (
@@ -141,19 +200,45 @@ export function SavedResourcesTable({
           显示 {filtered.length} / {resources.length} 条
         </span>
       </div>
-      {onBatchAction && <BatchActions picked={selection.picked} choices={batchChoices} disabled={disabled}
-        onAction={onBatchAction} onClear={selection.clear}/>}
+      {copyFeedback && <p role="status">{copyFeedback}</p>}
+      {onBatchAction && (
+        <BatchActions
+          picked={selection.picked}
+          visibleIds={filtered.flatMap(rowIds)}
+          labels={Object.fromEntries(
+            resources.flatMap((r) =>
+              rowIds(r).map((id) => [id, `${r.name} · ${id}`]),
+            ),
+          )}
+          choices={batchChoices}
+          disabled={disabled}
+          onAction={onBatchAction}
+          onClear={selection.clear}
+        />
+      )}
       {!filtered.length ? (
         <p className="muted resource-inventory-empty">没有匹配的资源。</p>
       ) : (
         <div className="resource-table-scroll">
           <table
-            className="resource-inventory-table"
+            className={`resource-inventory-table ${hasMount ? "resource-mount-table" : ""}`}
             aria-label={queried ? "缓存组列表" : "已保存资源"}
           >
+            {hasMount && (
+              <colgroup>
+                {onBatchAction && <col style={{ width: 38 }} />}
+                {[210, 120, 160, 100, 220, 170, 90].map((width, i) => (
+                  <col key={i} style={{ width }} />
+                ))}
+              </colgroup>
+            )}
             <thead>
               <tr>
-                {onBatchAction && <th>{selectionBox(filtered.flatMap(rowIds), "全选当前资源")}</th>}
+                {onBatchAction && (
+                  <th>
+                    {selectionBox(filtered.flatMap(rowIds), "全选当前资源")}
+                  </th>
+                )}
                 <th scope="col">资源名称</th>
                 <th scope="col">
                   状态
@@ -165,7 +250,9 @@ export function SavedResourcesTable({
                   >
                     <option value="">全部状态</option>
                     {states.map((value) => (
-                      <option key={value} value={value}>{labelState(value)}</option>
+                      <option key={value} value={value}>
+                        {labelState(value)}
+                      </option>
                     ))}
                   </select>
                 </th>
@@ -192,12 +279,32 @@ export function SavedResourcesTable({
               {filtered.map((resource) => (
                 <Fragment key={resource.id}>
                   <tr>
-                    {onBatchAction && <td>{selectionBox(rowIds(resource), "选择资源 "+resource.name)}</td>}
-                    <th scope="row">{configUrl(resource)
-                      ? <a href={configUrl(resource)!} target="_blank" rel="noopener noreferrer" title="打开客户端配置页面">{resource.name}</a>
-                      : resource.name}</th>
+                    {onBatchAction && (
+                      <td>
+                        {selectionBox(
+                          rowIds(resource),
+                          "选择资源 " + resource.name,
+                        )}
+                      </td>
+                    )}
+                    <th scope="row" title={resource.name}>
+                      {configUrl(resource) ? (
+                        <a
+                          href={configUrl(resource)!}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          title="打开客户端配置页面"
+                        >
+                          {resource.name}
+                        </a>
+                      ) : (
+                        resource.name
+                      )}
+                    </th>
                     <td>
-                      <span className={`badge resource-state-${resource.state}`}>
+                      <span
+                        className={`badge resource-state-${resource.state}`}
+                      >
                         {labelState(resource.state)}
                       </span>
                     </td>
@@ -228,10 +335,34 @@ export function SavedResourcesTable({
                             ? machineName(resource) || "—"
                             : "—"}
                         </td>
-                        <td className="resource-inventory-path">
-                          {resource.kind === "mount"
-                            ? String(resource.data.mount_path || "—")
-                            : "—"}
+                        <td
+                          className="resource-inventory-path"
+                          aria-label={String(resource.data.mount_path || "—")}
+                          title={String(resource.data.mount_path || "")}
+                        >
+                          <div className="resource-mount-path">
+                            <span>
+                              {String(resource.data.mount_path || "—")}
+                            </span>
+                            <button
+                              type="button"
+                              aria-label={`复制挂载路径 ${resource.name}`}
+                              onClick={async () => {
+                                try {
+                                  await copyText(
+                                    String(resource.data.mount_path || ""),
+                                  );
+                                  setCopyFeedback("挂载路径已复制");
+                                } catch {
+                                  setCopyFeedback(
+                                    "复制失败，请选中路径手动复制",
+                                  );
+                                }
+                              }}
+                            >
+                              复制
+                            </button>
+                          </div>
                         </td>
                       </>
                     )}
@@ -250,7 +381,13 @@ export function SavedResourcesTable({
                           )}
                         {shortcuts[resource.kind]
                           .filter(([key]) =>
-                            actions.some((action) => action.action === (key === "cache.force_stop" ? "cache.stop" : key)),
+                            actions.some(
+                              (action) =>
+                                action.action ===
+                                (key === "cache.force_stop"
+                                  ? "cache.stop"
+                                  : key),
+                            ),
                           )
                           .map(([key, label]) => (
                             <button
@@ -258,16 +395,25 @@ export function SavedResourcesTable({
                               type="button"
                               disabled={
                                 disabled ||
-                                (key === "mount.unmount" && resource.state !== "mounted") ||
-                                (key === "mount.delete" && resource.state !== "unmounted") ||
-                                (key === "mount.remount" && !["unmounted", "mounted"].includes(resource.state)) ||
+                                (key === "mount.unmount" &&
+                                  resource.state !== "mounted") ||
+                                (key === "mount.delete" &&
+                                  resource.state !== "unmounted") ||
+                                (key === "mount.remount" &&
+                                  !["unmounted", "mounted"].includes(
+                                    resource.state,
+                                  )) ||
                                 (queried &&
-                                  ["cache.stop", "cache.force_stop"].includes(key) &&
+                                  ["cache.stop", "cache.force_stop"].includes(
+                                    key,
+                                  ) &&
                                   !resource.data.can_stop)
                               }
                               title={
                                 queried &&
-                                ["cache.stop", "cache.force_stop"].includes(key) &&
+                                ["cache.stop", "cache.force_stop"].includes(
+                                  key,
+                                ) &&
                                 !resource.data.can_stop
                                   ? String(
                                       resource.data.stop_reason ||
@@ -277,7 +423,20 @@ export function SavedResourcesTable({
                               }
                               aria-label={`${label} ${resource.name}`}
                               onClick={() => {
-                                if (!disabled && !(key === "mount.unmount" && resource.state !== "mounted") && !(key === "mount.remount" && !["unmounted", "mounted"].includes(resource.state))) onAction(resource, key);
+                                if (
+                                  !disabled &&
+                                  !(
+                                    key === "mount.unmount" &&
+                                    resource.state !== "mounted"
+                                  ) &&
+                                  !(
+                                    key === "mount.remount" &&
+                                    !["unmounted", "mounted"].includes(
+                                      resource.state,
+                                    )
+                                  )
+                                )
+                                  onAction(resource, key);
                               }}
                             >
                               {queried && resource.kind === "cache"
@@ -320,12 +479,24 @@ export function SavedResourcesTable({
                     Array.isArray(resource.data.members) && (
                       <tr className="cache-members-row">
                         <td
-                          colSpan={(onBatchAction ? 1 : 0) + 4 + (hasCache ? (queried ? 4 : 2) : 0) + (hasMount ? 3 : 0)}
+                          colSpan={
+                            (onBatchAction ? 1 : 0) +
+                            4 +
+                            (hasCache ? (queried ? 4 : 2) : 0) +
+                            (hasMount ? 3 : 0)
+                          }
                         >
                           <table aria-label={`${resource.name} 成员列表`}>
                             <thead>
                               <tr>
-                                {onBatchAction && <th>{selectionBox(rowIds(resource), "全选成员 "+resource.name)}</th>}
+                                {onBatchAction && (
+                                  <th>
+                                    {selectionBox(
+                                      rowIds(resource),
+                                      "全选成员 " + resource.name,
+                                    )}
+                                  </th>
+                                )}
                                 <th>成员 UUID</th>
                                 <th>机器 / 地址</th>
                                 <th>执行用户</th>
@@ -338,7 +509,14 @@ export function SavedResourcesTable({
                             <tbody>
                               {resource.data.members.map((member) => (
                                 <tr key={member.member_id}>
-                                  {onBatchAction && <td>{selectionBox([String(member.member_id)], "选择成员 "+member.member_id)}</td>}
+                                  {onBatchAction && (
+                                    <td>
+                                      {selectionBox(
+                                        [String(member.member_id)],
+                                        "选择成员 " + member.member_id,
+                                      )}
+                                    </td>
+                                  )}
                                   <td>
                                     <code>{member.member_id}</code>
                                   </td>
@@ -349,7 +527,11 @@ export function SavedResourcesTable({
                                     {member.address}
                                   </td>
                                   <td>{member.target_user || "—"}</td>
-                                  <td>{member.cache_size_mb != null ? `${member.cache_size_mb} MiB（${member.capacity_source}）` : "未获取"}</td>
+                                  <td>
+                                    {member.cache_size_mb != null
+                                      ? `${member.cache_size_mb} MiB（${member.capacity_source}）`
+                                      : "未获取"}
+                                  </td>
                                   <td>{member.weight ?? "未获取"}</td>
                                   <td>{member.state}</td>
                                   <td>
@@ -394,11 +576,40 @@ export function SavedResourcesTable({
                                     >
                                       删除
                                     </button>
-                                    <button type="button" aria-label={`强制停止成员 ${member.member_id}`}
-                                      disabled={disabled || !member.can_stop || member.state === "离线" || !actions.some(a => a.action === "cache.stop")}
-                                      onClick={() => onMemberAction?.(resource, "cache.force_stop", String(member.member_id))}>强制停止</button>
-                                    <CacheMemberManagementButtons memberId={String(member.member_id)} grouped actions={actions} disabled={disabled}
-                                      onAction={key => onMemberAction?.(resource, key, String(member.member_id))} />
+                                    <button
+                                      type="button"
+                                      aria-label={`强制停止成员 ${member.member_id}`}
+                                      disabled={
+                                        disabled ||
+                                        !member.can_stop ||
+                                        member.state === "离线" ||
+                                        !actions.some(
+                                          (a) => a.action === "cache.stop",
+                                        )
+                                      }
+                                      onClick={() =>
+                                        onMemberAction?.(
+                                          resource,
+                                          "cache.force_stop",
+                                          String(member.member_id),
+                                        )
+                                      }
+                                    >
+                                      强制停止
+                                    </button>
+                                    <CacheMemberManagementButtons
+                                      memberId={String(member.member_id)}
+                                      grouped
+                                      actions={actions}
+                                      disabled={disabled}
+                                      onAction={(key) =>
+                                        onMemberAction?.(
+                                          resource,
+                                          key,
+                                          String(member.member_id),
+                                        )
+                                      }
+                                    />
                                     {!member.can_stop && (
                                       <small>
                                         {String(
@@ -434,17 +645,20 @@ export function SavedResourcesTable({
   );
 }
 
-
 function cacheCapacityGiB(resource: SavedResource): string {
-  if (resource.kind !== "cache" || !Array.isArray(resource.data.members)) return "未获取";
+  if (resource.kind !== "cache" || !Array.isArray(resource.data.members))
+    return "未获取";
   let total = 0;
   let missing = 0;
   for (const member of resource.data.members) {
     const size = member.cache_size_mb;
-    if (typeof size === "number" && Number.isFinite(size) && size >= 0) total += size;
+    if (typeof size === "number" && Number.isFinite(size) && size >= 0)
+      total += size;
     else missing++;
   }
   if (missing === resource.data.members.length && missing > 0) return "未获取";
-  const value = (total / 1024).toLocaleString("zh-CN", {maximumFractionDigits: 3});
+  const value = (total / 1024).toLocaleString("zh-CN", {
+    maximumFractionDigits: 3,
+  });
   return missing ? `${value}（已知容量，${missing} 个成员未获取）` : value;
 }

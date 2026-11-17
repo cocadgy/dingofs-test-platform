@@ -159,6 +159,7 @@ test("groups mentioned only in members remain visible and ungrouped members are 
   expect(table.getAllByRole("row")).toHaveLength(3);
   expect(table.getByRole("rowheader", { name: "stopped-group" })).toBeVisible();
   expect(table.getByRole("rowheader", { name: "empty-group" })).toBeVisible();
+  fireEvent.click(screen.getByRole("button", {name:"全部成员 / 未分组"}));
   const members = within(screen.getByRole("table", { name: "缓存成员列表" }));
   expect(members.getAllByRole("row")).toHaveLength(3);
   expect(members.getByRole("cell", { name: "b" })).toBeVisible();
