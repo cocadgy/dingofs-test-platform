@@ -3,6 +3,7 @@ import { GuidedMountFlow } from "./GuidedMountFlow";
 import { useEffect, useState } from "react";
 import { api } from "../../api/client";
 import { GuidedFunctionalFlow } from "./GuidedFunctionalFlow";
+import { GuidedPerformanceFlow } from "./GuidedPerformanceFlow";
 import { GuidedMachineForm } from "./GuidedMachineForm";
 import { GuidedFilesystemFlow } from "./GuidedFilesystemFlow";
 import { DiscoverClusters } from "../clusters/DiscoverClusters";
@@ -20,8 +21,8 @@ const actions = [
 ] as const;
 
 export function GettingStartedPage({ route, onNavigate, onDirty, admin = false, userId }: {
-  route: "chooser" | "functional" | "machine" | "cluster" | "cluster-machine" | "filesystem" | "filesystem-storage" | "cache" | "mount";
-  onNavigate: (hash: string) => void;
+  route: "chooser" | "functional" | "performance" | "machine" | "cluster" | "cluster-machine" | "filesystem" | "filesystem-storage" | "cache" | "mount";
+  onNavigate: (hash: string, confirmed?: boolean) => void;
   onDirty: (dirty: boolean) => void;
   admin?: boolean;
   userId?: string;
@@ -44,6 +45,7 @@ export function GettingStartedPage({ route, onNavigate, onDirty, admin = false, 
     onNavigate("#/start/filesystem");
   }
   if (route === "functional") return <GuidedFunctionalFlow userId={userId || ""} onNavigate={onNavigate} onDirty={onDirty} />;
+  if (route === "performance") return <GuidedPerformanceFlow onNavigate={onNavigate} onDirty={onDirty} />;
   if (route === "mount") return <GuidedMountFlow key={userId} admin={admin} userId={userId} route={window.location.hash} onNavigate={onNavigate} onDirty={onDirty} />;
   if (route === "cache") return <GuidedCacheFlow admin={admin} userId={userId} route={window.location.hash} onNavigate={onNavigate} onDirty={onDirty} />;
   if (route === "filesystem") return <section className="getting-started"><p className="eyebrow">GETTING STARTED / FILESYSTEM</p><h1>创建文件系统</h1><GuidedFilesystemFlow admin={admin} userId={userId} onNavigate={onNavigate} onDirty={onDirty} /></section>;
@@ -75,6 +77,7 @@ export function GettingStartedPage({ route, onNavigate, onDirty, admin = false, 
               for (const suffix of ["", "-operation", "-request"]) sessionStorage.removeItem(key + suffix);
               onNavigate("#/start/mount");
             } else if (action === "functional") onNavigate("#/start/functional");
+            else if (action === "performance") onNavigate("#/start/performance");
             else if (action === "cache") {
               const key = "guided-cache-draft-" + (userId || "");
               sessionStorage.removeItem(key);

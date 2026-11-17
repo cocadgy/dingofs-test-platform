@@ -15,11 +15,12 @@ test("lists seven guided actions and opens machine onboarding", () => {
   expect(navigate).toHaveBeenCalledWith("#/start/machine");
 });
 
-test("future performance action has an explicit coming-soon state", () => {
-  render(<GettingStartedPage route="chooser" onNavigate={vi.fn()} onDirty={vi.fn()} />);
+test("performance action opens the guided route", () => {
+  const navigate = vi.fn();
+  render(<GettingStartedPage route="chooser" onNavigate={navigate} onDirty={vi.fn()} />);
   fireEvent.change(screen.getByLabelText("想做什么"), { target: { value: "performance" } });
   fireEvent.click(screen.getByRole("button", { name: "下一步" }));
-  expect(screen.getByText("即将支持")).toBeTruthy();
+  expect(navigate).toHaveBeenCalledWith("#/start/performance");
 });
 
 test("cache action opens the implemented wizard", () => {

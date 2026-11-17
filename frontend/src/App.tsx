@@ -300,12 +300,12 @@ export function App() {
         >
           {kind === "start" && user.email ? (
             <GettingStartedPage
-              route={hash.startsWith("#/start/functional") ? "functional" : hash.startsWith("#/start/mount") ? "mount" : hash.startsWith("#/start/cache") ? "cache" : hash === "#/start/filesystem/storage" ? "filesystem-storage" : hash === "#/start/filesystem" ? "filesystem" : hash === "#/start/cluster/machine" ? "cluster-machine" : hash === "#/start/cluster" ? "cluster" : hash === "#/start/machine" ? "machine" : "chooser"}
+              route={hash === "#/start/performance" ? "performance" : hash.startsWith("#/start/functional") ? "functional" : hash.startsWith("#/start/mount") ? "mount" : hash.startsWith("#/start/cache") ? "cache" : hash === "#/start/filesystem/storage" ? "filesystem-storage" : hash === "#/start/filesystem" ? "filesystem" : hash === "#/start/cluster/machine" ? "cluster-machine" : hash === "#/start/cluster" ? "cluster" : hash === "#/start/machine" ? "machine" : "chooser"}
               admin={user.role === "admin"}
               userId={user.id}
               onDirty={setDirty}
-              onNavigate={(next) => {
-                if (dirty && !next.startsWith("#/start") && !confirm("有未保存修改，确定离开？")) return;
+              onNavigate={(next, confirmed) => {
+                if (dirty && !confirmed && !next.startsWith("#/start") && !confirm("有未保存修改，确定离开？")) return;
                 setDirty(false);
                 window.location.hash = next;
                 setHash(next);

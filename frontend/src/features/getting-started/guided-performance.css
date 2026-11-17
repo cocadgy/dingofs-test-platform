@@ -1,0 +1,26 @@
+.guided-performance-flow { max-width: 960px; }
+.guided-performance-flow .getting-started-card { margin-top: 20px; }
+.guided-performance-steps { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin-top: 24px; }
+.guided-performance-steps span { padding: 10px; border-radius: 8px; background: #edf4f1; color: #506a60; text-align: center; }
+.guided-performance-steps [aria-current="step"] { background: #d3ebe1; color: #15543f; font-weight: 700; }
+.guided-performance-fields { display: grid; gap: 16px; min-width: 0; }
+.guided-performance-fields label { display: grid; gap: 7px; font-weight: 600; }
+.guided-performance-fields input:not([type="checkbox"]), .guided-performance-fields select { box-sizing: border-box; width: 100%; min-width: 0; padding: 11px 12px; border: 1px solid #b7cbc3; border-radius: 8px; background: white; }
+.guided-performance-fields small, .guided-performance-tools small { display: block; color: #5d716d; font-weight: 400; }
+.guided-performance-pair { display: grid; grid-template-columns: minmax(0, 2fr) minmax(110px, 1fr); gap: 12px; }
+.guided-performance-check { display: flex !important; align-items: center; gap: 8px; }
+.guided-performance-fields details { border: 1px solid #dce5e1; border-radius: 10px; padding: 16px; }
+.guided-performance-fields details > .guided-performance-fields { margin-top: 16px; }
+.guided-performance-tools { display: grid; gap: 14px; }
+.guided-performance-tools > label { display: flex; gap: 14px; padding: 16px; border: 1px solid #dce5e1; border-radius: 10px; cursor: pointer; }
+.guided-performance-tools > label input { align-self: start; }
+.guided-performance-estimate, .guided-performance-note { margin: 0; padding: 12px; border-radius: 8px; background: #edf6f1; }
+.guided-performance-confirm { display: grid; gap: 16px; min-width: 0; }
+.guided-performance-confirm dl { display: grid; gap: 10px; margin: 0; }
+.guided-performance-confirm dl div { display: grid; grid-template-columns: 140px minmax(0, 1fr); gap: 12px; }
+.guided-performance-confirm dt { color: #5d716d; }
+.guided-performance-confirm dd { margin: 0; overflow-wrap: anywhere; }
+.guided-performance-preview { min-width: 0; padding: 16px; border: 1px solid #dce5e1; border-radius: 10px; }
+.guided-performance-preview pre { overflow: auto; padding: 12px; border-radius: 8px; background: #f3f7f5; }
+.guided-performance-flow .getting-started-actions { display: flex; flex-wrap: wrap; gap: 10px; }
+@media (max-width: 620px) { .guided-performance-steps { grid-template-columns: repeat(2, 1fr); } .guided-performance-confirm dl div { grid-template-columns: 1fr; gap: 3px; } }

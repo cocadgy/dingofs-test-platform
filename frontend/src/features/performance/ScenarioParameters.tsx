@@ -24,6 +24,7 @@ export function ScenarioParameters({ spec }: { spec: Spec }) {
       <br />
       深度 {spec.iodepth} · {spec.rounds} 轮
       {spec.read_percent != null ? ` · 读 ${spec.read_percent}%` : ""}
+      {spec.runtime_seconds != null ? ` · 每轮测量 ${spec.runtime_seconds} 秒` : ""}
     </span>
   );
 }

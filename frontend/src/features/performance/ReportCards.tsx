@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { chartMetrics, ChartMetric } from "./ParameterBarChart";
 import { Run } from "./types";
+import { formatBytes } from "./ScenarioParameters";
 const reportUrl = (id: string, tool: string, file: string) =>
   `/api/v1/performance/runs/${encodeURIComponent(id)}/reports/${encodeURIComponent(tool)}/${encodeURIComponent(file)}`;
 export function ReportCards({ run }: { run: Run }) {
@@ -17,6 +18,12 @@ export function ReportCards({ run }: { run: Run }) {
             有效轮次：{r.summary?.statistics?.successful_rounds ?? 0} /{" "}
             {r.summary?.statistics?.requested_rounds ?? "—"}
           </p>
+          {r.parameters?.runtime_seconds != null && <div className="performance-timed-summary">
+            <p>请求每轮测量：{r.parameters.runtime_seconds} 秒</p>
+            <p>每轮实际测量：{r.summary?.statistics?.metrics?.measurement_seconds?.mean != null ? Number(r.summary.statistics.metrics.measurement_seconds.mean.toFixed(2)) : "—"} 秒</p>
+            <p>每工具数据集：{formatBytes(r.parameters.total_size)}</p>
+            <p>每轮实际 I/O：{r.summary?.statistics?.metrics?.io_bytes?.mean != null ? formatBytes(r.summary.statistics.metrics.io_bytes.mean) : "—"}</p>
+          </div>}
           <div className="performance-metrics">
             {(r.tool === "mdtest" || run.snapshot.scenarios?.find(s=>s.id===tool)?.tool === "mdtest" || tool === "mdtest" ? Object.keys(r.summary?.statistics?.metrics || {}).map(key=>[key,chartMetrics[key as ChartMetric]?.label || key,chartMetrics[key as ChartMetric]?.unit || ""]) : [
               ["bandwidth_mib_s", "平均带宽", "MiB/s"],
