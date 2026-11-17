@@ -109,6 +109,7 @@ def validate_timed_report(report, expected):
     if requested is None or report.get('status') != 'passed':
         return
     plan=report.get('plan') or {}
+    if not isinstance(plan,dict):raise ValueError('定时测试报告计划格式无效')
     rounds=expected['rounds']
     if (type(plan.get('runtime_seconds')) is not int or plan['runtime_seconds'] != requested
             or plan.get('tool') != expected['tool'] or plan.get('rounds') != rounds):
@@ -121,6 +122,7 @@ def validate_timed_report(report, expected):
         if not isinstance(row,dict):raise ValueError('定时测试报告轮次格式无效')
         number=row.get('round')
         metrics=row.get('metrics') or {}
+        if not isinstance(metrics,dict):raise ValueError('定时测试报告轮次指标格式无效')
         measured=metrics.get('measurement_seconds')
         transferred=metrics.get('io_bytes')
         if (type(number) is not int or not 1 <= number <= rounds or number in seen
@@ -141,13 +143,34 @@ def report_files(output,tool,budget=16*1024*1024,expected=None):
     if tool == 'mdtest':report=mdtest_summary(report,expected)
     else:validate_timed_report(report,expected)
     # Keep live metadata compact; full round data remains in the JSON artifact.
-    statistics=report.get('statistics') or {}
-    metrics=statistics.get('metrics') or {}
+    timed=bool(expected and expected.get('runtime_seconds') is not None)
+    passed=report.get('status') == 'passed'
+    source_report=report
+    stats=report.get('statistics') or {}
+    if not isinstance(stats,dict):
+        if timed and passed:raise ValueError('定时测试报告统计格式无效')
+        stats={}
+    metrics=stats.get('metrics') or {}
+    if not isinstance(metrics,dict):
+        if timed and passed:raise ValueError('定时测试报告统计指标格式无效')
+        metrics={}
     report={'status':report.get('status'),'error':str(report.get('error') or '')[:2000],
-            'statistics':{key:statistics.get(key) for key in ('complete','requested_rounds','successful_rounds')}}
-    if expected and expected.get('runtime_seconds') is not None:
+            'statistics':{key:stats.get(key) for key in ('complete','requested_rounds','successful_rounds')}}
+    if timed:
         report['runtime_seconds']=expected['runtime_seconds']
-    report['statistics']['metrics']={key:{field:metrics.get(key,{}).get(field) for field in ('mean','samples')} for key in (tuple(metrics) if tool == 'mdtest' else ('bandwidth_mib_s','iops','latency_mean_us'))}
+    compact_metrics={}
+    for key in (tuple(metrics) if tool == 'mdtest' else ('bandwidth_mib_s','iops','latency_mean_us')):
+        value=metrics.get(key) or {}
+        if not isinstance(value,dict):
+            if timed and passed:raise ValueError('定时测试报告统计指标格式无效')
+            value={}
+        compact_metrics[key]={field:value.get(field) for field in ('mean','samples')}
+    if timed and passed:
+        rows=source_report['rounds']
+        for key in ('measurement_seconds','io_bytes'):
+            compact_metrics[key]={'mean':statistics.mean(row['metrics'][key] for row in rows),
+                                  'samples':len(rows)}
+    report['statistics']['metrics']=compact_metrics
     artifacts={}
     total=0
     for path in sorted(paths[0].parent.iterdir(),key=lambda p:(p.name not in ('summary.json','index.html'),p.name)):
