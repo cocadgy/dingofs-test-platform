@@ -1,6 +1,10 @@
 """A requested measurement duration must reach DTT, never become only a timeout."""
 import pytest
 import json
+import os
+import signal
+import threading
+import time
 from pydantic import ValidationError
 
 from dingofs_platform.performance.commands import argv_for
@@ -77,6 +81,95 @@ def test_timed_dtt_probe_validates_the_actual_echoed_plan(tmp_path):
                       'print(json.dumps({"runtime_seconds":60,"tool":"fio"}))\n')
     binary.chmod(0o755)
     remote_runner.check_timed_dtt([str(binary), '--runtime-seconds', '60'], {'runtime_seconds': 60}, 5)
+
+
+def _child_active(pid):
+    path = f'/proc/{pid}/stat'
+    try:
+        with open(path) as stream:
+            status = stream.read().split(') ', 1)[1][0]
+    except (FileNotFoundError, ProcessLookupError):
+        return False
+    return status not in ('Z', 'X')
+
+
+@pytest.mark.parametrize('leader_exits', [False, True])
+def test_timed_probe_timeout_stops_real_child_even_after_leader_exits(tmp_path, leader_exits):
+    binary = tmp_path / 'dtt'
+    child_pid = tmp_path / 'child.pid'
+    binary.write_text('''#!/usr/bin/env python3
+import subprocess,sys,time
+from pathlib import Path
+child=subprocess.Popen([sys.executable,'-c','import time;time.sleep(60)'])
+Path(sys.argv[1]).write_text(str(child.pid))
+if sys.argv[2] == 'stay': time.sleep(60)
+''')
+    binary.chmod(0o755)
+    try:
+        with pytest.raises(TimeoutError, match='超时'):
+            remote_runner.check_timed_dtt([str(binary), str(child_pid), 'exit' if leader_exits else 'stay'],
+                                          {'runtime_seconds': 60}, .5,
+                                          data_dir=tmp_path/'data', output_dir=tmp_path/'output')
+        pid = int(child_pid.read_text())
+        assert not _child_active(pid)
+    finally:
+        if child_pid.exists():
+            pid = int(child_pid.read_text())
+            if _child_active(pid): os.kill(pid, signal.SIGKILL)
+
+
+def test_timed_probe_cancel_stops_real_child_and_marks_task_cancelled(tmp_path, monkeypatch):
+    home, root, request = fixture_job(tmp_path, tools=('fio',))
+    binary = home / '.local/share/dingofs-platform/tools/dtt/current/dtt'
+    child_pid = tmp_path / 'child.pid'
+    binary.write_text('''#!/usr/bin/env python3
+import subprocess,sys,time
+from pathlib import Path
+child=subprocess.Popen([sys.executable,'-c','import time;time.sleep(60)'])
+Path(sys.argv[1]).write_text(str(child.pid))
+time.sleep(60)
+''')
+    binary.chmod(0o755)
+    spec = BenchmarkSpec(tool='fio', total_size='4KiB', concurrency=1, runtime_seconds=2)
+    request['tests'] = [{'spec':spec.model_dump(), 'args':[str(child_pid)]}]
+    (root / 'request.json').write_text(json.dumps(request))
+    monkeypatch.setenv('HOME', str(home))
+    def cancel_after_start():
+        limit = time.monotonic() + 5
+        while not child_pid.exists() and time.monotonic() < limit: time.sleep(.02)
+        (root / 'cancel').touch()
+    thread = threading.Thread(target=cancel_after_start)
+    thread.start()
+    try:
+        remote_runner.execute(root)
+        state = json.loads((root / 'state.json').read_text())
+        assert state['state'] == 'cancelled'
+        assert not _child_active(int(child_pid.read_text()))
+    finally:
+        thread.join(5)
+        if child_pid.exists():
+            pid = int(child_pid.read_text())
+            if _child_active(pid): os.kill(pid, signal.SIGKILL)
+
+
+def test_unconfirmed_timed_probe_cleanup_keeps_remote_state_unknown(tmp_path, monkeypatch):
+    home, root, request = fixture_job(tmp_path, tools=('fio',))
+    binary = home / '.local/share/dingofs-platform/tools/dtt/current/dtt'
+    binary.write_text('#!/usr/bin/env python3\nimport json\nprint(json.dumps({"runtime_seconds":2}))\n')
+    binary.chmod(0o755)
+    spec = BenchmarkSpec(tool='fio', total_size='4KiB', concurrency=1, runtime_seconds=2)
+    request['tests'] = [{'spec':spec.model_dump(), 'args':argv_for(spec,'__DATA__','__OUTPUT__','dtt')[1:]}]
+    (root / 'request.json').write_text(json.dumps(request))
+    monkeypatch.setenv('HOME', str(home))
+    real_stop = remote_runner.stop_process
+    def unconfirmed_stop(*args):
+        real_stop(*args)
+        raise RuntimeError('inspection unavailable')
+    monkeypatch.setattr(remote_runner, 'stop_process', unconfirmed_stop)
+    remote_runner.execute(root)
+    state = json.loads((root / 'state.json').read_text())
+    assert state['state'] == 'unknown'
+    assert '停止确认失败' in state['error']
 
 
 def write_timed_report(tmp_path, *, runtime=60, measured=60, io_bytes=104857600, rounds=None):

@@ -22,22 +22,52 @@ def atomic(path,value):
 
 def stop_process(process, runtime, data_dir, output_dir):
     # docker run forwards TERM; also stop only containers mounted to this job.
-    if process.poll() is None:
-        os.killpg(process.pid,signal.SIGTERM)
+    try:os.killpg(process.pid,signal.SIGTERM)
+    except ProcessLookupError:pass
     if runtime:
         found=subprocess.run([runtime,'ps','-q'],capture_output=True,text=True,timeout=15)
+        if found.returncode:raise RuntimeError('无法确认本任务容器状态：'+(found.stderr or found.stdout).strip()[:500])
         for cid in found.stdout.split():
             info=subprocess.run([runtime,'inspect',cid],capture_output=True,text=True,timeout=15)
-            if info.returncode:continue
+            if info.returncode:raise RuntimeError('无法确认容器挂载归属：'+cid)
             item=json.loads(info.stdout)[0]
             paths={m.get('Source') for m in item.get('Mounts',[])}
             if str(data_dir) in paths and str(output_dir) in paths:
                 stopped=subprocess.run([runtime,'stop','-t','10',cid],capture_output=True,text=True,timeout=20)
                 if stopped.returncode:raise RuntimeError('无法确认本任务容器已停止：'+cid)
-    try:process.wait(timeout=15)
-    except subprocess.TimeoutExpired:
-        os.killpg(process.pid,signal.SIGKILL)
-        process.wait(timeout=5)
+    deadline=time.monotonic()+15
+    while time.monotonic()<deadline and _process_group_active(process.pid):
+        time.sleep(.1)
+    if _process_group_active(process.pid):
+        try:os.killpg(process.pid,signal.SIGKILL)
+        except ProcessLookupError:pass
+        deadline=time.monotonic()+5
+        while time.monotonic()<deadline and _process_group_active(process.pid):
+            time.sleep(.1)
+    process.wait(timeout=5)
+    if _process_group_active(process.pid):
+        raise RuntimeError('无法确认本任务进程组已停止')
+
+
+def _process_group_active(pgid):
+    """Ignore reaped-but-uncollected zombies when confirming a Linux job group stopped."""
+    if Path('/proc').is_dir():
+        for entry in Path('/proc').iterdir():
+            if not entry.name.isdigit():continue
+            try:
+                fields=(entry/'stat').read_text().rsplit(') ',1)[1].split()
+                if int(fields[2])==pgid and fields[0] not in ('Z','X'):return True
+            except (OSError,ValueError,IndexError):continue
+        return False
+    try:os.killpg(pgid,0)
+    except ProcessLookupError:return False
+    return True
+
+
+class CleanupUnconfirmed(RuntimeError):pass
+
+
+class ProbeCancelled(Exception):pass
 
 
 def relay_mdtest_log(output, log, offset):
@@ -232,19 +262,47 @@ def resolve_dtt():
     raise RuntimeError('未找到可执行 dtt：已检查平台托管目录、SSH用户 PATH 和 ~/.local/bin/dtt；请安装 dtt 或在机器详情部署测试工具')
 
 
-def check_timed_dtt(argv, spec, timeout):
+def check_timed_dtt(argv, spec, timeout, *, cancel_path=None, runtime=None, data_dir=None, output_dir=None):
     """Dry-run echoes the contract; old wrappers must not silently drop runtime."""
     if spec.get('runtime_seconds') is None:return
     message='当前 DTT 无法确认支持定时压测，请升级 DTT（包含 --runtime-seconds 支持）后重试'
+    if timeout<=0:raise TimeoutError('DTT 定时支持检查超时')
+    probe_timeout=min(30,timeout)
+    deadline=time.monotonic()+probe_timeout
+    process=None
+    interrupted=None
     try:
-        result=subprocess.run([*argv,'--dry-run'],capture_output=True,text=True,
-                              stdin=subprocess.DEVNULL,timeout=max(.1,min(30,timeout)))
-        plan=json.loads(result.stdout) if result.returncode == 0 else None
-    except (OSError,ValueError,subprocess.TimeoutExpired) as exc:
+        process=subprocess.Popen([*argv,'--dry-run'],stdout=subprocess.PIPE,stderr=subprocess.PIPE,
+                                 text=True,stdin=subprocess.DEVNULL,start_new_session=True)
+        while True:
+            if cancel_path is not None and cancel_path.exists():
+                interrupted='cancel'
+                break
+            remaining=deadline-time.monotonic()
+            if remaining<=0:
+                interrupted='timeout'
+                break
+            try:
+                stdout,stderr=process.communicate(timeout=min(.2,remaining))
+                break
+            except subprocess.TimeoutExpired:pass
+        if interrupted is None and cancel_path is not None and cancel_path.exists():
+            interrupted='cancel'
+    except OSError as exc:
+        raise RuntimeError(message+'：'+str(exc)[:500]) from exc
+    finally:
+        if process is not None:
+            try:stop_process(process,runtime,data_dir,output_dir)
+            except Exception as cleanup:
+                raise CleanupUnconfirmed('DTT 定时支持检查停止确认失败：'+str(cleanup)) from cleanup
+    if interrupted=='cancel':raise ProbeCancelled()
+    if interrupted=='timeout':raise TimeoutError('DTT 定时支持检查超时')
+    try:plan=json.loads(stdout) if process.returncode == 0 else None
+    except ValueError as exc:
         raise RuntimeError(message+'：'+str(exc)[:500]) from exc
     if (not isinstance(plan,dict) or type(plan.get('runtime_seconds')) is not int
             or plan['runtime_seconds'] != spec['runtime_seconds']):
-        detail=(result.stderr or result.stdout).strip()[:500]
+        detail=(stderr or stdout).strip()[:500]
         raise RuntimeError(message+('：'+detail if detail else ''))
 
 
@@ -319,7 +377,10 @@ def execute(root):
             if spec.get('runtime_seconds') is not None:
                 state.update(phase=label+' · 检查 DTT 定时压测支持')
                 save()
-                check_timed_dtt(argv,spec,timeout-(time.monotonic()-started))
+                try:check_timed_dtt(argv,spec,timeout-(time.monotonic()-started),
+                                    cancel_path=root/'cancel',runtime=runtime,data_dir=data_dir,output_dir=output)
+                except ProbeCancelled:
+                    state.update(state='cancelled',phase='已取消');break
                 if (root/'cancel').exists():
                     state.update(state='cancelled',phase='已取消');break
                 if time.monotonic()-started>=timeout:raise TimeoutError('性能测试超过设置的总超时')
@@ -399,7 +460,7 @@ def execute(root):
                     cleanup_task_data(task_data,identity,timeout-(time.monotonic()-started))
                     state.update(state='success',phase='全部场景通过，测试数据已清理',progress=100)
     except BaseException as exc:
-        state.update(state='failed',phase='执行失败',error=str(exc))
+        state.update(state='unknown' if isinstance(exc,CleanupUnconfirmed) else 'failed',phase='执行失败',error=str(exc))
         print('ERROR: '+str(exc),flush=True)
         if process is not None and data_dir is not None:
             try:stop_process(process,runtime,data_dir,output)
