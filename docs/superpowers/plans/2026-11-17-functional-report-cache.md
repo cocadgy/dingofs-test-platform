@@ -40,11 +40,11 @@
 - Settings `functional_report_cache_root: Path`, `functional_report_cache_max_bytes: int` default 2 GiB.
 - Preserve existing `functional_report_transport(config, code)` injection; archive response shape documented by implementation tests.
 
-- [ ] Write failing tests for unchanged report bytes/no archive dependency and local reuse across different assets, permissions and conditional requests.
-- [ ] Run tests, confirm failures are the missing cache behavior.
-- [ ] Implement bounded remote bundle, atomic private local cache, lock/eviction, route ETag and prefetch.
-- [ ] Add and run adversarial/failure/concurrency and prefetch regression tests.
-- [ ] Run full backend suite and review changes; commit only this task's files.
+- [x] Write failing tests for unchanged report bytes/no archive dependency and local reuse across different assets, permissions and conditional requests.
+- [x] Run tests, confirm failures are the missing cache behavior.
+- [x] Implement bounded remote bundle, atomic private local cache, lock/eviction, route ETag and prefetch.
+- [x] Add and run adversarial/failure/concurrency and prefetch regression tests.
+- [x] Run full backend suite and review changes; commit only this task's files. Existing baseline failures independently reproduced; see evidence notes.
 
 ### Task 2: Deployment and real-browser verification
 
@@ -52,9 +52,11 @@
 
 **Interfaces:** Persist task 1's cache root in a dedicated volume. Nginx gzip selected report media; no public report alias or proxy cache.
 
-- [ ] Configure volume/settings and gzip; verify effective compose and Nginx syntax without exposing secrets.
-- [ ] Build API from reviewed development worktree, compare to running release; retain prior image.
-- [ ] Run full backend suite against disposable database; inspect active jobs before replacing API.
-- [ ] Deploy targeted API/config update only; do not restart DB or run migrations.
-- [ ] Repeat same URL in Chromium cold/warm and check all assets, summary, auth and ETag.
-- [ ] Record before/after timing and any limitations in evidence notes.
+- [x] Configure volume/settings and gzip; verify effective compose and Nginx syntax without exposing secrets.
+- [x] Build API from reviewed development worktree, compare to running release; retain prior image.
+- [x] Run full backend suite against disposable database; inspect active jobs before replacing API.
+- [x] Deploy targeted API/config update only; do not restart DB or run migrations.
+- [x] Repeat same URL in Chromium cold/warm and check all assets, summary, auth and ETag.
+- [x] Record before/after timing and any limitations in evidence notes.
+
+Evidence: `docs/superpowers/specs/2026-11-17-functional-report-cache-evidence.md`.
