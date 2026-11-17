@@ -361,7 +361,13 @@ def module_report(id:str,child_id:str,path:str,request:Request,user=Depends(curr
         db.info['functional_settings']=request.app.state.settings
         db.info['functional_report_transport']=getattr(request.app.state,'functional_report_transport',None)
         data,media=download_report(db,user,id,child_id,path)
-    return Response(data,media_type=media,headers={'Cache-Control':'no-store','X-Content-Type-Options':'nosniff'})
+    import hashlib
+    etag='"'+hashlib.sha256(data).hexdigest()+'"'
+    headers={'Cache-Control':'private, no-cache','ETag':etag,'X-Content-Type-Options':'nosniff'}
+    candidates=[value.strip().removeprefix('W/') for value in request.headers.get('if-none-match','').split(',')]
+    if '*' in candidates or etag in candidates:
+        return Response(status_code=304,headers=headers)
+    return Response(data,media_type=media,headers=headers)
 
 
 @router.post('/runs/{id}/resources/verify')

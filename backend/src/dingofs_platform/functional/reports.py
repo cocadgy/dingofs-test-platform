@@ -1,4 +1,4 @@
-"""Child-scoped report access; no fallback, streaming disclosure or binary attachments."""
+"""Authenticated child-scoped snapshots; legacy redaction helpers remain isolated."""
 import html
 import hashlib
 import json
@@ -164,13 +164,14 @@ def safe_report_bytes(path, chunks, secrets):
 
 
 def download_report(db, actor, run_id, child_id, path):
-    import base64
+    import mimetypes
     import time
     from dingofs_platform.functional.models import FunctionalRun, FunctionalModuleRun
     from dingofs_platform.inventory.models import Machine
     from dingofs_platform.inventory.credentials import decrypt_password
     from dingofs_platform.inventory.ssh_transport import SSHConfig
     from dingofs_platform.tool_packages.ssh_session import Remote
+    from .report_cache import cache_key, cached_report, report_bundle_code, MAX_WIRE_BYTES
     parent = db.get(FunctionalRun, run_id)
     if not parent:
         raise Problem(404, 'not_found', '任务不存在')
@@ -184,27 +185,38 @@ def download_report(db, actor, run_id, child_id, path):
     require_manage(actor, machine)
     if [machine.address, machine.ssh_port, machine.ssh_user] != binding.get('control_connection'):
         raise Problem(409, 'report_machine_changed', '原报告机器连接身份已改变')
-    secrets = load_report_secrets(Path(settings.functional_source_root).parent,
-        child.environment_snapshot['env_name'], binding.get('functional_runtime', {}).get('source_manifest'),
-        archive_root=settings.functional_source_archive_root)
-    # Reject unsupported attachment types before any remote read.
-    safe_report_bytes(relative, [], secrets)
-    password = decrypt_password(machine.ssh_password_ciphertext, settings.credential_encryption_key)
-    config = SSHConfig(machine.address, machine.ssh_port, machine.ssh_user, password)
-    code = report_read_code(output, report, relative)
-    try:
-        transport = db.info.get('functional_report_transport')
-        if transport:
-            raw = transport(config, code)
-        else:
-            remote = Remote(config, time.monotonic() + 60, lambda **kw: None, '功能报告')
-            try:
-                raw = remote.python(code, '读取模块报告', max_bytes=12 * 1024 * 1024)
-            finally:
-                remote.close()
-        if not isinstance(raw, dict) or raw.get('missing') or not isinstance(raw.get('data'), str):
-            raise ValueError('missing report')
-        data = base64.b64decode(raw['data'], validate=True)
-    except Exception:
-        raise Problem(404, 'report_unavailable', '报告文件不存在或无法安全读取') from None
-    return safe_report_bytes(relative, [data], secrets)
+    def fetch():
+        try:
+            password = decrypt_password(machine.ssh_password_ciphertext, settings.credential_encryption_key)
+            config = SSHConfig(machine.address, machine.ssh_port, machine.ssh_user, password)
+            code = report_bundle_code(output, report)
+            transport = db.info.get('functional_report_transport')
+            if transport:
+                raw = transport(config, code)
+            else:
+                remote = Remote(config, time.monotonic() + 120, lambda **kw: None, '功能报告')
+                try:
+                    raw = remote.python(code, '缓存模块完整报告', max_bytes=MAX_WIRE_BYTES)
+                finally:
+                    remote.close()
+        except Exception:
+            raise Problem(503, 'report_fetch_failed', '无法获取远端报告，请稍后重试') from None
+        if isinstance(raw, dict) and raw.get('missing'):
+            raise Problem(404, 'report_unavailable', '模块报告不存在')
+        return raw
+    key = cache_key(run_id, child_id, output, report, binding['control_connection'])
+    data = cached_report(settings.functional_report_cache_root, settings.functional_report_cache_max_bytes,
+                         key, relative, fetch)
+    media = TEXT_MEDIA.get(PurePosixPath(relative).suffix.lower()) or mimetypes.guess_type(relative)[0] or 'application/octet-stream'
+    return data, media
+
+
+def prefetch_report(db, run_id, child_id):
+    """Warm an observed report as its owner; caller isolates all cache failures."""
+    from dingofs_platform.auth.models import User
+    from .models import FunctionalRun, FunctionalModuleRun
+    parent = db.get(FunctionalRun, run_id)
+    child = db.get(FunctionalModuleRun, child_id)
+    if not parent or not child or (child.result or {}).get('report_status') != 'ready':
+        return
+    download_report(db, db.get(User, parent.creator_id), run_id, child_id, 'index.html')

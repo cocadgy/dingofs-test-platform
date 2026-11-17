@@ -34,6 +34,8 @@ class Settings(BaseSettings):
     functional_worker_enabled: bool = False
     functional_source_root: Path = Path("/app/integration-test/testcases")
     functional_source_archive_root: Path | None = None
+    functional_report_cache_root: Path = Path('/var/lib/dingofs-platform/report-cache')
+    functional_report_cache_max_bytes: int = Field(default=2 * 1024 * 1024 * 1024, ge=1)
     functional_guided_enabled: bool = Field(
         default=False, validation_alias="PLATFORM_GUIDED_FUNCTIONAL_ENABLED"
     )

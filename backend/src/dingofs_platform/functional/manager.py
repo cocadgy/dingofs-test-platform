@@ -194,3 +194,13 @@ class FunctionalManager:
             observation={'transport_error':True,'cursor_before':decision.cursor}
         with factory.begin() as db:
             record_observation(db,id,decision.child_id,observation)
+        # Remote retrieval must never hold the observation transaction or change
+        # a committed test outcome when the report cache is unavailable.
+        try:
+            from .reports import prefetch_report
+            with factory() as db:
+                db.info['functional_settings']=self.app.state.settings
+                db.info['functional_report_transport']=getattr(self.app.state,'functional_report_transport',None)
+                prefetch_report(db,id,decision.child_id)
+        except Exception:
+            logging.getLogger(__name__).warning('functional report prefetch failed for run %s child %s',id,decision.child_id)
