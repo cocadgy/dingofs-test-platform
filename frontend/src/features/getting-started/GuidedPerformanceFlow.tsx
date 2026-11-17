@@ -56,7 +56,7 @@ export function GuidedPerformanceFlow({ onNavigate, onDirty }: { onNavigate: (ha
   function next() {
     if (step === 0) {
       if (!machine || machine.maintenance) { setError("请选择可用的目标机器"); return; }
-      if (!form.targetPath.startsWith("/") || form.targetPath === "/" || form.targetPath.includes("..")) { setError("请填写有效的绝对目标目录"); return; }
+      if (!form.targetPath.startsWith("/") || form.targetPath === "/" || form.targetPath.split("/").includes("..")) { setError("请填写有效的绝对目标目录"); return; }
       if (form.targetKind === "mount" && !mounts.some(item => item.path === form.targetPath)) { setError("请选择该机器上可用的挂载目录"); return; }
     } else if (step === 1 && !form.tools.length) { setError("请选择至少一种测试工具"); return; }
     else if (step === 2) { const problem = validateGuidedPerformance(form); if (problem) { setError(problem); return; } }
@@ -86,7 +86,7 @@ export function GuidedPerformanceFlow({ onNavigate, onDirty }: { onNavigate: (ha
   }
   return <section className="getting-started guided-performance-flow">
     <p className="eyebrow">GETTING STARTED / PERFORMANCE</p><h1>性能测试引导</h1>
-    <p className="muted">在选定机器上运行 fio 和 elbencho。每种工具会保留自己的测试数据，结果在现有任务详情中查看。</p>
+    <p className="muted">在选定机器上运行 fio 和 elbencho。每种工具使用独立的数据集，结果在现有任务详情中查看。</p>
     <nav className="guided-performance-steps" aria-label="引导步骤">{steps.map((label, index) => <span key={label} aria-current={index === step ? "step" : undefined}>{index + 1}. {label}</span>)}</nav>
     <div className="getting-started-card">
       <h2>{steps[step]}</h2>
@@ -114,7 +114,7 @@ export function GuidedPerformanceFlow({ onNavigate, onDirty }: { onNavigate: (ha
         <small>每种工具每轮各测量一次。准备数据与同步时间不计入测量时长。</small>
         <div className="guided-performance-pair"><label>每种工具数据量<input type="number" min="1" value={form.dataset} onChange={event => change({ dataset: Number(event.target.value) })} /></label><label>数据量单位<select value={form.datasetUnit} onChange={event => change({ datasetUnit: event.target.value as GuidedPerformanceForm["datasetUnit"] })}>{sizeUnits.map(unit => <option key={unit}>{unit}</option>)}</select></label></div>
         <label>读写模式<select value={form.rw} onChange={event => change({ rw: event.target.value })}>{modes.map(([value, label]) => <option value={value} key={value}>{label}</option>)}</select></label>
-        <p className="guided-performance-estimate">预计测量时间：{formatDuration(totals.measuredSeconds)} · 合计保留数据：{formatBytes(totals.combinedBytes)}</p>
+        <p className="guided-performance-estimate">预计测量时间：{formatDuration(totals.measuredSeconds)} · 预计数据占用：{formatBytes(totals.combinedBytes)}</p>
         <details><summary>高级选项</summary><div className="guided-performance-fields">
           <label>并发数<input type="number" min="1" max="1024" value={form.concurrency} onChange={event => change({ concurrency: Number(event.target.value) })} /></label>
           <div className="guided-performance-pair"><label>块大小<input type="number" min="1" value={form.blockSize} onChange={event => change({ blockSize: Number(event.target.value) })} /></label><label>块大小单位<select value={form.blockUnit} onChange={event => change({ blockUnit: event.target.value as GuidedPerformanceForm["blockUnit"] })}>{blockUnits.map(unit => <option key={unit}>{unit}</option>)}</select></label></div>
@@ -127,7 +127,7 @@ export function GuidedPerformanceFlow({ onNavigate, onDirty }: { onNavigate: (ha
         </div></details>
       </div>}
       {step === 3 && <div className="guided-performance-confirm">
-        <dl><div><dt>机器</dt><dd>{machine?.name} · {machine?.address} · SSH {machine?.ssh_user}</dd></div><div><dt>目标</dt><dd>{form.targetKind === "mount" ? "挂载文件系统" : "指定目录"} · {form.targetPath}</dd></div><div><dt>工具</dt><dd>{form.tools.join("、")}</dd></div><div><dt>每工具每轮测量</dt><dd>{formatDuration(totals.runtimeSeconds)}</dd></div><div><dt>每工具数据量</dt><dd>{formatBytes(totals.datasetBytes)}</dd></div><div><dt>预计总测量</dt><dd>{formatDuration(totals.measuredSeconds)}</dd></div><div><dt>合计保留数据</dt><dd>{formatBytes(totals.combinedBytes)}</dd></div><div><dt>总超时</dt><dd>{payload.timeout_minutes} 分钟</dd></div></dl>
+        <dl><div><dt>机器</dt><dd>{machine?.name} · {machine?.address} · SSH {machine?.ssh_user}</dd></div><div><dt>目标</dt><dd>{form.targetKind === "mount" ? "挂载文件系统" : "指定目录"} · {form.targetPath}</dd></div><div><dt>工具</dt><dd>{form.tools.join("、")}</dd></div><div><dt>每工具每轮测量</dt><dd>{formatDuration(totals.runtimeSeconds)}</dd></div><div><dt>每工具数据量</dt><dd>{formatBytes(totals.datasetBytes)}</dd></div><div><dt>预计总测量</dt><dd>{formatDuration(totals.measuredSeconds)}</dd></div><div><dt>预计数据占用</dt><dd>{formatBytes(totals.combinedBytes)}</dd></div><div><dt>总超时</dt><dd>{payload.timeout_minutes} 分钟</dd></div></dl>
         <p className="muted">预览会验证配置并显示生成的 DTT 命令；它不检查远程工具是否可用。</p>
         <button type="button" onClick={() => void prepare()} disabled={busy}>生成预览</button>
         {preview && previewKey === key && <div className="guided-performance-preview"><h3>配置预览</h3>{preview.tests.map((test, index) => <div key={`${test.tool}-${index}`}><strong>{test.tool}</strong><pre>{test.command}</pre><details><summary>规范化参数</summary><pre>{JSON.stringify(test.parameters, null, 2)}</pre></details></div>)}</div>}

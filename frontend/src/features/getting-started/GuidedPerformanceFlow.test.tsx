@@ -53,6 +53,36 @@ test("changing machine clears a mount that belongs to the previous machine", asy
   expect(screen.getByText("这台机器暂无可用的已挂载文件系统。")).toBeTruthy();
 });
 
+test("accepts dots inside a directory name but rejects a parent directory component", async () => {
+  vi.mocked(api).mockResolvedValue(options);
+  render(<GuidedPerformanceFlow onNavigate={vi.fn()} onDirty={vi.fn()} />);
+  await screen.findByRole("option", { name: /主机一/ });
+  fireEvent.change(screen.getByLabelText("目标机器"), { target: { value: "m1" } });
+  fireEvent.change(screen.getByLabelText("目标目录"), { target: { value: "/mnt/data/../other" } });
+  fireEvent.click(screen.getByRole("button", { name: "下一步" }));
+  expect(screen.getByRole("alert")).toHaveTextContent("绝对目标目录");
+  fireEvent.change(screen.getByLabelText("目标目录"), { target: { value: "/mnt/data/v1..v2" } });
+  fireEvent.click(screen.getByRole("button", { name: "下一步" }));
+  expect(screen.getByRole("heading", { name: "选择工具" })).toBeTruthy();
+});
+
+test("cleanup option describes combined data as occupancy, not retained data", async () => {
+  vi.mocked(api).mockResolvedValue(options);
+  render(<GuidedPerformanceFlow onNavigate={vi.fn()} onDirty={vi.fn()} />);
+  await screen.findByRole("option", { name: /主机一/ });
+  fireEvent.change(screen.getByLabelText("目标机器"), { target: { value: "m1" } });
+  fireEvent.change(screen.getByLabelText("目标目录"), { target: { value: "/data" } });
+  fireEvent.click(screen.getByRole("button", { name: "下一步" }));
+  fireEvent.click(screen.getByLabelText("fio"));
+  fireEvent.click(screen.getByRole("button", { name: "下一步" }));
+  fireEvent.click(screen.getByText("高级选项"));
+  fireEvent.click(screen.getByLabelText("全部成功后清理任务数据"));
+  expect(screen.getByText(/预计数据占用：1 GiB/)).toBeTruthy();
+  fireEvent.click(screen.getByRole("button", { name: "下一步" }));
+  expect(screen.getByText("预计数据占用")).toBeTruthy();
+  expect(screen.queryByText("合计保留数据")).toBeNull();
+});
+
 test("moves through location, tools, parameters and confirmation; edits invalidate preview", async () => {
   vi.mocked(api).mockImplementation(async (path) => path === "/performance/options" ? options :
     path === "/performance/preview" ? { total_bytes: 1073741824, tests: [{ tool: "fio", command: "dtt fio", parameters: {} }] } : []);
@@ -64,7 +94,7 @@ test("moves through location, tools, parameters and confirmation; edits invalida
   fireEvent.click(screen.getByLabelText("fio"));
   fireEvent.click(screen.getByLabelText("elbencho"));
   fireEvent.click(screen.getByRole("button", { name: "下一步" }));
-  expect(screen.getByText(/合计保留数据/)).toHaveTextContent("2 GiB");
+  expect(screen.getByText(/预计数据占用/)).toHaveTextContent("2 GiB");
   fireEvent.click(screen.getByRole("button", { name: "下一步" }));
   fireEvent.click(screen.getByRole("button", { name: "生成预览" }));
   await screen.findByText("dtt fio");
