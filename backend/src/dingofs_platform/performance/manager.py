@@ -81,7 +81,16 @@ class PerformanceManager:
                     row=db.get(PerformanceRun,id)
                     cancel=row.cancel_requested or now()>row.deadline
                 result=transport.poll(id,cancel)
-                if result.get('missing'):raise RuntimeError('远端任务记录不存在，结果未确认；不会自动重新执行')
+                if result.get('missing'):
+                    with factory.begin() as db:
+                        row=db.get(PerformanceRun,id,with_for_update=True)
+                        if row.cancel_requested and row.remote_root is None:
+                            row.state='failed'
+                            row.phase='已停止跟踪未建立的远端任务'
+                            row.error='远端任务记录不存在，无法确认是否曾执行；取消请求已结束状态采集，不会自动重新执行'
+                            row.finished_at=now()
+                            return
+                    raise RuntimeError('远端任务记录不存在，结果未确认；不会自动重新执行')
                 with factory.begin() as db:
                     row=db.get(PerformanceRun,id,with_for_update=True)
                     state=result.get('state')

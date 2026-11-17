@@ -311,6 +311,7 @@ test("workspace confirms and posts only the selected external member ID", async 
   fireEvent.click(submit());
   await waitFor(() => expect(confirm).toHaveBeenCalledOnce());
   expect(confirm.mock.calls[0][0]).toContain("member-offline");
+  await waitFor(() => expect(vi.mocked(api).mock.calls.filter(call=>call[1]==="POST")).toHaveLength(2));
   const calls = vi.mocked(api).mock.calls.filter((call) => call[1] === "POST");
   expect(calls).toHaveLength(2);
   expect(calls[1][2]).toMatchObject({ action: "cache.list" });
@@ -395,14 +396,15 @@ test("group row delete confirms all member IDs, cancellation does not submit", a
   const nav = await screen.findByRole("navigation", { name: "资源功能" });
   fireEvent.click(within(nav).getByRole("button", { name: /缓存组/ }));
   fireEvent.click(screen.getByRole("button", { name: "删除 external-group" }));
-  expect(confirm).toHaveBeenCalledOnce();
-  expect(confirm.mock.calls[0][0]).toContain("external-group");
-  expect(confirm.mock.calls[0][0]).toContain("member-offline");
+  expect(screen.getByRole("dialog")).toHaveTextContent("external-group");
+  expect(screen.getByRole("dialog")).toHaveTextContent("member-offline");
+  fireEvent.click(screen.getByRole("button", {name:"取消"}));
+  await new Promise(resolve => setTimeout(resolve, 0));
   expect(
     vi.mocked(api).mock.calls.filter((call) => call[1] === "POST"),
   ).toHaveLength(0);
-  confirm.mockReturnValue(true);
   fireEvent.click(screen.getByRole("button", { name: "删除 external-group" }));
+  fireEvent.click(screen.getByRole("button", {name:"确认执行 2 项"}));
   await waitFor(() =>
     expect(
       vi.mocked(api).mock.calls.filter((call) => call[1] === "POST"),

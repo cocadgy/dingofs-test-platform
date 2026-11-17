@@ -82,7 +82,7 @@ def test_bootstrap_is_idempotent(tmp_path):
     home,root,request=fixture_job(tmp_path,tools=('fio',))
     env=dict(os.environ,HOME=str(home))
     for _ in range(2):
-        result=subprocess.run(['python3','-c',bootstrap_code(request)],env=env,capture_output=True,text=True,timeout=5)
+        result=subprocess.run(['python3','-c',bootstrap_code()],input=json.dumps(request),env=env,capture_output=True,text=True,timeout=5)
         assert result.returncode==0,result.stderr
     deadline=time.monotonic()+10
     while time.monotonic()<deadline:
@@ -91,6 +91,16 @@ def test_bootstrap_is_idempotent(tmp_path):
         time.sleep(.1)
     assert state['state']=='success'
     assert (home/'invocations').read_text()=='fio\n'
+
+
+def test_bootstrap_keeps_large_matrix_out_of_command(tmp_path):
+    home,root,request=fixture_job(tmp_path,tools=('fio',))
+    request['tests']=[dict(request['tests'][0],id=f'scene-{index:03d}',label='scenario '*50) for index in range(72)]
+    code=bootstrap_code()
+    assert len(code.encode()) < 65536
+    result=subprocess.run(['python3','-c',code],input=json.dumps(request),env=dict(os.environ,HOME=str(home)),capture_output=True,text=True,timeout=5)
+    assert result.returncode==0,result.stderr
+    assert json.loads((root/'request.json').read_text())['tests']==request['tests']
 
 
 def test_mount_target_rejects_unmounted_directory(tmp_path):

@@ -1,6 +1,7 @@
+import { FilesystemInventory, queryTime } from "./FilesystemInventory";
 import { cacheRdmaReady } from "./cacheRdma";
 import { mountLogUrl } from "./MountLogPage";
-import {MountProfileSelection} from "../mount-profiles/MountProfileSelection";
+import { MountProfileSelection } from "../mount-profiles/MountProfileSelection";
 import { CacheMemberInventory } from "./CacheMemberInventory";
 import { CacheProfileSelection } from "../cache-profiles/CacheProfileSelection";
 import {
@@ -75,18 +76,36 @@ export function ResourceSectionForm({
       item.action !== "cache.stop",
   );
   const formElement = useRef<HTMLFormElement>(null);
+  const drafts = useRef<Record<string, Parameters>>({});
+  const [editorOpen, setEditorOpen] = useState(
+    !actions.some((item) =>
+      ["fs.list", "cache.list", "mount.status"].includes(item.action),
+    ),
+  );
+  const [cacheView, setCacheView] = useState("groups");
   const [addMemberRequest, setAddMemberRequest] = useState(0);
   const [form, setForm] = useState<{ action: string; values: Parameters }>({
     action: "",
     values: {},
   });
   const action =
-    groupActions.find((item) => item.action === form.action) || groupActions[0];
+    groupActions.find((item) => item.action === form.action) ||
+    groupActions.find((item) =>
+      ["fs.list", "cache.list", "mount.status"].includes(item.action),
+    ) ||
+    groupActions[0];
   useEffect(() => {
     if (!addMemberRequest || action?.action !== "cache.create") return;
-    formElement.current?.focus({preventScroll: true});
-    formElement.current?.scrollIntoView?.({behavior: "smooth", block: "start"});
+    formElement.current?.focus({ preventScroll: true });
+    formElement.current?.scrollIntoView?.({
+      behavior: "smooth",
+      block: "start",
+    });
   }, [addMemberRequest, action?.action]);
+  useEffect(() => {
+    if (editorOpen && action?.action.endsWith(".create"))
+      formElement.current?.focus({ preventScroll: true });
+  }, [editorOpen, action?.action]);
   const values = action
     ? form.action === action.action
       ? form.values
@@ -103,7 +122,8 @@ export function ResourceSectionForm({
   const chosenCacheProfile = cacheProfiles.find(
     (p) => p.id === values.cache_profile_id,
   );
-  const rdmaReady = action?.action !== "cache.create" ||
+  const rdmaReady =
+    action?.action !== "cache.create" ||
     cacheRdmaReady((values.members as Parameters[]) || [], snapshot.machines);
   const cacheReady =
     action?.action !== "cache.create" ||
@@ -144,9 +164,14 @@ export function ResourceSectionForm({
     snapshot.resources,
     snapshot.cache_member_targets,
   ]);
-  const unmountSelectionReady = action?.action !== "mount.unmount" ||
-    snapshot.resources.some(resource => resource.id === values.resource_id &&
-      resource.kind === "mount" && resource.state === "mounted");
+  const unmountSelectionReady =
+    action?.action !== "mount.unmount" ||
+    snapshot.resources.some(
+      (resource) =>
+        resource.id === values.resource_id &&
+        resource.kind === "mount" &&
+        resource.state === "mounted",
+    );
   const mountCacheGroupReady =
     action?.action !== "mount.create" ||
     !values.cache_group ||
@@ -257,7 +282,9 @@ export function ResourceSectionForm({
                 "cache_profile_id",
                 "cache_profile_revision",
                 "cache_options",
-                "mount_profile_id", "mount_profile_revision", "mount_options",
+                "mount_profile_id",
+                "mount_profile_revision",
+                "mount_options",
               ].includes(f.key),
           ),
         }
@@ -284,9 +311,19 @@ export function ResourceSectionForm({
             }
           : action;
   const needsFilesystem = Boolean(action && selectsFilesystem(action.action));
-  const listOperation =
+  const sharedList = snapshot.operations.find(
+    (item) => item.action === "fs.list",
+  );
+  const retainedList =
     snapshot.operations.find((item) => item.id === listing.operation?.id) ||
     listing.operation;
+  const listOperation =
+    sharedList &&
+    (!retainedList ||
+      (Date.parse(sharedList.created_at || "") || 0) >
+        (Date.parse(retainedList.created_at || "") || 0))
+      ? sharedList
+      : retainedList;
   useEffect(() => {
     if (listOperation)
       setListing((previous) =>
@@ -356,11 +393,12 @@ export function ResourceSectionForm({
         setListing({ loading: false, error: (error as Error).message });
     }
   }
-  const moduleLists = action?.action === "mount.create" ||
-    section.key === "filesystem" &&
-    ["基础操作", "文件系统配额", "目录配额", "回收站", "目录统计"].includes(
-      selectedGroup,
-    );
+  const moduleLists =
+    action?.action === "mount.create" ||
+    (section.key === "filesystem" &&
+      ["基础操作", "文件系统配额", "目录配额", "回收站", "目录统计"].includes(
+        selectedGroup,
+      ));
   const entered = useRef(false);
   const refreshRef = useRef(refreshFilesystems);
   refreshRef.current = refreshFilesystems;
@@ -396,50 +434,109 @@ export function ResourceSectionForm({
     setExcluded([]);
     if (actionGroup(next.action) !== selectedGroup)
       onGroupChange(actionGroup(next.action));
-    setForm({ action: next.action, values: { ...defaults(next), ...preset } });
+    if (action)
+      drafts.current[action.action] = Object.fromEntries(
+        Object.entries(values).filter(
+          ([key]) =>
+            !action.fields.some((f) => f.key === key && f.type === "password"),
+        ),
+      );
+    setForm({
+      action: next.action,
+      values: {
+        ...defaults(next),
+        ...(drafts.current[next.action] || {}),
+        ...preset,
+      },
+    });
+    setEditorOpen(!["fs.list", "cache.list"].includes(next.action));
   }
   function deleteUngroupedMembers() {
     if (disabled || cacheMembers.pending || cacheMembers.error) return;
-    const all = cacheMembers.options.filter(member => !member.groupName);
-    const eligible = all.filter(member => member.selectable);
-    const next = actions.find(item => item.action === "cache.delete_batch");
+    const all = cacheMembers.options.filter((member) => !member.groupName);
+    const eligible = all.filter((member) => member.selectable);
+    const next = actions.find((item) => item.action === "cache.delete_batch");
     if (!next || !eligible.length) return;
     const batch = eligible.slice(0, 100);
-    void execute({...next, label: `删除未分组成员 ${batch.length} 个，跳过 ${all.length - eligible.length} 个在线或状态不允许删除的成员；保留缓存数据${eligible.length > 100 ? `；剩余 ${eligible.length - 100} 个请在本批完成后继续删除` : ""}`},
-      {member_ids: batch.map(member => member.id)});
+    void execute(
+      {
+        ...next,
+        label: `删除未分组成员 ${batch.length} 个，跳过 ${all.length - eligible.length} 个在线或状态不允许删除的成员；保留缓存数据${eligible.length > 100 ? `；剩余 ${eligible.length - 100} 个请在本批完成后继续删除` : ""}`,
+      },
+      { member_ids: batch.map((member) => member.id) },
+    );
   }
   function canStopMember(id: string) {
-    const member = cacheMembers.options.find(m => m.id === id);
-    return Boolean(member && member.stateLabel !== "离线" &&
+    const member = cacheMembers.options.find((m) => m.id === id);
+    return Boolean(
+      member &&
+      member.stateLabel !== "离线" &&
       (snapshot.cache_member_targets?.[id]?.can_stop ||
-       snapshot.resources.some(r => r.kind === "cache" && !["deleted", "planned"].includes(r.state) &&
-         Array.isArray(r.data.members) && r.data.members.some(m => m.member_id === id))));
+        snapshot.resources.some(
+          (r) =>
+            r.kind === "cache" &&
+            !["deleted", "planned"].includes(r.state) &&
+            Array.isArray(r.data.members) &&
+            r.data.members.some((m) => m.member_id === id),
+        )),
+    );
   }
   function batchAction(key: string, ids: string[]) {
     if (disabled || !ids.length) return;
     setShortcutError("");
     const force = key === "cache.force_stop";
-    const action = actions.find(a => a.action === (force ? "cache.stop" : key));
+    const action = actions.find(
+      (a) => a.action === (force ? "cache.stop" : key),
+    );
     if (!action) return;
     if (key.startsWith("cache.")) {
-      if (cacheMembers.pending || cacheMembers.error || !cacheMembers.operation ||
-          ids.some(id => key === "cache.delete_batch"
-            ? !cacheMembers.options.some(m => m.id === id && m.selectable)
-            : !canStopMember(id))) {
-        setShortcutError("所选成员状态不允许执行此操作，请刷新列表并调整选择。");
+      if (
+        cacheMembers.pending ||
+        cacheMembers.error ||
+        !cacheMembers.operation ||
+        ids.some((id) =>
+          key === "cache.delete_batch"
+            ? !cacheMembers.options.some((m) => m.id === id && m.selectable)
+            : !canStopMember(id),
+        )
+      ) {
+        setShortcutError(
+          "所选成员状态不允许执行此操作，请刷新列表并调整选择。",
+        );
         return;
       }
-      void execute({...action, label: `${force ? "批量强制停止（kill -9）" : key === "cache.stop" ? "批量平滑停止（SIGTERM）" : "批量删除成员登记（保留数据）"}，共 ${ids.length} 个成员`},
-        {member_ids: ids, ...(force ? {force:true} : {})});
+      void execute(
+        {
+          ...action,
+          label: `${force ? "批量强制停止（kill -9）" : key === "cache.stop" ? "批量平滑停止（SIGTERM）" : "批量删除成员登记（保留数据）"}，共 ${ids.length} 个成员`,
+        },
+        { member_ids: ids, ...(force ? { force: true } : {}) },
+      );
     } else {
       const expected = key === "mount.delete" ? "unmounted" : "mounted";
-      if (ids.some(id => !snapshot.resources.some(r => r.id === id && r.kind === "mount" && r.state === expected))) {
-        setShortcutError("所选客户端状态不允许执行此操作，请刷新状态并调整选择。");
+      if (
+        ids.some(
+          (id) =>
+            !snapshot.resources.some(
+              (r) => r.id === id && r.kind === "mount" && r.state === expected,
+            ),
+        )
+      ) {
+        setShortcutError(
+          "所选客户端状态不允许执行此操作，请刷新状态并调整选择。",
+        );
         return;
       }
-      const paths = ids.map(id => snapshot.resources.find(r => r.id === id)?.name).join("、");
-      void execute({...action, label: `${key === "mount.delete" ? "删除已卸载客户端记录（保留目录、日志及文件系统）" : "批量卸载客户端"}，共 ${ids.length} 个：${paths}`},
-        {resource_ids:ids});
+      const paths = ids
+        .map((id) => snapshot.resources.find((r) => r.id === id)?.name)
+        .join("、");
+      void execute(
+        {
+          ...action,
+          label: `${key === "mount.delete" ? "删除已卸载客户端记录（保留目录、日志及文件系统）" : "批量卸载客户端"}，共 ${ids.length} 个：${paths}`,
+        },
+        { resource_ids: ids },
+      );
     }
   }
   function shortcut(resource: SavedResource, key: string, memberId?: string) {
@@ -447,11 +544,18 @@ export function ResourceSectionForm({
     const force = key === "cache.force_stop";
     if (force) key = "cache.stop";
     setShortcutError("");
-    if (["cache.leave", "cache.unlock", "cache.weight"].includes(key) && memberId) {
-      const member = cacheMembers.options.find(item => item.id === memberId);
-      const next = actions.find(item => item.action === key);
-      if (!member || !next || cacheMembers.pending || cacheMembers.error) return;
-      const params: Parameters = {member_id: member.id, group_name: member.groupName};
+    if (
+      ["cache.leave", "cache.unlock", "cache.weight"].includes(key) &&
+      memberId
+    ) {
+      const member = cacheMembers.options.find((item) => item.id === memberId);
+      const next = actions.find((item) => item.action === key);
+      if (!member || !next || cacheMembers.pending || cacheMembers.error)
+        return;
+      const params: Parameters = {
+        member_id: member.id,
+        group_name: member.groupName,
+      };
       if (key === "cache.weight") {
         const input = window.prompt("设置成员权重（0～4294967295）", "100");
         if (input === null) return;
@@ -461,14 +565,20 @@ export function ResourceSectionForm({
         }
         params.weight = Number(input);
       }
-      void execute({...next, label: `${next.label}：${member.id} (${member.address})，${member.groupName || "未分组"}${key === "cache.leave" ? "；仅离组，保留成员及运行进程" : ""}`}, params);
+      void execute(
+        {
+          ...next,
+          label: `${next.label}：${member.id} (${member.address})，${member.groupName || "未分组"}${key === "cache.leave" ? "；仅离组，保留成员及运行进程" : ""}`,
+        },
+        params,
+      );
       return;
     }
     if (key === "cache.create") {
       const next = actions.find((item) => item.action === key);
       if (next) {
         choose(next, { group_name: resource.name });
-        setAddMemberRequest(value => value + 1);
+        setAddMemberRequest((value) => value + 1);
       }
       return;
     }
@@ -515,7 +625,10 @@ export function ResourceSectionForm({
             ...next,
             label: `${force ? "强制停止（kill -9，不执行进程退出清理）" : "平滑停止（kill，SIGTERM）"}${memberId ? "成员" : "缓存组全部成员"}「${resource.name}」：${activeMembers.map((m) => `${m.member_id} (${m.address})`).join("、")}；${members.length - activeMembers.length} 个离线成员跳过`,
           },
-          { member_ids: activeMembers.map((member) => member.member_id), ...(force ? {force:true} : {}) },
+          {
+            member_ids: activeMembers.map((member) => member.member_id),
+            ...(force ? { force: true } : {}),
+          },
         );
       return;
     }
@@ -590,6 +703,606 @@ export function ResourceSectionForm({
         </p>
       )}
       <p className="muted">{section.hint}</p>
+      <div className="resource-freshness">
+        <span>
+          {section.key === "mount"
+            ? "挂载状态为最近保存的检查结果，不代表实时状态；可点击每行的状态检查。"
+            : `最近查询：${queryTime(section.key === "cache" ? cacheMembers.operation : listOperation)} · 已保存快照，未实时查询`}
+        </span>
+        {section.key === "cache" && (
+          <button
+            disabled={disabled || cacheMembers.pending}
+            onClick={() => void cacheMembers.refresh()}
+          >
+            刷新缓存组与成员
+          </button>
+        )}
+      </div>
+      {groups.length > 1 && (
+        <nav className="resource-subnav" aria-label={`${section.label}功能`}>
+          {groups.map((item) => (
+            <button
+              key={item}
+              type="button"
+              aria-current={selectedGroup === item ? "page" : undefined}
+              onClick={() => {
+                if (item === selectedGroup) return;
+                const next = actions.find(
+                  (action) => actionGroup(action.action) === item,
+                );
+                if (next) choose(next);
+              }}
+            >
+              {item}
+            </button>
+          ))}
+        </nav>
+      )}
+      <div
+        className="resource-action-buttons"
+        role="group"
+        aria-label={selectedGroup}
+      >
+        {groupActions.map((item) => (
+          <button
+            key={item.action}
+            type="button"
+            disabled={disabled}
+            aria-pressed={action?.action === item.action}
+            onClick={() => {
+              choose(item);
+            }}
+          >
+            {item.label}
+          </button>
+        ))}
+      </div>
+      <div
+        className={
+          groups.length > 1
+            ? "resource-task-layout"
+            : "resource-task-layout single"
+        }
+      >
+        <div className="resource-task-content">
+          {action && editorOpen ? (
+            <div
+              className={
+                action.action.endsWith(".create")
+                  ? "resource-editor-backdrop"
+                  : "resource-inline-editor"
+              }
+            >
+              <div
+                className={
+                  action.action.endsWith(".create")
+                    ? "resource-editor-drawer"
+                    : "resource-editor-panel"
+                }
+                role={action.action.endsWith(".create") ? "dialog" : undefined}
+                aria-modal={
+                  action.action.endsWith(".create") ? true : undefined
+                }
+                aria-label={action.label}
+                onKeyDown={(event) => {
+                  if (!action.action.endsWith(".create")) return;
+                  if (event.key === "Escape") setEditorOpen(false);
+                  if (event.key === "Tab") {
+                    const elements = Array.from(
+                      event.currentTarget.querySelectorAll<HTMLElement>(
+                        'button:not([disabled]),input:not([disabled]),select:not([disabled]),textarea:not([disabled]),[tabindex="0"]',
+                      ),
+                    ).filter((el) => el.getClientRects().length);
+                    const first = elements[0],
+                      last = elements[elements.length - 1];
+                    if (event.shiftKey && document.activeElement === first) {
+                      event.preventDefault();
+                      last?.focus();
+                    } else if (
+                      !event.shiftKey &&
+                      document.activeElement === last
+                    ) {
+                      event.preventDefault();
+                      first?.focus();
+                    }
+                  }
+                }}
+              >
+                <div className="resource-editor-heading">
+                  <h3>{action.label}</h3>
+                  <button type="button" onClick={() => setEditorOpen(false)}>
+                    关闭表单
+                  </button>
+                </div>
+                <p className="muted">
+                  切换操作或关闭表单会保留本页草稿；刷新或离开页面后不保留。
+                </p>
+                <form
+                  ref={formElement}
+                  tabIndex={-1}
+                  aria-label="资源操作表单"
+                  onSubmit={(event) => {
+                    event.preventDefault();
+                    if (
+                      disabled ||
+                      !storageReady ||
+                      !cacheReady ||
+                      !rdmaReady ||
+                      !mountCacheGroupReady ||
+                      !unmountSelectionReady ||
+                      (needsFilesystem && !selectionReady) ||
+                      (deletingCacheMember && !cacheSelectionReady)
+                    )
+                      return;
+                    if (
+                      action.action === "mount.logs" &&
+                      clusterId &&
+                      typeof values.resource_id === "string"
+                    ) {
+                      window.location.hash = mountLogUrl(
+                        clusterId,
+                        values.resource_id,
+                      );
+                      return;
+                    }
+                    if (action.action === "fs.list") return;
+                    if (action.action === "cache.list") {
+                      void cacheMembers.refresh();
+                      return;
+                    }
+                    if (portPlanning && planAction) {
+                      void execute(
+                        planAction,
+                        parameters(action, values),
+                        undefined,
+                        (operation) =>
+                          setPortPlan({
+                            operation,
+                            fingerprint: portFingerprint,
+                          }),
+                      );
+                      return;
+                    }
+                    void execute(
+                      action,
+                      batch
+                        ? { fs_names: [...selected] }
+                        : cacheBatch
+                          ? { member_ids: [...selectedMembers] }
+                          : creatingFilesystem
+                            ? {
+                                fs_name: values.fs_name,
+                                partition_type: values.partition_type || "hash",
+                                storage_profile_id: values.storage_profile_id,
+                                storage_profile_revision:
+                                  values.storage_profile_revision,
+                              }
+                            : parameters(action, values),
+                      () =>
+                        setValues((previous) => ({
+                          ...previous,
+                          ...Object.fromEntries(
+                            action.fields
+                              .filter((field) => field.type === "password")
+                              .map((field) => [field.key, ""]),
+                          ),
+                        })),
+                    );
+                  }}
+                >
+                  {addMemberRequest > 0 && action.action === "cache.create" && (
+                    <p role="status">
+                      正在向缓存组「{String(values.group_name || "")}
+                      」添加成员，请填写成员机器及参数后提交。
+                    </p>
+                  )}
+                  <div className="resource-task-heading">
+                    <div>
+                      <small>当前功能</small>
+                      <h4>{selectedGroup}</h4>
+                    </div>
+                    <span className="resource-mode">
+                      {action.mutating ? "变更操作" : "只读查询"}
+                    </span>
+                  </div>
+                  {deletingCacheMember && (
+                    <div>
+                      <p className="muted">
+                        仅删除离线或状态未知成员的登记；不会停止成员进程。
+                      </p>
+                      {cacheMembers.pending && (
+                        <p role="status">
+                          正在获取缓存成员列表；如需认证，请在下方操作记录中完成。
+                        </p>
+                      )}
+                      {cacheMembers.error && (
+                        <p role="alert" className="error">
+                          {cacheMembers.error}
+                        </p>
+                      )}
+                      {!cacheMembers.pending &&
+                        !cacheMembers.error &&
+                        !cacheMembers.options.length && (
+                          <p className="muted">
+                            {cacheMembers.operation
+                              ? "当前查询未返回缓存成员。"
+                              : "请先刷新缓存成员列表，再选择要删除的成员登记。"}
+                          </p>
+                        )}
+                      <button
+                        type="button"
+                        disabled={disabled || cacheMembers.pending}
+                        onClick={() => {
+                          setValues((previous) => ({
+                            ...previous,
+                            member_id: "",
+                          }));
+                          void cacheMembers.refresh();
+                        }}
+                      >
+                        刷新缓存成员列表
+                      </button>
+                    </div>
+                  )}
+                  {action.action === "mount.create" && (
+                    <div>
+                      <button
+                        type="button"
+                        disabled={disabled || cacheMembers.pending}
+                        onClick={() => void cacheMembers.refresh()}
+                      >
+                        刷新缓存组列表
+                      </button>
+                      {cacheMembers.pending && (
+                        <p role="status">正在获取缓存组列表…</p>
+                      )}
+                      {(cacheMembers.error || cacheInventory.error) && (
+                        <p role="alert">
+                          {cacheMembers.error || cacheInventory.error}
+                        </p>
+                      )}
+                      {!cacheMembers.operation && (
+                        <p>尚未查询缓存组，请点击刷新缓存组列表。</p>
+                      )}
+                    </div>
+                  )}
+                  {moduleLists && section.key !== "filesystem" && (
+                    <div>
+                      {listPending && (
+                        <p role="status">
+                          正在获取文件系统列表；如需认证，请在下方操作记录中完成。
+                        </p>
+                      )}
+                      {listError && (
+                        <p role="alert" className="error">
+                          {listError}
+                        </p>
+                      )}
+                      {!listPending &&
+                        !listError &&
+                        listOperation?.state === "succeeded" &&
+                        !names.length && <p>暂无文件系统</p>}
+                      <button
+                        type="button"
+                        disabled={disabled || listPending}
+                        onClick={() => {
+                          setValues((previous) => ({
+                            ...previous,
+                            fs_name: "",
+                            fs_id: "",
+                          }));
+                          void refreshFilesystems();
+                        }}
+                      >
+                        刷新文件系统列表
+                      </button>
+                    </div>
+                  )}
+                  {batch ? (
+                    <div>
+                      <label>
+                        文件系统名通配符
+                        <input
+                          value={pattern}
+                          maxLength={256}
+                          disabled={disabled || listPending}
+                          placeholder="例如 vdbench*"
+                          onChange={(event) => {
+                            setPattern(event.target.value);
+                            setExcluded([]);
+                          }}
+                        />
+                      </label>
+                      <p>
+                        Shell 通配符完整匹配名称；匹配 {matches.length}{" "}
+                        个，已选择 {selected.length} 个（每批最多 100 个）。
+                      </p>
+
+                      <p className="muted">
+                        * 匹配任意长度字符，? 匹配一个字符，[abc]
+                        匹配其中一个字符，[0-9] 匹配数字，[!abc]
+                        排除指定字符。例：vdbench*。不支持花括号展开或扩展通配符。
+                      </p>
+                      {matches.map((name) => (
+                        <label key={name} className="resource-match-option">
+                          <input
+                            type="checkbox"
+                            disabled={disabled || listPending}
+                            checked={!excluded.includes(name)}
+                            onChange={(event) =>
+                              setExcluded((previous) =>
+                                event.target.checked
+                                  ? previous.filter((item) => item !== name)
+                                  : [...previous, name],
+                              )
+                            }
+                          />
+                          {name}
+                        </label>
+                      ))}
+                      <p className="muted">
+                        确认后仅删除选定名单中的文件系统，新增匹配项不会自动加入。连接中断或超时后未执行项需重新查询确认。
+                      </p>
+                    </div>
+                  ) : cacheBatch ? (
+                    <div>
+                      <label>
+                        缓存组名或成员 ID 通配符
+                        <input
+                          value={pattern}
+                          maxLength={256}
+                          disabled={disabled || cacheMembers.pending}
+                          placeholder="例如 vdbench_cache_group*"
+                          onChange={(event) => {
+                            setPattern(event.target.value);
+                            setExcluded([]);
+                          }}
+                        />
+                      </label>
+                      <p>
+                        Shell 通配符完整匹配缓存组名或成员 ID；匹配{" "}
+                        {cacheMatches.length} 个，已选择{" "}
+                        {selectedMembers.length} 个（每批最多 100 个）。
+                      </p>
+                      <p className="muted">
+                        * 匹配任意长度字符，?
+                        匹配一个字符；在线成员不可选择。只删除成员登记，保留缓存数据目录。
+                      </p>
+                      {cacheMatches.map((member) => (
+                        <label key={member.id} style={{ display: "block" }}>
+                          <input
+                            type="checkbox"
+                            disabled={
+                              disabled ||
+                              cacheMembers.pending ||
+                              !member.selectable
+                            }
+                            checked={
+                              member.selectable && !excluded.includes(member.id)
+                            }
+                            onChange={(event) =>
+                              setExcluded((previous) =>
+                                event.target.checked
+                                  ? previous.filter((id) => id !== member.id)
+                                  : [...previous, member.id],
+                              )
+                            }
+                          />
+                          {member.groupName} · {member.id} · {member.address} ·{" "}
+                          {member.stateLabel}
+                        </label>
+                      ))}
+                      <p className="muted">
+                        确认后仅删除选定名单中的成员；连接中断或超时后，请重新查询并核实未返回结果的成员。
+                      </p>
+                    </div>
+                  ) : (
+                    <>
+                      {action.action === "cache.create" && cacheCatalog && (
+                        <CacheProfileSelection
+                          profiles={cacheProfiles}
+                          catalog={cacheCatalog}
+                          values={values}
+                          disabled={disabled}
+                          onChange={(patch) =>
+                            setValues((previous) => ({ ...previous, ...patch }))
+                          }
+                          onRefresh={(profiles, catalog) =>
+                            setRefreshedCache({ profiles, catalog })
+                          }
+                        />
+                      )}
+                      {action.action === "mount.create" &&
+                        snapshot.mount_parameter_catalog && (
+                          <MountProfileSelection
+                            profiles={snapshot.mount_profiles || []}
+                            catalog={snapshot.mount_parameter_catalog}
+                            values={values}
+                            disabled={disabled}
+                            onChange={(patch) =>
+                              setValues((previous) => ({
+                                ...previous,
+                                ...patch,
+                              }))
+                            }
+                          />
+                        )}
+                      <ResourceFields
+                        action={displayAction!}
+                        values={values}
+                        filesystemOptions={needsFilesystem ? names : undefined}
+                        cacheGroupOptions={cacheInventory.rows.map(
+                          (row) => row.name,
+                        )}
+                        cacheMemberOptions={cacheMembers.options}
+                        portPlanning={portPlanning}
+                        cacheMemberDefaults={memberDefaults(
+                          (values.cache_options as CacheOptions) || {},
+                        )}
+                        machines={snapshot.machines}
+                        resources={snapshot.resources}
+                        disabled={
+                          disabled ||
+                          Boolean(deletingCacheMember && cacheMembers.pending)
+                        }
+                        onChange={(key, value) =>
+                          setValues((previous) => ({
+                            ...previous,
+                            [key]: value,
+                            ...(usesFilesystemId && key === "fs_name"
+                              ? {
+                                  fs_id:
+                                    options.find(
+                                      (option) => option.name === value,
+                                    )?.id ?? "",
+                                }
+                              : {}),
+                          }))
+                        }
+                      />
+                    </>
+                  )}
+                  {usesFilesystemId &&
+                    selectedFilesystem &&
+                    selectedFilesystem.id === undefined && (
+                      <p role="alert" className="error">
+                        所选记录未返回有效的文件系统 ID，请刷新列表后重试。
+                      </p>
+                    )}
+                  {creatingFilesystem && (
+                    <StorageSelection
+                      profiles={storageProfiles}
+                      id={String(values.storage_profile_id || "")}
+                      revision={Number(values.storage_profile_revision || 0)}
+                      disabled={
+                        disabled ||
+                        Boolean(deletingCacheMember && cacheMembers.pending)
+                      }
+                      onChange={(profile) =>
+                        setValues((previous) => ({
+                          ...previous,
+                          storage_profile_id: profile?.id || "",
+                          storage_profile_revision: profile?.revision || 0,
+                        }))
+                      }
+                    />
+                  )}
+                  {action.action === "trash.configure" && (
+                    <p className="muted">
+                      已挂载客户端会保留挂载时的回收站配置。修改保留天数后，请对需要查看
+                      .trash 的客户端执行重新挂载。
+                    </p>
+                  )}
+                  {action.action === "mount.logs" && (
+                    <p className="muted">
+                      文件名留空时列出可用日志；选择文件后读取末尾 100 / 500 /
+                      1000 行，再次执行可刷新。仅填写文件名，不包含目录。
+                    </p>
+                  )}
+                  {planReady && currentPlan && (
+                    <CachePortPlan
+                      operation={currentPlan}
+                      machines={snapshot.machines}
+                    />
+                  )}
+                  {portPlanning &&
+                    currentPlan &&
+                    currentPlan.state !== "succeeded" && (
+                      <p role="status">
+                        {pendingStates.includes(currentPlan.state)
+                          ? "正在检查端口；如需认证，请在下方操作记录中完成。"
+                          : currentPlan.message ||
+                            "端口检查未通过，请查看下方结果并修改后重试。"}
+                      </p>
+                    )}
+                  {action.action !== "fs.list" && (
+                    <div className="resource-submit-row">
+                      <button
+                        className="primary"
+                        disabled={
+                          disabled ||
+                          !storageReady ||
+                          !cacheReady ||
+                          !rdmaReady ||
+                          !mountCacheGroupReady ||
+                          !unmountSelectionReady ||
+                          (needsFilesystem && !selectionReady) ||
+                          (deletingCacheMember && !cacheSelectionReady)
+                        }
+                      >
+                        {portPlanning
+                          ? "检查并创建缓存组"
+                          : `执行${action.label}`}
+                      </button>
+                      <small>
+                        {portPlanning
+                          ? "端口检查通过后自动创建，无需再次确认。"
+                          : action.mutating
+                            ? "提交后确认操作目标与参数。"
+                            : "执行后在下方查看本次查询结果。"}
+                      </small>
+                    </div>
+                  )}
+                  {submissionError && (
+                    <p role="alert" className="error">
+                      {submissionError}
+                    </p>
+                  )}
+                </form>
+              </div>
+            </div>
+          ) : !action ? (
+            <p>没有可用操作。</p>
+          ) : null}
+        </div>
+      </div>
+      {section.key === "filesystem" && (
+        <button
+          className="resource-list-refresh"
+          disabled={disabled || listPending}
+          onClick={() => {
+            setValues((previous) => ({ ...previous, fs_name: "", fs_id: "" }));
+            void refreshFilesystems();
+          }}
+        >
+          刷新文件系统列表
+        </button>
+      )}
+      {section.key === "filesystem" && listPending && (
+        <p role="status">正在获取文件系统列表…</p>
+      )}
+      {section.key === "filesystem" && listError && (
+        <p role="alert" className="error">
+          {listError}
+        </p>
+      )}
+      {section.key === "filesystem" && (
+        <FilesystemInventory
+          operation={listOperation}
+          actions={actions}
+          disabled={disabled || listPending}
+          onAction={(next, preset) => {
+            if (next.action === "fs.delete_batch") void execute(next, preset);
+            else choose(next, preset);
+          }}
+        />
+      )}
+      {section.key === "cache" && (
+        <nav className="resource-inventory-tabs" aria-label="缓存资源视图">
+          <button
+            aria-pressed={cacheView === "groups"}
+            onClick={() => setCacheView("groups")}
+          >
+            缓存组
+          </button>
+          <button
+            aria-pressed={cacheView === "members"}
+            onClick={() => setCacheView("members")}
+          >
+            全部成员 / 未分组
+          </button>
+        </nav>
+      )}
       {section.key === "cache" && (
         <div>
           {cacheMembers.pending && !deletingCacheMember && (
@@ -611,23 +1324,66 @@ export function ResourceSectionForm({
             !cacheMembers.error &&
             !cacheInventory.error && (
               <>
-              <SavedResourcesTable
-                queried
-                onBatchAction={batchAction}
-                resources={cacheInventory.rows}
-                machines={snapshot.machines}
-                actions={actions}
-                disabled={disabled}
-                onAction={shortcut}
-                onMemberAction={shortcut}
-              />
-              <CacheMemberInventory onBatchAction={batchAction} canStop={canStopMember} members={cacheMembers.options} resources={snapshot.resources}
-                onManage={(member, key) => shortcut({id:`member:${member.id}`, name:member.groupName, kind:"cache", state:"unknown", created_at:"", data:{}}, key, member.id)}
-                actions={actions}
-                onDeleteUngrouped={actions.some(item => item.action === "cache.delete_batch") ? deleteUngroupedMembers : undefined}
-                disabled={disabled || !actions.some(item => item.action === "cache.delete")}
-                onDelete={member => shortcut({id: `member:${member.id}`, name: member.groupName,
-                  kind: "cache", state: "unknown", created_at: "", data: {}}, "cache.delete", member.id)} />
+                <div hidden={cacheView !== "groups"}>
+                  <SavedResourcesTable
+                    queried
+                    onBatchAction={batchAction}
+                    resources={cacheInventory.rows}
+                    machines={snapshot.machines}
+                    actions={actions}
+                    disabled={disabled}
+                    onAction={shortcut}
+                    onMemberAction={shortcut}
+                  />
+                </div>
+                <div hidden={cacheView !== "members"}>
+                  <CacheMemberInventory
+                    onBatchAction={batchAction}
+                    canStop={canStopMember}
+                    members={cacheMembers.options}
+                    resources={snapshot.resources}
+                    onManage={(member, key) =>
+                      shortcut(
+                        {
+                          id: `member:${member.id}`,
+                          name: member.groupName,
+                          kind: "cache",
+                          state: "unknown",
+                          created_at: "",
+                          data: {},
+                        },
+                        key,
+                        member.id,
+                      )
+                    }
+                    actions={actions}
+                    onDeleteUngrouped={
+                      actions.some(
+                        (item) => item.action === "cache.delete_batch",
+                      )
+                        ? deleteUngroupedMembers
+                        : undefined
+                    }
+                    disabled={
+                      disabled ||
+                      !actions.some((item) => item.action === "cache.delete")
+                    }
+                    onDelete={(member) =>
+                      shortcut(
+                        {
+                          id: `member:${member.id}`,
+                          name: member.groupName,
+                          kind: "cache",
+                          state: "unknown",
+                          created_at: "",
+                          data: {},
+                        },
+                        "cache.delete",
+                        member.id,
+                      )
+                    }
+                  />
+                </div>
               </>
             )}
           {!cacheMembers.operation &&
@@ -654,7 +1410,7 @@ export function ResourceSectionForm({
       )}
       {section.key === "mount" && (
         <SavedResourcesTable
-          resources={resources.filter(r => r.state !== "deleted")}
+          resources={resources.filter((r) => r.state !== "deleted")}
           onBatchAction={batchAction}
           machines={snapshot.machines}
           actions={actions}
@@ -663,434 +1419,6 @@ export function ResourceSectionForm({
           onMemberAction={shortcut}
         />
       )}
-      <div
-        className={
-          groups.length > 1
-            ? "resource-task-layout"
-            : "resource-task-layout single"
-        }
-      >
-        {groups.length > 1 && (
-          <nav className="resource-subnav" aria-label={`${section.label}功能`}>
-            {groups.map((item) => (
-              <button
-                key={item}
-                type="button"
-                aria-current={selectedGroup === item ? "page" : undefined}
-                onClick={() => {
-                  if (item === selectedGroup) return;
-                  const next = actions.find(
-                    (action) => actionGroup(action.action) === item,
-                  );
-                  if (next) choose(next);
-                }}
-              >
-                {item}
-              </button>
-            ))}
-          </nav>
-        )}
-        <div className="resource-task-content">
-          {action ? (
-            <form ref={formElement} tabIndex={-1} aria-label="资源操作表单"
-              onSubmit={(event) => {
-                event.preventDefault();
-                if (
-                  disabled ||
-                  !storageReady ||
-                  !cacheReady ||
-                  !rdmaReady ||
-                  !mountCacheGroupReady ||
-                  !unmountSelectionReady ||
-                  (needsFilesystem && !selectionReady) ||
-                  (deletingCacheMember && !cacheSelectionReady)
-                )
-                  return;
-                if (action.action === "mount.logs" && clusterId && typeof values.resource_id === "string") {
-                  window.location.hash = mountLogUrl(clusterId, values.resource_id);
-                  return;
-                }
-                if (action.action === "fs.list") return;
-                if (action.action === "cache.list") {
-                  void cacheMembers.refresh();
-                  return;
-                }
-                if (portPlanning && planAction) {
-                  void execute(
-                    planAction,
-                    parameters(action, values),
-                    undefined,
-                    (operation) =>
-                      setPortPlan({ operation, fingerprint: portFingerprint }),
-                  );
-                  return;
-                }
-                void execute(
-                  action,
-                  batch
-                    ? { fs_names: [...selected] }
-                    : cacheBatch
-                      ? { member_ids: [...selectedMembers] }
-                      : creatingFilesystem
-                        ? {
-                            fs_name: values.fs_name,
-                            partition_type: values.partition_type || "hash",
-                            storage_profile_id: values.storage_profile_id,
-                            storage_profile_revision:
-                              values.storage_profile_revision,
-                          }
-                        : parameters(action, values),
-                  () =>
-                    setValues((previous) => ({
-                      ...previous,
-                      ...Object.fromEntries(
-                        action.fields
-                          .filter((field) => field.type === "password")
-                          .map((field) => [field.key, ""]),
-                      ),
-                    })),
-                );
-              }}
-            >
-              {addMemberRequest > 0 && action.action === "cache.create" && (
-                <p role="status">正在向缓存组「{String(values.group_name || "")}」添加成员，请填写成员机器及参数后提交。</p>
-              )}
-              <div className="resource-task-heading">
-                <div>
-                  <small>当前功能</small>
-                  <h4>{selectedGroup}</h4>
-                </div>
-                <span className="resource-mode">
-                  {action.mutating ? "变更操作" : "只读查询"}
-                </span>
-              </div>
-              <div
-                className="resource-action-buttons"
-                role="group"
-                aria-label={selectedGroup}
-              >
-                {groupActions.map((item) => (
-                  <button
-                    key={item.action}
-                    type="button"
-                    disabled={disabled}
-                    aria-pressed={action.action === item.action}
-                    onClick={() => {
-                      if (item.action !== action.action) choose(item);
-                    }}
-                  >
-                    {item.label}
-                  </button>
-                ))}
-              </div>
-              {deletingCacheMember && (
-                <div>
-                  <p className="muted">
-                    仅删除离线或状态未知成员的登记；不会停止成员进程。
-                  </p>
-                  {cacheMembers.pending && (
-                    <p role="status">
-                      正在获取缓存成员列表；如需认证，请在下方操作记录中完成。
-                    </p>
-                  )}
-                  {cacheMembers.error && (
-                    <p role="alert" className="error">
-                      {cacheMembers.error}
-                    </p>
-                  )}
-                  {!cacheMembers.pending &&
-                    !cacheMembers.error &&
-                    !cacheMembers.options.length && (
-                      <p className="muted">
-                        {cacheMembers.operation
-                          ? "当前查询未返回缓存成员。"
-                          : "请先刷新缓存成员列表，再选择要删除的成员登记。"}
-                      </p>
-                    )}
-                  <button
-                    type="button"
-                    disabled={disabled || cacheMembers.pending}
-                    onClick={() => {
-                      setValues((previous) => ({ ...previous, member_id: "" }));
-                      void cacheMembers.refresh();
-                    }}
-                  >
-                    刷新缓存成员列表
-                  </button>
-                </div>
-              )}
-              {action.action === "mount.create" && <div>
-                <button type="button" disabled={disabled || cacheMembers.pending} onClick={() => void cacheMembers.refresh()}>刷新缓存组列表</button>
-                {cacheMembers.pending && <p role="status">正在获取缓存组列表…</p>}
-                {(cacheMembers.error || cacheInventory.error) && <p role="alert">{cacheMembers.error || cacheInventory.error}</p>}
-                {!cacheMembers.operation && <p>尚未查询缓存组，请点击刷新缓存组列表。</p>}
-              </div>}
-              {moduleLists && (
-                <div>
-                  {listPending && (
-                    <p role="status">
-                      正在获取文件系统列表；如需认证，请在下方操作记录中完成。
-                    </p>
-                  )}
-                  {listError && (
-                    <p role="alert" className="error">
-                      {listError}
-                    </p>
-                  )}
-                  {!listPending &&
-                    !listError &&
-                    listOperation?.state === "succeeded" &&
-                    !names.length && <p>暂无文件系统</p>}
-                  <button
-                    type="button"
-                    disabled={disabled || listPending}
-                    onClick={() => {
-                      setValues((previous) => ({
-                        ...previous,
-                        fs_name: "",
-                        fs_id: "",
-                      }));
-                      void refreshFilesystems();
-                    }}
-                  >
-                    刷新文件系统列表
-                  </button>
-                </div>
-              )}
-              {batch ? (
-                <div>
-                  <label>
-                    文件系统名通配符
-                    <input
-                      value={pattern}
-                      maxLength={256}
-                      disabled={disabled || listPending}
-                      placeholder="例如 vdbench*"
-                      onChange={(event) => {
-                        setPattern(event.target.value);
-                        setExcluded([]);
-                      }}
-                    />
-                  </label>
-                  <p>
-                    Shell 通配符完整匹配名称；匹配 {matches.length} 个，已选择{" "}
-                    {selected.length} 个（每批最多 100 个）。
-                  </p>
-
-                  <p className="muted">
-                    * 匹配任意长度字符，? 匹配一个字符，[abc]
-                    匹配其中一个字符，[0-9] 匹配数字，[!abc]
-                    排除指定字符。例：vdbench*。不支持花括号展开或扩展通配符。
-                  </p>
-                  {matches.map((name) => (
-                    <label key={name} className="resource-match-option">
-                      <input
-                        type="checkbox"
-                        disabled={disabled || listPending}
-                        checked={!excluded.includes(name)}
-                        onChange={(event) =>
-                          setExcluded((previous) =>
-                            event.target.checked
-                              ? previous.filter((item) => item !== name)
-                              : [...previous, name],
-                          )
-                        }
-                      />
-                      {name}
-                    </label>
-                  ))}
-                  <p className="muted">
-                    确认后仅删除选定名单中的文件系统，新增匹配项不会自动加入。连接中断或超时后未执行项需重新查询确认。
-                  </p>
-                </div>
-              ) : cacheBatch ? (
-                <div>
-                  <label>
-                    缓存组名或成员 ID 通配符
-                    <input
-                      value={pattern}
-                      maxLength={256}
-                      disabled={disabled || cacheMembers.pending}
-                      placeholder="例如 vdbench_cache_group*"
-                      onChange={(event) => {
-                        setPattern(event.target.value);
-                        setExcluded([]);
-                      }}
-                    />
-                  </label>
-                  <p>
-                    Shell 通配符完整匹配缓存组名或成员 ID；匹配{" "}
-                    {cacheMatches.length} 个，已选择 {selectedMembers.length}{" "}
-                    个（每批最多 100 个）。
-                  </p>
-                  <p className="muted">
-                    * 匹配任意长度字符，?
-                    匹配一个字符；在线成员不可选择。只删除成员登记，保留缓存数据目录。
-                  </p>
-                  {cacheMatches.map((member) => (
-                    <label key={member.id} style={{ display: "block" }}>
-                      <input
-                        type="checkbox"
-                        disabled={
-                          disabled || cacheMembers.pending || !member.selectable
-                        }
-                        checked={
-                          member.selectable && !excluded.includes(member.id)
-                        }
-                        onChange={(event) =>
-                          setExcluded((previous) =>
-                            event.target.checked
-                              ? previous.filter((id) => id !== member.id)
-                              : [...previous, member.id],
-                          )
-                        }
-                      />
-                      {member.groupName} · {member.id} · {member.address} ·{" "}
-                      {member.stateLabel}
-                    </label>
-                  ))}
-                  <p className="muted">
-                    确认后仅删除选定名单中的成员；连接中断或超时后，请重新查询并核实未返回结果的成员。
-                  </p>
-                </div>
-              ) : (
-                <>
-                  {action.action === "cache.create" && cacheCatalog && (
-                    <CacheProfileSelection
-                      profiles={cacheProfiles}
-                      catalog={cacheCatalog}
-                      values={values}
-                      disabled={disabled}
-                      onChange={(patch) =>
-                        setValues((previous) => ({ ...previous, ...patch }))
-                      }
-                      onRefresh={(profiles, catalog) =>
-                        setRefreshedCache({ profiles, catalog })
-                      }
-                    />
-                  )}
-                  {action.action === "mount.create" && snapshot.mount_parameter_catalog && <MountProfileSelection
-                    profiles={snapshot.mount_profiles || []} catalog={snapshot.mount_parameter_catalog} values={values} disabled={disabled}
-                    onChange={patch=>setValues(previous=>({...previous,...patch}))} />}
-                  <ResourceFields
-                    action={displayAction!}
-                    values={values}
-                    filesystemOptions={needsFilesystem ? names : undefined}
-                    cacheGroupOptions={cacheInventory.rows.map(row => row.name)}
-                    cacheMemberOptions={cacheMembers.options}
-                    portPlanning={portPlanning}
-                    cacheMemberDefaults={memberDefaults(
-                      (values.cache_options as CacheOptions) || {},
-                    )}
-                    machines={snapshot.machines}
-                    resources={snapshot.resources}
-                    disabled={
-                      disabled ||
-                      Boolean(deletingCacheMember && cacheMembers.pending)
-                    }
-                    onChange={(key, value) =>
-                      setValues((previous) => ({
-                        ...previous,
-                        [key]: value,
-                        ...(usesFilesystemId && key === "fs_name"
-                          ? {
-                              fs_id:
-                                options.find((option) => option.name === value)
-                                  ?.id ?? "",
-                            }
-                          : {}),
-                      }))
-                    }
-                  />
-                </>
-              )}
-              {usesFilesystemId &&
-                selectedFilesystem &&
-                selectedFilesystem.id === undefined && (
-                  <p role="alert" className="error">
-                    所选记录未返回有效的文件系统 ID，请刷新列表后重试。
-                  </p>
-                )}
-              {creatingFilesystem && (
-                <StorageSelection
-                  profiles={storageProfiles}
-                  id={String(values.storage_profile_id || "")}
-                  revision={Number(values.storage_profile_revision || 0)}
-                  disabled={
-                    disabled ||
-                    Boolean(deletingCacheMember && cacheMembers.pending)
-                  }
-                  onChange={(profile) =>
-                    setValues((previous) => ({
-                      ...previous,
-                      storage_profile_id: profile?.id || "",
-                      storage_profile_revision: profile?.revision || 0,
-                    }))
-                  }
-                />
-              )}
-              {action.action === "trash.configure" && (
-                <p className="muted">已挂载客户端会保留挂载时的回收站配置。修改保留天数后，请对需要查看 .trash 的客户端执行重新挂载。</p>
-              )}
-              {action.action === "mount.logs" && (
-                <p className="muted">
-                  文件名留空时列出可用日志；选择文件后读取末尾 100 / 500 / 1000
-                  行，再次执行可刷新。仅填写文件名，不包含目录。
-                </p>
-              )}
-              {planReady && currentPlan && (
-                <CachePortPlan
-                  operation={currentPlan}
-                  machines={snapshot.machines}
-                />
-              )}
-              {portPlanning &&
-                currentPlan &&
-                currentPlan.state !== "succeeded" && (
-                  <p role="status">
-                    {pendingStates.includes(currentPlan.state)
-                      ? "正在检查端口；如需认证，请在下方操作记录中完成。"
-                      : currentPlan.message ||
-                        "端口检查未通过，请查看下方结果并修改后重试。"}
-                  </p>
-                )}
-              {action.action !== "fs.list" && (
-                <div className="resource-submit-row">
-                  <button
-                    className="primary"
-                    disabled={
-                      disabled ||
-                      !storageReady ||
-                      !cacheReady ||
-                      !rdmaReady ||
-                      !mountCacheGroupReady ||
-                      !unmountSelectionReady ||
-                      (needsFilesystem && !selectionReady) ||
-                      (deletingCacheMember && !cacheSelectionReady)
-                    }
-                  >
-                    {portPlanning ? "检查并创建缓存组" : `执行${action.label}`}
-                  </button>
-                  <small>
-                    {portPlanning
-                      ? "端口检查通过后自动创建，无需再次确认。"
-                      : action.mutating
-                        ? "提交后确认操作目标与参数。"
-                        : "执行后在下方查看本次查询结果。"}
-                  </small>
-                </div>
-              )}
-              {submissionError && (
-                <p role="alert" className="error">
-                  {submissionError}
-                </p>
-              )}
-            </form>
-          ) : (
-            <p>没有可用操作。</p>
-          )}
-        </div>
-      </div>
     </section>
   );
 }

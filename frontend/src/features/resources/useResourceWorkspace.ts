@@ -1,3 +1,4 @@
+import type { Confirmation } from "./BatchConfirmation";
 import { requestId } from "./requestId";
 import { restoreHourBuckets } from "./restoreHours";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -9,7 +10,6 @@ import {
   type ResourceOperation,
   type ResourceSnapshot,
 } from "./types";
-
 
 export type Execute = (
   action: ResourceAction,
@@ -29,6 +29,16 @@ export function useResourceWorkspace({
   revision: number;
   canManage: boolean;
 }) {
+  const [confirmation, setConfirmation] = useState<Confirmation>();
+  const confirmationResolver = useRef<
+    ((approved: boolean) => void) | undefined
+  >(undefined);
+  function resolveConfirmation(approved: boolean) {
+    const resolve = confirmationResolver.current;
+    confirmationResolver.current = undefined;
+    setConfirmation(undefined);
+    resolve?.(approved);
+  }
   const [snapshot, setSnapshot] = useState<ResourceSnapshot>();
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
@@ -75,6 +85,8 @@ export function useResourceWorkspace({
     void load();
     return () => {
       live.current = false;
+      confirmationResolver.current?.(false);
+      confirmationResolver.current = undefined;
     };
   }, [load]);
   const accept = useCallback((next: ResourceOperation) => {
@@ -117,9 +129,14 @@ export function useResourceWorkspace({
     options?: { autoCreateFromPlan?: boolean },
   ) {
     if (!canManage || active || executing.current || !snapshot) return;
-    const effectiveValues = action.action === "trash.restore" && !values.restore_hours_utc
-      ? { ...values, restore_hours_utc: restoreHourBuckets(Number(values.hours || 24)) }
-      : values;
+    const capturedValues = JSON.parse(JSON.stringify(values)) as Parameters;
+    const effectiveValues =
+      action.action === "trash.restore" && !values.restore_hours_utc
+        ? {
+            ...capturedValues,
+            restore_hours_utc: restoreHourBuckets(Number(values.hours || 24)),
+          }
+        : capturedValues;
     const target = Object.fromEntries(
       Object.entries(effectiveValues)
         .filter(
@@ -138,19 +155,33 @@ export function useResourceWorkspace({
                 : value,
         ]),
     );
-    if (
+    const needsConfirmation =
       action.mutating &&
       !(
         options?.autoCreateFromPlan &&
         action.action === "cache.create" &&
         typeof values.plan_id === "string" &&
         values.plan_id.length > 0
-      ) &&
-      !window.confirm(
-        `确认在集群「${name}」执行「${action.label}」？\n${action.action === "trash.restore" ? "使用 root 执行；UTC 小时桶包含所选时间范围涉及的完整小时。\n" : ""}目标与参数：\n${JSON.stringify(target, null, 2)}`,
+      );
+    if (needsConfirmation) {
+      const batch = ["fs_names", "member_ids", "resource_ids"].some((key) =>
+        Array.isArray(effectiveValues[key]),
+      );
+      if (batch) {
+        executing.current = true;
+        const approved = await new Promise<boolean>((resolve) => {
+          confirmationResolver.current = resolve;
+          setConfirmation({ action, values: effectiveValues, snapshot });
+        });
+        executing.current = false;
+        if (!approved || !live.current) return;
+      } else if (
+        !window.confirm(
+          `确认在集群「${name}」执行「${action.label}」？\n${action.action === "trash.restore" ? "使用 root 执行；UTC 小时桶包含所选时间范围涉及的完整小时。\n" : ""}目标与参数：\n${JSON.stringify(target, null, 2)}`,
+        )
       )
-    )
-      return;
+        return;
+    }
     executing.current = true;
     entryQueries.current.add(action.action);
     setBusy(true);
@@ -191,10 +222,17 @@ export function useResourceWorkspace({
       !operation ||
       !(
         (operation.action === "cache.create" &&
-          ["succeeded", "failed", "cancelled", "interrupted"].includes(operation.state)) ||
-        (["cache.stop", "cache.delete", "cache.delete_batch", "cache.leave", "cache.unlock", "cache.weight"].includes(
-          operation.action,
-        ) &&
+          ["succeeded", "failed", "cancelled", "interrupted"].includes(
+            operation.state,
+          )) ||
+        ([
+          "cache.stop",
+          "cache.delete",
+          "cache.delete_batch",
+          "cache.leave",
+          "cache.unlock",
+          "cache.weight",
+        ].includes(operation.action) &&
           ["succeeded", "failed", "cancelled", "interrupted"].includes(
             operation.state,
           ))
@@ -259,6 +297,8 @@ export function useResourceWorkspace({
   }
   return {
     snapshot,
+    confirmation,
+    resolveConfirmation,
     error,
     loading,
     active,

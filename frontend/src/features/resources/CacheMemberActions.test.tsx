@@ -94,6 +94,7 @@ function setup(state: number | number[] = 1, groupName = "g") {
       onGroupChange={vi.fn()}
     />,
   );
+  if (!groupName) fireEvent.click(screen.getByRole("button", {name:"全部成员 / 未分组"}));
   return execute;
 }
 test("group stop targets members from multiple creation records", () => {
@@ -220,6 +221,7 @@ test("delete all ungrouped uses batch deletion and skips online members", () => 
 });
 test("delete all ungrouped is disabled when only grouped members exist", () => {
   setup(3);
+  fireEvent.click(screen.getByRole("button", {name:"全部成员 / 未分组"}));
   expect(screen.getByRole("button",{name:"删除所有未分组成员"})).toBeDisabled();
 });
 

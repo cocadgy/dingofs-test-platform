@@ -491,7 +491,7 @@ test("a pending operation is polled to completion and reveals structured filesys
   // Entering the module starts the list operation automatically.
   expect(await screen.findByText("polled-fs")).toBeInTheDocument();
   expect(
-    screen.getByRole("columnheader", { name: "capacity" }),
+    screen.getByRole("columnheader", { name: "容量" }),
   ).toBeInTheDocument();
   expect(
     vi.mocked(api).mock.calls.filter((call) => call[1] === "POST"),
@@ -633,7 +633,7 @@ test("refreshing saved records replaces the current operation's stale challenge"
   // Entering the module starts the list operation automatically.
   expect(await screen.findByLabelText("认证密码")).toBeInTheDocument();
   refreshed = true;
-  fireEvent.click(screen.getByRole("button", { name: "刷新已保存记录" }));
+  fireEvent.click(screen.getByRole("button", { name: "重新读取平台记录" }));
   await waitFor(() =>
     expect(screen.queryByLabelText("认证密码")).not.toBeInTheDocument(),
   );
@@ -852,7 +852,7 @@ test("clicking the active feature preserves its form and does not execute", asyn
       },
     ],
   });
-  fireEvent.click(screen.getByRole("button", { name: "刷新已保存记录" }));
+  fireEvent.click(screen.getByRole("button", { name: "重新读取平台记录" }));
   fireEvent.click(await ui.findByRole("button", { name: "基础操作" }));
   expect(ui.getByLabelText("文件系统名称")).toHaveValue("keep-draft");
   expect(posts()).toHaveLength(0);
@@ -957,7 +957,7 @@ test.each(["succeeded", "pending"])(
     const ui = await section("文件系统");
     // Entering the module starts the list operation automatically.
     const password = await screen.findByLabelText("认证密码");
-    fireEvent.click(screen.getByRole("button", { name: "刷新已保存记录" }));
+    fireEvent.click(screen.getByRole("button", { name: "重新读取平台记录" }));
     fireEvent.change(password, { target: { value: "secret" } });
     fireEvent.click(screen.getByRole("button", { name: "验证并继续" }));
     await waitFor(() =>

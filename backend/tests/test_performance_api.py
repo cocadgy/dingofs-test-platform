@@ -27,6 +27,23 @@ def test_create_preview_and_machine_exclusion(admin):
     assert admin.get('/api/v1/performance/runs/'+result.json()['id']).json()['state']=='cancelled'
 
 
+def test_timeout_accepts_more_than_one_day_and_preserves_value(admin):
+    payload=setup(admin)
+    payload['timeout_minutes']=10080
+    preview=admin.post('/api/v1/performance/preview',json=payload)
+    assert preview.status_code==200,preview.text
+    result=admin.post('/api/v1/performance/runs',json=payload)
+    assert result.status_code==202,result.text
+    assert result.json()['snapshot']['timeout_minutes']==10080
+    payload['timeout_minutes']=0
+    assert admin.post('/api/v1/performance/preview',json=payload).status_code==422
+
+
+def test_extremely_large_timeout_has_representable_deadline():
+    from dingofs_platform.performance.routes import deadline_for_minutes
+    assert deadline_for_minutes(10**15).year==9999
+
+
 def test_member_cannot_execute_on_others_machine_or_cancel_task(admin):
     payload=setup(admin)
     row=admin.post('/api/v1/performance/runs',json=payload).json()
@@ -71,6 +88,27 @@ def test_disconnection_does_not_restart_unknown_task(admin):
     manager.process(row['id']);manager.process(row['id'])
     assert calls==['start','poll']
     assert admin.get('/api/v1/performance/runs/'+row['id']).json()['state']=='unknown'
+
+
+def test_cancel_missing_remote_task_finishes_without_relaunch(admin):
+    payload=setup(admin)
+    row=admin.post('/api/v1/performance/runs',json=payload).json()
+    calls=[]
+    class Fake:
+        def __init__(self,c):pass
+        def start(self,p):calls.append('start');raise OSError('connection lost')
+        def poll(self,id,cancel):calls.append(('poll',cancel));return {'missing':True}
+    admin.app.state.performance_transport=Fake
+    manager=admin.app.state.performance_manager
+    manager.process(row['id'])
+    assert admin.post('/api/v1/performance/runs/'+row['id']+'/cancel').status_code==200
+    manager.process(row['id'])
+    result=admin.get('/api/v1/performance/runs/'+row['id']).json()
+    assert result['state']=='failed'
+    assert result['finished_at'] is not None
+    assert '远端任务记录不存在' in result['error']
+    assert calls==['start',('poll',True)]
+    assert admin.post('/api/v1/performance/runs',json=payload).status_code==202
 
 
 def test_matrix_preview_snapshot_and_transport_agree(admin):

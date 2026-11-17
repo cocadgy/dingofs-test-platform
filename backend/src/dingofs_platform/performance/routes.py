@@ -1,7 +1,7 @@
 from .mdtest import OPTIONS, command_for
 import mimetypes
 import shlex
-from datetime import timedelta
+from datetime import datetime, timedelta, timezone
 from fastapi import APIRouter,Depends,Request
 from fastapi.responses import Response
 from sqlalchemy import select
@@ -21,6 +21,11 @@ from .commands import argv_for
 from .manager import now
 
 router=APIRouter(prefix='/api/v1/performance',tags=['performance'])
+
+
+def deadline_for_minutes(minutes:int):
+    try:return now()+timedelta(minutes=minutes)
+    except OverflowError:return datetime.max.replace(tzinfo=timezone.utc)
 
 
 def view(row,user,detail=False):
@@ -71,7 +76,7 @@ def enqueue(db,actor,payload,scenes,rerun_of=None):
               'machine_name':machine.name,'connection':[machine.address,machine.ssh_port,machine.ssh_user]}
     if rerun_of:snapshot['rerun_of']=rerun_of
     row=PerformanceRun(creator_id=actor.id,machine_id=machine.id,name=payload.name,snapshot=snapshot,
-                       deadline=now()+timedelta(minutes=payload.timeout_minutes))
+                       deadline=deadline_for_minutes(payload.timeout_minutes))
     db.add(row);db.flush()
     audit(db,actor,'performance.rerun' if rerun_of else 'performance.create','performance/'+row.id,[])
     return view(row,actor,True)

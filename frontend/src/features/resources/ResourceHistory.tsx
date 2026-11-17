@@ -1,4 +1,5 @@
 import { memo, useMemo, useState } from "react";
+import { filesystemOptions } from "./filesystemOptions";
 import { ResourceOperationView } from "./ResourceOperationView";
 import {
   pendingStates,
@@ -10,6 +11,7 @@ import { actionGroup, type ResourceArea } from "./workspace";
 
 export function ResourceHistory({
   area,
+  hideInventoryQueries = false,
   selectedGroup,
   operations,
   catalog,
@@ -24,6 +26,7 @@ export function ResourceHistory({
   setHistoryState,
 }: {
   area: ResourceArea;
+  hideInventoryQueries?: boolean;
   selectedGroup: string;
   operations: ResourceOperation[];
   catalog: ResourceAction[];
@@ -37,9 +40,25 @@ export function ResourceHistory({
   historyState: string;
   setHistoryState: (value: string) => void;
 }) {
-  const recent = operations.find(
+  const scoped = operations.filter(
     (item) => actionGroup(item.action) === selectedGroup,
   );
+  const recent =
+    scoped.find((item) => !["fs.list", "cache.list"].includes(item.action)) ||
+    (hideInventoryQueries
+      ? scoped.find((item) => {
+          if (item.state !== "succeeded") return true;
+          if (item.action === "fs.list") {
+            try {
+              filesystemOptions(item);
+              return false;
+            } catch {
+              return true;
+            }
+          }
+          return false;
+        })
+      : scoped[0]);
   const historyMatches = useMemo(() => {
     if (area !== "history") return [];
     const search = historySearch.toLowerCase().trim();
@@ -61,11 +80,11 @@ export function ResourceHistory({
     >
       <div className="resource-result-heading">
         <div>
-          <h3>{area === "history" ? "操作记录" : "最近一次结果"}</h3>
+          <h3>{area === "history" ? "操作记录" : "最近一次操作结果"}</h3>
           <p className="muted">
             {area === "history"
               ? "查看已保存的执行记录，展开记录了解详情。"
-              : "仅展示当前功能的最近一次执行结果。"}
+              : "列表刷新不会覆盖本次操作结果。"}
           </p>
         </div>
         {area !== "history" && (
@@ -120,7 +139,7 @@ export function ResourceHistory({
           )
         : !recent && (
             <p className="resource-empty">
-              暂无当前功能的执行结果，选择操作后点击执行。
+              资源列表显示在上方；执行操作后，此处保留操作结果。
             </p>
           )}
       {operations.map((item, index) => {

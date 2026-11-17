@@ -1,3 +1,6 @@
+from dingofs_platform.functional import models as functional_models  # noqa: F401
+from dingofs_platform.functional import drafts as functional_drafts  # noqa: F401
+from dingofs_platform.functional.environments import models as functional_environment_models  # noqa: F401
 from dingofs_platform.performance import models as performance_models  # noqa: F401
 from dingofs_platform.tool_packages import models as tool_models  # noqa: F401
 from dingofs_platform.mount_profiles import models as mount_profile_models  # noqa: F401

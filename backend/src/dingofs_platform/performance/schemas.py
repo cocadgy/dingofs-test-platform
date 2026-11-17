@@ -159,7 +159,7 @@ class RunInput(BaseModel):
     target_path: str=Field(min_length=2,max_length=1024)
     tests: list[ParameterMatrix]=Field(min_length=1,max_length=3)
     cleanup_data: bool=False
-    timeout_minutes: int=Field(default=120,ge=1,le=1440)
+    timeout_minutes: int=Field(default=120,ge=1)
 
     @field_validator('target_path')
     @classmethod

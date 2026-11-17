@@ -1,3 +1,4 @@
+import { filesystemState } from "./FilesystemInventory";
 import { LogFileTable } from "../remote/LogFileTable";
 import type { RemoteFile } from "../remote/types";
 import { visibleFilesystemName } from "./filesystemOptions";
@@ -93,40 +94,46 @@ function QueryResult({ value, failed }: { value: unknown; failed: boolean }) {
     const { executed_commands, ...rest } = envelope;
     return (
       <div>
-        <h4>实际执行命令</h4>
-        <p className="muted">
-          在目标机器、目标用户环境中执行；重复的状态查询合并显示。敏感参数已隐藏。
-        </p>
-        {!executed_commands.length && (
-          <p>本步骤没有执行外部命令或发送进程信号。</p>
-        )}
-        {executed_commands.map((item, index) => {
-          const entry = object(item);
-          if (!entry) return null;
-          return (
-            <section key={index}>
-              <p>
-                命令 {index + 1} ·{" "}
-                {entry.status === "started" ? "已启动执行" : "尝试启动"}
-                {Number(entry.count) > 1 ? ` · 执行 ${entry.count} 次` : ""}
-              </p>
-              <pre
-                className="resource-output"
-                aria-label={`实际命令 ${index + 1}`}
-              >
-                {String(entry.command || "")}
-              </pre>
-              {entry.equivalent === true && <p>等价命令；实际通过 {String(entry.method)} 系统调用发送 {String(entry.signal || "SIGTERM")}。</p>}
-              {entry.executable != null && (
-                <p className="muted">
-                  程序路径：<code>{String(entry.executable)}</code>
-                </p>
-              )}
-              {entry.truncated === true && <p>命令过长，展示内容已截断。</p>}
-            </section>
-          );
-        })}
         <QueryResult value={rest} failed={failed} />
+        <LazyDetails summary="实际执行命令" open={failed}>
+          <p className="muted">
+            在目标机器、目标用户环境中执行；重复的状态查询合并显示。敏感参数已隐藏。
+          </p>
+          {!executed_commands.length && (
+            <p>本步骤没有执行外部命令或发送进程信号。</p>
+          )}
+          {executed_commands.map((item, index) => {
+            const entry = object(item);
+            if (!entry) return null;
+            return (
+              <section key={index}>
+                <p>
+                  命令 {index + 1} ·{" "}
+                  {entry.status === "started" ? "已启动执行" : "尝试启动"}
+                  {Number(entry.count) > 1 ? ` · 执行 ${entry.count} 次` : ""}
+                </p>
+                <pre
+                  className="resource-output"
+                  aria-label={`实际命令 ${index + 1}`}
+                >
+                  {String(entry.command || "")}
+                </pre>
+                {entry.equivalent === true && (
+                  <p>
+                    等价命令；实际通过 {String(entry.method)} 系统调用发送{" "}
+                    {String(entry.signal || "SIGTERM")}。
+                  </p>
+                )}
+                {entry.executable != null && (
+                  <p className="muted">
+                    程序路径：<code>{String(entry.executable)}</code>
+                  </p>
+                )}
+                {entry.truncated === true && <p>命令过长，展示内容已截断。</p>}
+              </section>
+            );
+          })}
+        </LazyDetails>
       </div>
     );
   }
@@ -302,13 +309,16 @@ function QueryResult({ value, failed }: { value: unknown; failed: boolean }) {
             <tbody>
               {rows.map((row, index) => (
                 <tr key={index}>
-                  {[row.fs_id, row.fs_name, row.status, row.owner].map(
-                    (cell, i) => (
-                      <td key={i}>
-                        <StructuredResult value={cell} />
-                      </td>
-                    ),
-                  )}
+                  {[
+                    row.fs_id,
+                    row.fs_name,
+                    filesystemState(row.status),
+                    row.owner,
+                  ].map((cell, i) => (
+                    <td key={i}>
+                      <StructuredResult value={cell} />
+                    </td>
+                  ))}
                   <td title={String(row.capacity ?? "")}>
                     {bytes(row.capacity)}
                   </td>
@@ -614,30 +624,40 @@ export const ResourceOperationView = memo(function ResourceOperationView({
           {step.message && (
             <p className={step.failed ? "error" : ""}>{step.message}</p>
           )}
-          {operation.action === "mount.logs" && Array.isArray(object(step.data)?.files) && (
-            <div className="resource-client-log-list">
-              <p className="muted">双击日志文件查看内容；点击列名排序。</p>
-              <LogFileTable
-                files={(object(step.data)?.files as unknown[])
-                  .filter((file) => typeof file === "string" || typeof object(file)?.name === "string")
-                  .map((file) => {
-                    const row = object(file);
-                    const name = typeof file === "string" ? file : String(row?.name);
-                    return {
-                      file_id: name,
-                      name,
-                      size: typeof row?.size === "number" ? row.size : 0,
-                      mtime: typeof row?.mtime === "number" ? row.mtime : 0,
-                    } satisfies RemoteFile;
-                  })}
-                disabled={!onOpenLog}
-                onOpen={(file) => onOpenLog?.(operation, file.name)}
-              />
-            </div>
-          )}
-          {operation.action === "mount.logs" && (typeof object(step.data)?.text === "string" || typeof object(step.data)?.content === "string") && (
-            <pre className="resource-output" aria-label="客户端日志内容">{String(object(step.data)?.text ?? object(step.data)?.content)}</pre>
-          )}
+          {operation.action === "mount.logs" &&
+            Array.isArray(object(step.data)?.files) && (
+              <div className="resource-client-log-list">
+                <p className="muted">双击日志文件查看内容；点击列名排序。</p>
+                <LogFileTable
+                  files={(object(step.data)?.files as unknown[])
+                    .filter(
+                      (file) =>
+                        typeof file === "string" ||
+                        typeof object(file)?.name === "string",
+                    )
+                    .map((file) => {
+                      const row = object(file);
+                      const name =
+                        typeof file === "string" ? file : String(row?.name);
+                      return {
+                        file_id: name,
+                        name,
+                        size: typeof row?.size === "number" ? row.size : 0,
+                        mtime: typeof row?.mtime === "number" ? row.mtime : 0,
+                      } satisfies RemoteFile;
+                    })}
+                  disabled={!onOpenLog}
+                  onOpen={(file) => onOpenLog?.(operation, file.name)}
+                />
+              </div>
+            )}
+          {operation.action === "mount.logs" &&
+            (typeof object(step.data)?.text === "string" ||
+              typeof object(step.data)?.content === "string") && (
+              <pre className="resource-output" aria-label="客户端日志内容">
+                {String(object(step.data)?.text ?? object(step.data)?.content)}
+              </pre>
+            )}
           {step.data != null && operation.action !== "mount.logs" && (
             <QueryResult
               value={step.data}

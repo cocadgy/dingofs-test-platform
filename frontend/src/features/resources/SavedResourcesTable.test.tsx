@@ -205,7 +205,7 @@ test("only catalog actions are shown and each shortcut passes the selected resou
 
 test("disabled resources cannot invoke actions but remain searchable", () => {
   const onAction = renderTable([cache, mount], { disabled: true });
-  for (const button of screen.getAllByRole("button")) {
+  for (const button of screen.getAllByRole("button").filter(button => !button.getAttribute("aria-label")?.startsWith("复制挂载路径"))) {
     expect(button).toBeDisabled();
     fireEvent.click(button);
   }

@@ -554,4 +554,203 @@
   font-size: 14px;
 }
 
-.resource-state-filter { display: block; margin-top: 6px; min-width: 105px; font-weight: 400; }
+.resource-state-filter {
+  display: block;
+  margin-top: 6px;
+  min-width: 105px;
+  font-weight: 400;
+}
+
+/* Resource inventories and focused editors. */
+.resource-freshness {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 18px;
+  padding: 10px 14px;
+  background: #f2f6fb;
+  border-radius: 8px;
+  color: #526176;
+  font-size: 13px;
+  margin: 12px 0;
+}
+.resource-inventory-tabs {
+  display: flex;
+  gap: 8px;
+  margin: 16px 0;
+}
+.resource-inventory-tabs button[aria-selected="true"] {
+  background: #e6efff;
+  color: #174ea6;
+  border-color: #8aafe8;
+}
+.resource-editor-backdrop,
+.resource-confirm-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgb(15 23 42 / 40%);
+  z-index: 1050;
+  display: flex;
+  justify-content: flex-end;
+}
+.resource-editor-drawer {
+  width: min(820px, 95vw);
+  height: 100%;
+  overflow: auto;
+  background: white;
+  padding: 24px;
+  box-shadow: -8px 0 30px #0002;
+}
+.resource-editor-heading {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 16px;
+  position: sticky;
+  top: -24px;
+  background: white;
+  padding: 12px 0;
+  z-index: 2;
+}
+.resource-editor-heading h3 {
+  margin: 0;
+}
+.resource-inline-editor {
+  margin: 16px 0;
+}
+.resource-editor-panel {
+  border: 1px solid #d7e1ed;
+  border-radius: 10px;
+  padding: 20px;
+  background: #fff;
+}
+.resource-confirm-backdrop {
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+}
+.resource-confirm-dialog {
+  background: white;
+  border-radius: 12px;
+  padding: 24px;
+  width: min(880px, 100%);
+  max-height: 90vh;
+  overflow: auto;
+  box-shadow: 0 16px 60px #0003;
+}
+.resource-confirm-targets {
+  overflow: auto;
+  max-height: 50vh;
+  margin: 18px 0;
+}
+.resource-confirm-targets table {
+  width: 100%;
+  border-collapse: collapse;
+}
+.resource-confirm-targets th,
+.resource-confirm-targets td {
+  text-align: left;
+  padding: 10px;
+  border-bottom: 1px solid #e2e8f0;
+  overflow-wrap: anywhere;
+}
+.resource-confirm-targets small {
+  display: block;
+  color: #64748b;
+  margin-top: 4px;
+}
+.resource-confirm-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+}
+.resource-mount-table {
+  table-layout: fixed;
+  min-width: 1090px;
+  width: 100%;
+}
+.resource-mount-table td,
+.resource-mount-table th {
+  overflow-wrap: normal !important;
+  word-break: normal !important;
+}
+.resource-mount-table td:first-of-type {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.resource-mount-path {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+.resource-mount-path span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+.resource-mount-path button {
+  flex-shrink: 0;
+}
+.resource-history-entry > summary {
+  display: grid;
+  grid-template-columns: minmax(180px, 1fr) 180px 100px 80px;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 16px;
+}
+.resource-history-entry > summary time {
+  font-size: 13px;
+  color: #64748b;
+}
+@media (max-width: 700px) {
+  .resource-history-entry > summary {
+    grid-template-columns: 1fr auto;
+  }
+  .resource-editor-drawer {
+    padding: 16px;
+    width: 100vw;
+  }
+  .resource-confirm-backdrop {
+    padding: 12px;
+  }
+}
+.resource-task-layout {
+  display: block;
+}
+.resource-section > .resource-subnav {
+  flex-direction: row;
+  flex-wrap: wrap;
+  border-right: 0;
+  border-bottom: 1px solid #e5ecec;
+  padding: 0 0 12px;
+  margin: 12px 0;
+}
+.resource-filesystem-inventory {
+  margin: 18px 0;
+}
+.resource-filesystem-inventory table {
+  width: 100%;
+  border-collapse: collapse;
+}
+.resource-filesystem-inventory td,
+.resource-filesystem-inventory th {
+  padding: 10px;
+  text-align: left;
+  border-bottom: 1px solid #e5ecec;
+}
+.resource-filesystem-inventory .resource-table-scroll {
+  overflow: auto;
+}
+.resource-execution-indicator {
+  z-index: 1100;
+}
+.resource-inventory-tabs button[aria-pressed="true"] {
+  background: #e6efff;
+  color: #174ea6;
+  border-color: #8aafe8;
+}
+.resource-mount-table th[scope=row] {overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.resource-mount-table th[scope=row] a {display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.resource-mount-table td:first-child {text-overflow:clip}
+.resource-mount-table .resource-inventory-details {max-width:100%;overflow:hidden}
