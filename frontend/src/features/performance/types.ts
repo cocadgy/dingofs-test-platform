@@ -12,6 +12,7 @@ export type Spec = {
   block_size: string;
   rw: string;
   rounds: number;
+  runtime_seconds?: number | null;
   iodepth: number;
   read_percent: number;
 };

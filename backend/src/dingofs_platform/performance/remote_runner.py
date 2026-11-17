@@ -103,6 +103,35 @@ def mdtest_html(report):
             '<table><tr><th>操作</th><th>平均值</th><th>有效轮次</th></tr>'+rows+'</table>')
 
 
+def validate_timed_report(report, expected):
+    """Never accept a finite/short result as a successful timed measurement."""
+    requested=expected.get('runtime_seconds') if expected else None
+    if requested is None or report.get('status') != 'passed':
+        return
+    plan=report.get('plan') or {}
+    rounds=expected['rounds']
+    if (type(plan.get('runtime_seconds')) is not int or plan['runtime_seconds'] != requested
+            or plan.get('tool') != expected['tool'] or plan.get('rounds') != rounds):
+        raise ValueError('定时测试报告参数与请求不一致')
+    rows=report.get('rounds')
+    if not isinstance(rows,list) or len(rows) != rounds:
+        raise ValueError('定时测试报告缺少完整测量轮次')
+    seen=set()
+    for row in rows:
+        if not isinstance(row,dict):raise ValueError('定时测试报告轮次格式无效')
+        number=row.get('round')
+        metrics=row.get('metrics') or {}
+        measured=metrics.get('measurement_seconds')
+        transferred=metrics.get('io_bytes')
+        if (type(number) is not int or not 1 <= number <= rounds or number in seen
+                or row.get('status') != 'passed'
+                or type(measured) not in (int,float) or not math.isfinite(measured)
+                or measured < requested*.95
+                or type(transferred) not in (int,float) or not math.isfinite(transferred) or transferred <= 0):
+            raise ValueError('定时测试未完成请求的测量时长或有效 I/O')
+        seen.add(number)
+
+
 def report_files(output,tool,budget=16*1024*1024,expected=None):
     paths=summary_paths(output,tool)
     if len(paths)!=1:return None,{}
@@ -110,11 +139,14 @@ def report_files(output,tool,budget=16*1024*1024,expected=None):
     report=json.loads(paths[0].read_text())
     if not isinstance(report,dict):raise ValueError('报告摘要格式错误')
     if tool == 'mdtest':report=mdtest_summary(report,expected)
+    else:validate_timed_report(report,expected)
     # Keep live metadata compact; full round data remains in the JSON artifact.
     statistics=report.get('statistics') or {}
     metrics=statistics.get('metrics') or {}
     report={'status':report.get('status'),'error':str(report.get('error') or '')[:2000],
             'statistics':{key:statistics.get(key) for key in ('complete','requested_rounds','successful_rounds')}}
+    if expected and expected.get('runtime_seconds') is not None:
+        report['runtime_seconds']=expected['runtime_seconds']
     report['statistics']['metrics']={key:{field:metrics.get(key,{}).get(field) for field in ('mean','samples')} for key in (tuple(metrics) if tool == 'mdtest' else ('bandwidth_mib_s','iops','latency_mean_us'))}
     artifacts={}
     total=0
@@ -175,6 +207,22 @@ def resolve_dtt():
             print('使用 dtt：'+str(candidate),flush=True)
             return candidate
     raise RuntimeError('未找到可执行 dtt：已检查平台托管目录、SSH用户 PATH 和 ~/.local/bin/dtt；请安装 dtt 或在机器详情部署测试工具')
+
+
+def check_timed_dtt(argv, spec, timeout):
+    """Dry-run echoes the contract; old wrappers must not silently drop runtime."""
+    if spec.get('runtime_seconds') is None:return
+    message='当前 DTT 无法确认支持定时压测，请升级 DTT（包含 --runtime-seconds 支持）后重试'
+    try:
+        result=subprocess.run([*argv,'--dry-run'],capture_output=True,text=True,
+                              stdin=subprocess.DEVNULL,timeout=max(.1,min(30,timeout)))
+        plan=json.loads(result.stdout) if result.returncode == 0 else None
+    except (OSError,ValueError,subprocess.TimeoutExpired) as exc:
+        raise RuntimeError(message+'：'+str(exc)[:500]) from exc
+    if (not isinstance(plan,dict) or type(plan.get('runtime_seconds')) is not int
+            or plan['runtime_seconds'] != spec['runtime_seconds']):
+        detail=(result.stderr or result.stdout).strip()[:500]
+        raise RuntimeError(message+('：'+detail if detail else ''))
 
 
 def cleanup_task_data(directory, identity, timeout):
@@ -245,6 +293,13 @@ def execute(root):
             output.mkdir(parents=True,exist_ok=True)
             argv=[str(dtt)]+test['args']
             argv=[str(data_dir) if x=='__DATA__' else str(output) if x=='__OUTPUT__' else x for x in argv]
+            if spec.get('runtime_seconds') is not None:
+                state.update(phase=label+' · 检查 DTT 定时压测支持')
+                save()
+                check_timed_dtt(argv,spec,timeout-(time.monotonic()-started))
+                if (root/'cancel').exists():
+                    state.update(state='cancelled',phase='已取消');break
+                if time.monotonic()-started>=timeout:raise TimeoutError('性能测试超过设置的总超时')
             env=os.environ.copy()
             if tool=='mdtest':
                 custom=root/'custom'/scene;custom.mkdir(parents=True,exist_ok=True)

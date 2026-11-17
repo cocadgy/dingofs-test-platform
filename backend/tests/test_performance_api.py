@@ -122,6 +122,25 @@ def test_extremely_large_timeout_has_representable_deadline():
     assert deadline_for_minutes(10**15).year==9999
 
 
+def test_timed_preview_snapshot_and_rerun_preserve_runtime(admin):
+    payload = setup(admin)
+    payload['tests'][0]['runtime_seconds'] = 60
+    preview = admin.post('/api/v1/performance/preview', json=payload)
+    assert preview.status_code == 200, preview.text
+    scene = preview.json()['tests'][0]
+    assert scene['parameters']['runtime_seconds'] == 60
+    assert '--runtime-seconds 60' in scene['command']
+    created = admin.post('/api/v1/performance/runs', json=payload)
+    assert created.status_code == 202, created.text
+    row = created.json()
+    assert row['snapshot']['tests'][0]['runtime_seconds'] == 60
+    with admin.app.state.session_factory.begin() as db:
+        db.get(PerformanceRun, row['id']).state = 'success'
+    rerun = admin.post('/api/v1/performance/runs/' + row['id'] + '/rerun')
+    assert rerun.status_code == 202, rerun.text
+    assert rerun.json()['snapshot']['tests'][0]['runtime_seconds'] == 60
+
+
 def test_member_cannot_execute_on_others_machine_or_cancel_task(admin):
     payload=setup(admin)
     row=admin.post('/api/v1/performance/runs',json=payload).json()

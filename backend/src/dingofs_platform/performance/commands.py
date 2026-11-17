@@ -10,4 +10,5 @@ def argv_for(spec: TestSpec, target: str, output: str, dtt: str) -> list[str]:
           '--block-size',spec.block_size,'--rw',spec.rw,'--rounds',str(spec.rounds),
           '--iodepth',str(spec.iodepth)]
     if spec.read_percent is not None:args+=['--read-percent',str(spec.read_percent)]
+    if spec.runtime_seconds is not None:args+=['--runtime-seconds',str(spec.runtime_seconds)]
     return args

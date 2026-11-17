@@ -4,8 +4,10 @@ import json
 import math
 from itertools import product
 from pathlib import PurePosixPath
-from typing import Literal
+from typing import Annotated, Literal
 from pydantic import BaseModel, ConfigDict, Field, model_validator, field_validator, PrivateAttr
+
+RuntimeSeconds = Annotated[int, Field(strict=True, ge=1, le=604800)]
 
 
 def byte_size(value: str) -> int:
@@ -27,6 +29,7 @@ class TestSpec(BaseModel):
     block_size: str | None=None
     rw: Literal['read','write','randread','randwrite','rw','randrw']='write'
     rounds: int=Field(default=1,ge=1,le=100)
+    runtime_seconds: RuntimeSeconds | None=None
     iodepth: int=Field(default=1,ge=1,le=1024)
     read_percent: int | None=Field(default=None,ge=0,le=100)
 
@@ -36,6 +39,8 @@ class TestSpec(BaseModel):
     @model_validator(mode='after')
     def validate_plan(self):
         if self.tool == 'mdtest':
+            if self.runtime_seconds is not None:
+                raise ValueError('mdtest 不支持按测试时长运行，请使用元数据数量参数')
             self.file_count = self.file_count or 10000
             from .mdtest import validate_options
             validate_options(self.mdtest_options)
@@ -99,11 +104,18 @@ class ParameterMatrix(BaseModel):
     block_size: str | list[str] | None=None
     rw: Literal['read','write','randread','randwrite','rw','randrw'] | list[Literal['read','write','randread','randwrite','rw','randrw']]='write'
     rounds: int | list[int]=1
+    runtime_seconds: RuntimeSeconds | list[RuntimeSeconds] | None=None
     iodepth: int | list[int]=1
     read_percent: int | list[int] | None=None
 
     mdtest_options: dict = Field(default_factory=dict)
     layout: Literal['unique','shared'] | list[Literal['unique','shared']]='unique'
+
+    @model_validator(mode='after')
+    def runtime_tool(self):
+        if self.tool == 'mdtest' and self.runtime_seconds is not None:
+            raise ValueError('mdtest 不支持按测试时长运行，请使用元数据数量参数')
+        return self
 
     @field_validator('mdtest_options')
     @classmethod
@@ -181,5 +193,8 @@ class RunInput(BaseModel):
         if len({t.tool for t in self.tests})!=len(self.tests):raise ValueError('每种工具只能选择一次')
         if sum(t.candidate_count() for t in self.tests)>256:raise ValueError('每个任务最多256个候选参数组合，请减少参数值或拆分任务')
         specs=[spec for matrix in self.tests for spec in matrix.expand()]
+        measured_seconds=sum((spec.runtime_seconds or 0)*spec.rounds for spec in specs)
+        if measured_seconds >= self.timeout_minutes*60:
+            raise ValueError('总超时必须大于所有工具和轮次的测试时长，并预留数据准备时间')
         self._scenarios=[{'id':f'scene-{index:03d}-{spec.tool}','tool':spec.tool,'parameters':spec.model_dump()} for index,spec in enumerate(specs,1)]
         return self
