@@ -38,6 +38,8 @@
 
 工具安装在该 SSH 用户的 `~/.local/share/dingofs-platform/tools/<tool>/current/`，不覆盖现有系统工具。dtt 另外在 `~/.local/bin/` 创建 `dtt` 和 `dingofs-testsuite-tool` 命令入口，更新用户 Bash/Zsh 的 PATH 配置；已有同名入口和修改前的 shell 配置先备份，路径记录在任务日志中。重复部署不会重复添加配置。新终端可直接使用 `dtt --help`；已有 Bash 终端执行 `source ~/.bashrc`，Zsh 执行 `source ~/.zshrc` 后生效。镜像使用固定 ID。任务中显示采用的获取方式以及实际安装路径。
 
+网页性能测试优先使用 `~/.local/share/dingofs-platform/tools/dtt-performance/current/dtt`。该入口缺失或不可执行时，依次回退到平台托管的 `tools/dtt/current/dtt`、SSH 用户 PATH 中的 `dtt`、`~/.local/bin/dtt`。隔离性能包以版本目录加 `current` 链接发布；回滚可将此链接指回上一版本，或移除链接以恢复原有 dtt，功能测试包不受影响。
+
 关闭网页不影响后台任务。平台进程中断后，不会自动重试安装；超时任务标记中断，重新检查工具状态即可。成功转传后清理平台导出临时目录；目标机加载后删除镜像暂存副本。失败遗留路径在日志中可查。
 
 原有离线工具包接口保留兼容历史记录，日常部署不再需要手工打包或登记。

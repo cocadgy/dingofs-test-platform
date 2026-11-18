@@ -304,16 +304,17 @@ def prepare_target(path, kind):
 
 
 def resolve_dtt():
+    isolated=Path.home()/'.local/share/dingofs-platform/tools/dtt-performance/current/dtt'
     managed=Path.home()/'.local/share/dingofs-platform/tools/dtt/current/dtt'
     found=shutil.which('dtt')
-    candidates=[managed]
+    candidates=[isolated,managed]
     if found:candidates.append(Path(found).absolute())
     candidates.append(Path.home()/'.local/bin/dtt')
     for candidate in candidates:
         if candidate.is_file() and os.access(candidate,os.X_OK):
             print('使用 dtt：'+str(candidate),flush=True)
             return candidate
-    raise RuntimeError('未找到可执行 dtt：已检查平台托管目录、SSH用户 PATH 和 ~/.local/bin/dtt；请安装 dtt 或在机器详情部署测试工具')
+    raise RuntimeError('未找到可执行 dtt：已检查 '+str(isolated)+'、'+str(managed)+'、SSH用户 PATH 和 ~/.local/bin/dtt；请安装 dtt 或在机器详情部署测试工具')
 
 
 def check_timed_dtt(argv, spec, timeout, *, cancel_path=None, runtime=None, data_dir=None, output_dir=None):
