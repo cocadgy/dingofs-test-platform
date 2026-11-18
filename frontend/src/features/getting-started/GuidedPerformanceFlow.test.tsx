@@ -35,15 +35,23 @@ test("supports a 4 KiB block with a GiB dataset", () => {
   expect(validateGuidedPerformance({ ...base, blockSize: 4, blockUnit: "KiB" })).toBe("");
 });
 
-test("MLPerf rounds nominal dataset to enough whole files per accelerator", () => {
+test("MLPerf rounds nominal dataset to three complete batches per accelerator", () => {
   const form = { ...base, tools: ["mlperf"], dataset: 1, datasetUnit: "MiB",
     mlperfModel: "cosmoflow", mlperfEpochs: 5, mlperfAccelerators: 3 } as any;
   const totals = guidedPerformanceTotals(form);
-  expect(totals.mlperfFileCount).toBe(3);
-  expect(totals.combinedBytes).toBe(8485458);
+  expect(totals.mlperfFileCount).toBe(9);
+  expect(totals.combinedBytes).toBe(25456374);
   expect(totals.measuredSeconds).toBe(0);
   expect(buildGuidedPerformancePayload(form).tests).toEqual([{ tool: "mlperf", mlperf_model: "cosmoflow",
     mlperf_epochs: 5, mlperf_accelerators: 3, concurrency: 4, total_size: "1048576", rounds: 1 }]);
+});
+
+test("MLPerf default UNet3D budget expands to three batches and rounds across accelerators", () => {
+  const form = { ...base, tools: ["mlperf"], mlperfModel: "unet3d" } as any;
+  expect(guidedPerformanceTotals(form).mlperfFileCount).toBe(21);
+  expect(guidedPerformanceTotals(form).mlperfDatasetBytes).toBe(3078613188);
+  expect(guidedPerformanceTotals({ ...form, mlperfAccelerators: 2 }).mlperfFileCount).toBe(42);
+  expect(guidedPerformanceTotals({ ...form, mlperfAccelerators: 2 }).mlperfDatasetBytes).toBe(6157226376);
 });
 
 test("MLPerf-only ignores invalid fio controls but validates training controls", () => {
@@ -85,6 +93,7 @@ test("MLPerf-only shows training settings and omits fio controls", async () => {
   expect(screen.queryByLabelText("Direct I/O")).toBeNull();
   expect(screen.getByText(/内部对比测试/)).toBeTruthy();
   expect(screen.getByText(/预计数据量/)).toBeTruthy();
+  expect(screen.getByText(/每个模拟加速器至少 3 个完整 batch/)).toBeTruthy();
 });
 
 test("mixed guide names both effects of shared concurrency", async () => {

@@ -77,8 +77,8 @@ test("MLPerf-only hides timed I/O controls and previews training settings", asyn
     else if (path === "/performance/options") body = { machines: [{ id: "m1", name: "测试机", address: "192.0.2.9", ssh_user: "tester", maintenance: false }], mounts: [] };
     else if (path === "/performance/preview") {
       const payload = route.request().postDataJSON(); previews.push(payload);
-      body = { total_bytes: 3078613188, scene_count: 1, tests: [{ id: "scene-1", tool: "mlperf",
-        command: "dtt -t mlperf -s benchmark --mlperf-model unet3d", parameters: { ...payload.tests[0], file_count: 21, file_size: "146600628", total_size: "3078613188" } }] };
+      body = { total_bytes: 9235839564, scene_count: 1, tests: [{ id: "scene-1", tool: "mlperf",
+        command: "dtt -t mlperf -s benchmark --mlperf-model unet3d", parameters: { ...payload.tests[0], file_count: 63, file_size: "146600628", total_size: "9235839564" } }] };
     } else { unexpected.push(`${route.request().method()} ${path}`); await route.abort(); return; }
     await route.fulfill({ json: body });
   });
@@ -95,6 +95,8 @@ test("MLPerf-only hides timed I/O controls and previews training settings", asyn
   await page.getByLabel("每轮训练 epochs").fill("7");
   await page.getByLabel("每种工具请求数据量").fill("1");
   await page.getByLabel("数据量单位").selectOption("MiB");
+  await expect(page.getByText(/63 个完整文件/)).toBeVisible();
+  await expect(page.getByText(/每个模拟加速器至少 3 个完整 batch/)).toBeVisible();
   await page.getByRole("button", { name: "下一步" }).click();
   await expect(page.getByText("MLPerf 预计数据量")).toBeVisible();
   await page.getByRole("button", { name: "生成预览" }).click();

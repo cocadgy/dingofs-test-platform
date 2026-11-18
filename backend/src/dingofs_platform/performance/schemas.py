@@ -53,7 +53,7 @@ class TestSpec(BaseModel):
                 raise ValueError('MLPerf 按完整训练轮次执行，请设置 epochs、轮数和任务总超时')
             size, samples, batch = MLPERF_MODELS[self.mlperf_model]
             accelerators = self.mlperf_accelerators
-            minimum = max(accelerators, (batch * accelerators + samples - 1) // samples)
+            minimum = max(accelerators, (3 * batch * accelerators + samples - 1) // samples)
             if self.file_count is None:
                 requested = byte_size(self.total_size or '1GiB')
                 count = max(minimum, (requested + size - 1) // size)
@@ -61,7 +61,7 @@ class TestSpec(BaseModel):
             else:
                 count = self.file_count
                 if count < minimum or count % accelerators:
-                    raise ValueError('MLPerf 文件数必须满足每个加速器至少一个 batch 且能被加速器数整除')
+                    raise ValueError('MLPerf 文件数必须满足每个加速器至少三个 batch 且能被加速器数整除')
                 if self.total_size is not None and byte_size(self.total_size) != count * size:
                     raise ValueError('MLPerf 预计总大小必须等于名义文件大小乘以文件数')
             if count > 10000000 or count * size > 1024**5:

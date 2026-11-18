@@ -24,9 +24,31 @@ def test_mlperf_byte_budget_rounds_to_complete_native_model_files():
                     '--concurrency', '4', '--file-count', '8', '--rounds', '1']
 
 
-def test_mlperf_small_dataset_still_has_a_batch_per_accelerator():
+def test_mlperf_default_unet_budget_has_three_batches():
+    spec = BenchmarkSpec(tool='mlperf', mlperf_model='unet3d', total_size='1GiB')
+    assert (spec.file_count, spec.total_size) == (21, '3078613188')
+
+
+def test_mlperf_small_dataset_has_three_batches_per_accelerator():
     spec = BenchmarkSpec(tool='mlperf', mlperf_model='unet3d', total_size='1MiB', mlperf_accelerators=2)
-    assert (spec.file_count, spec.total_size) == (14, '2052408792')
+    assert (spec.file_count, spec.total_size) == (42, '6157226376')
+
+
+@pytest.mark.parametrize(('accelerators', 'expected'), [(1, 3), (2, 6), (3, 9)])
+def test_mlperf_tiny_cosmoflow_has_three_batches_per_accelerator(accelerators, expected):
+    spec = BenchmarkSpec(tool='mlperf', mlperf_model='cosmoflow', total_size='1MiB',
+                         mlperf_accelerators=accelerators)
+    assert (spec.file_count, spec.total_size) == (expected, str(expected * 2828486))
+
+
+@pytest.mark.parametrize(('model', 'accelerators', 'count'), [
+    ('unet3d', 1, 7), ('unet3d', 1, 14), ('unet3d', 2, 28),
+    ('cosmoflow', 1, 1), ('cosmoflow', 1, 2), ('cosmoflow', 2, 4),
+])
+def test_mlperf_explicit_one_or_two_batches_rejected(model, accelerators, count):
+    with pytest.raises(ValidationError, match='三个 batch'):
+        BenchmarkSpec(tool='mlperf', mlperf_model=model, mlperf_accelerators=accelerators,
+                      file_count=count)
 
 
 @pytest.mark.parametrize('parameters', [
