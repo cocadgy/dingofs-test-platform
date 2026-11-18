@@ -24,8 +24,15 @@ export function ReportCards({ run }: { run: Run }) {
             <p>每工具数据集：{formatBytes(r.parameters.total_size)}</p>
             <p>每轮实际 I/O：{r.summary?.statistics?.metrics?.io_bytes?.mean != null ? formatBytes(r.summary.statistics.metrics.io_bytes.mean) : "—"}</p>
           </div>}
+          {(r.tool === "mlperf" || tool === "mlperf" || run.snapshot.scenarios?.find(s => s.id === tool)?.tool === "mlperf") && <div className="performance-timed-summary">
+            <p>模拟加速器训练 I/O，仅供内部对比；自定义参数不代表官方合规成绩。</p>
+            {r.summary?.statistics?.metrics?.measurement_seconds?.mean != null && <p>原生测量时间：{Number(r.summary.statistics.metrics.measurement_seconds.mean.toFixed(2))} 秒</p>}
+          </div>}
           <div className="performance-metrics">
-            {(r.tool === "mdtest" || run.snapshot.scenarios?.find(s=>s.id===tool)?.tool === "mdtest" || tool === "mdtest" ? Object.keys(r.summary?.statistics?.metrics || {}).map(key=>[key,chartMetrics[key as ChartMetric]?.label || key,chartMetrics[key as ChartMetric]?.unit || ""]) : [
+            {(r.tool === "mlperf" || run.snapshot.scenarios?.find(s=>s.id===tool)?.tool === "mlperf" || tool === "mlperf" ? [
+              ["samples_per_second", "平均训练吞吐", "samples/s"],
+              ["accelerator_utilization_percent", "平均加速器利用率", "%"],
+            ] : r.tool === "mdtest" || run.snapshot.scenarios?.find(s=>s.id===tool)?.tool === "mdtest" || tool === "mdtest" ? Object.keys(r.summary?.statistics?.metrics || {}).map(key=>[key,chartMetrics[key as ChartMetric]?.label || key,chartMetrics[key as ChartMetric]?.unit || ""]) : [
               ["bandwidth_mib_s", "平均带宽", "MiB/s"],
               ["iops", "平均 IOPS", "IO/s"],
               ["latency_mean_us", "平均延迟", "μs"],

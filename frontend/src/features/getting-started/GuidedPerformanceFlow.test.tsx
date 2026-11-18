@@ -2,7 +2,7 @@ import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/re
 import { afterEach, expect, test, vi } from "vitest";
 import { api } from "../../api/client";
 import { GuidedPerformanceFlow } from "./GuidedPerformanceFlow";
-import { buildGuidedPerformancePayload, validateGuidedPerformance } from "./guidedPerformanceModel";
+import { buildGuidedPerformancePayload, guidedPerformanceTotals, validateGuidedPerformance } from "./guidedPerformanceModel";
 
 vi.mock("../../api/client", () => ({ api: vi.fn() }));
 afterEach(() => { cleanup(); vi.resetAllMocks(); });
@@ -17,7 +17,8 @@ const base = { name: "性能测试", machineId: "m1", targetKind: "directory" as
   tools: ["fio" as const], duration: 60, durationUnit: "seconds" as const,
   dataset: 1, datasetUnit: "GiB" as const, rw: "write", concurrency: 4,
   blockSize: 1, blockUnit: "MiB" as const, rounds: 1, direct: true,
-  iodepth: 1, readPercent: 50, cleanupData: false, timeoutMinutes: 0 };
+  iodepth: 1, readPercent: 50, cleanupData: false, timeoutMinutes: 0,
+  mlperfModel: "resnet50" as const, mlperfEpochs: 5, mlperfAccelerators: 1 };
 
 test("normalizes duration and dataset once for every selected tool", () => {
   const payload = buildGuidedPerformancePayload({ ...base, tools: ["fio", "elbencho"], duration: 2,
@@ -32,6 +33,87 @@ test("supports a 4 KiB block with a GiB dataset", () => {
   const payload = buildGuidedPerformancePayload({ ...base, blockSize: 4, blockUnit: "KiB" });
   expect(payload.tests[0].block_size).toBe("4096");
   expect(validateGuidedPerformance({ ...base, blockSize: 4, blockUnit: "KiB" })).toBe("");
+});
+
+test("MLPerf rounds nominal dataset to enough whole files per accelerator", () => {
+  const form = { ...base, tools: ["mlperf"], dataset: 1, datasetUnit: "MiB",
+    mlperfModel: "cosmoflow", mlperfEpochs: 5, mlperfAccelerators: 3 } as any;
+  const totals = guidedPerformanceTotals(form);
+  expect(totals.mlperfFileCount).toBe(3);
+  expect(totals.combinedBytes).toBe(8485458);
+  expect(totals.measuredSeconds).toBe(0);
+  expect(buildGuidedPerformancePayload(form).tests).toEqual([{ tool: "mlperf", mlperf_model: "cosmoflow",
+    mlperf_epochs: 5, mlperf_accelerators: 3, concurrency: 4, total_size: "1048576", rounds: 1 }]);
+});
+
+test("MLPerf-only ignores invalid fio controls but validates training controls", () => {
+  const form = { ...base, tools: ["mlperf"], duration: 0, rw: "invalid", blockSize: 0,
+    direct: true, iodepth: 0, mlperfModel: "resnet50", mlperfEpochs: 5, mlperfAccelerators: 1 } as any;
+  expect(validateGuidedPerformance(form)).toBe("");
+  expect(validateGuidedPerformance({ ...form, mlperfEpochs: 0 })).toMatch(/epochs/);
+  expect(validateGuidedPerformance({ ...form, mlperfAccelerators: 0 })).toMatch(/加速器/);
+  expect(validateGuidedPerformance({ ...form, mlperfModel: "checkpointing" })).toMatch(/模型/);
+});
+
+test("mixed payload retains timed runtime only on fio and elbencho", () => {
+  const form = { ...base, tools: ["fio", "mlperf", "elbencho"], mlperfModel: "resnet50",
+    mlperfEpochs: 7, mlperfAccelerators: 2 } as any;
+  const payload = buildGuidedPerformancePayload(form);
+  expect(payload.tests.map((item: any) => item.tool)).toEqual(["fio", "mlperf", "elbencho"]);
+  expect(payload.tests[1]).toEqual({ tool: "mlperf", mlperf_model: "resnet50", mlperf_epochs: 7,
+    mlperf_accelerators: 2, concurrency: 4, total_size: "1073741824", rounds: 1 });
+  expect(payload.tests[0]).toHaveProperty("runtime_seconds", 60);
+  expect(payload.tests[2]).toHaveProperty("runtime_seconds", 60);
+  expect(guidedPerformanceTotals(form).measuredSeconds).toBe(120);
+});
+
+test("MLPerf-only shows training settings and omits fio controls", async () => {
+  vi.mocked(api).mockResolvedValue(options);
+  render(<GuidedPerformanceFlow onNavigate={vi.fn()} onDirty={vi.fn()} />);
+  await screen.findByRole("option", { name: /主机一/ });
+  fireEvent.change(screen.getByLabelText("目标机器"), { target: { value: "m1" } });
+  fireEvent.change(screen.getByLabelText("目标目录"), { target: { value: "/data" } });
+  fireEvent.click(screen.getByRole("button", { name: "下一步" }));
+  fireEvent.click(screen.getByLabelText("MLPerf Storage"));
+  fireEvent.click(screen.getByRole("button", { name: "下一步" }));
+  expect(screen.getByLabelText("训练模型")).toHaveValue("resnet50");
+  expect(screen.getByLabelText("模拟 H100 加速器数量")).toHaveValue(1);
+  expect(screen.getByLabelText("每轮训练 epochs")).toHaveValue(5);
+  expect(screen.queryByLabelText("测量时长")).toBeNull();
+  expect(screen.queryByLabelText("读写模式")).toBeNull();
+  expect(screen.queryByLabelText("块大小")).toBeNull();
+  expect(screen.queryByLabelText("Direct I/O")).toBeNull();
+  expect(screen.getByText(/内部对比测试/)).toBeTruthy();
+  expect(screen.getByText(/预计数据量/)).toBeTruthy();
+});
+
+test("MLPerf preview becomes stale after training edit and submits only once", async () => {
+  let resolveRun!: (value: unknown) => void;
+  vi.mocked(api).mockImplementation(async path => path === "/performance/options" ? options :
+    path === "/performance/preview" ? { total_bytes: 1147517984, tests: [{ tool: "mlperf", command: "dtt -t mlperf", parameters: {} }] } :
+    path === "/performance/runs" ? new Promise(resolve => { resolveRun = resolve; }) : []);
+  const navigate = vi.fn();
+  render(<GuidedPerformanceFlow onNavigate={navigate} onDirty={vi.fn()} />);
+  await screen.findByRole("option", { name: /主机一/ });
+  fireEvent.change(screen.getByLabelText("目标机器"), { target: { value: "m1" } });
+  fireEvent.change(screen.getByLabelText("目标目录"), { target: { value: "/data" } });
+  fireEvent.click(screen.getByRole("button", { name: "下一步" }));
+  fireEvent.click(screen.getByLabelText("MLPerf Storage"));
+  fireEvent.click(screen.getByRole("button", { name: "下一步" }));
+  fireEvent.click(screen.getByRole("button", { name: "下一步" }));
+  fireEvent.click(screen.getByRole("button", { name: "生成预览" }));
+  await screen.findByText("dtt -t mlperf");
+  fireEvent.click(screen.getByRole("button", { name: "上一步" }));
+  fireEvent.change(screen.getByLabelText("每轮训练 epochs"), { target: { value: "6" } });
+  fireEvent.click(screen.getByRole("button", { name: "下一步" }));
+  expect(screen.getByRole("button", { name: "开始测试" })).toBeDisabled();
+  fireEvent.click(screen.getByRole("button", { name: "生成预览" }));
+  await screen.findByText("dtt -t mlperf");
+  fireEvent.click(screen.getByRole("button", { name: "开始测试" }));
+  fireEvent.click(screen.getByRole("button", { name: "开始测试" }));
+  expect(vi.mocked(api).mock.calls.filter(call => call[0] === "/performance/runs")).toHaveLength(1);
+  resolveRun({ id: "mlperf-run" });
+  await waitFor(() => expect(navigate).toHaveBeenCalledWith("#/performance/mlperf-run", true));
 });
 
 test("rejects invalid duration, data and timeout before preview", () => {

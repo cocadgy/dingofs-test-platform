@@ -1,4 +1,4 @@
-export type Tool = "fio" | "elbencho" | "mdtest";
+export type Tool = "fio" | "elbencho" | "mdtest" | "mlperf";
 export type MdtestOption = {flag:string;label:string;group:string;kind:string;default:string|number|boolean;choices?:string[];min?:number;bytes?:boolean};
 export type Spec = {
   mdtest_options?: Record<string,string|number|boolean>;
@@ -13,6 +13,9 @@ export type Spec = {
   rw: string;
   rounds: number;
   runtime_seconds?: number | null;
+  mlperf_model?: "resnet50" | "unet3d" | "cosmoflow";
+  mlperf_epochs?: number;
+  mlperf_accelerators?: number;
   iodepth: number;
   read_percent: number;
 };

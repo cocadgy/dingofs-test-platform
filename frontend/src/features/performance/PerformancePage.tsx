@@ -26,6 +26,7 @@ const bytes = (value: number) =>
   value >= 1024 ** 3
     ? (value / 1024 ** 3).toFixed(2) + " GiB"
     : (value / 1024 ** 2).toFixed(2) + " MiB";
+type AdvancedTool = Exclude<Tool, "mlperf">;
 
 export function PerformancePage() {
   const [options, setOptions] = useState<Options>({ machines: [], mounts: [] });
@@ -44,14 +45,14 @@ export function PerformancePage() {
   const [path, setPath] = useState("");
   const [timeout, setTimeoutMinutes] = useState(120);
   const [cleanupData, setCleanupData] = useState(false);
-  const [tools, setTools] = useState<Tool[]>([]);
-  const [nextTool, setNextTool] = useState<Tool>("fio");
-  const [specs, setSpecs] = useState<Record<Tool, MatrixForm>>({
+  const [tools, setTools] = useState<AdvancedTool[]>([]);
+  const [nextTool, setNextTool] = useState<AdvancedTool>("fio");
+  const [specs, setSpecs] = useState<Record<AdvancedTool, MatrixForm>>({
     fio: defaults("fio"),
     elbencho: defaults("elbencho"),
     mdtest: defaults("mdtest"),
   });
-  const [sizes, setSizes] = useState<Record<Tool, string>>({
+  const [sizes, setSizes] = useState<Record<AdvancedTool, string>>({
     fio: "files",
     elbencho: "files",
     mdtest: "files",
@@ -148,7 +149,7 @@ export function PerformancePage() {
     };
   }, [selected]);
   function change(
-    tool: Tool,
+    tool: AdvancedTool,
     key: keyof MatrixForm,
     value: string | string[] | boolean[],
   ) {
@@ -382,9 +383,9 @@ export function PerformancePage() {
                 <select
                   aria-label="选择工具"
                   value={nextTool}
-                  onChange={(e) => setNextTool(e.target.value as Tool)}
+                  onChange={(e) => setNextTool(e.target.value as AdvancedTool)}
                 >
-                  {(["fio", "elbencho", "mdtest"] as Tool[]).map((tool) => (
+                  {(["fio", "elbencho", "mdtest"] as AdvancedTool[]).map((tool) => (
                     <option
                       key={tool}
                       value={tool}
@@ -404,7 +405,7 @@ export function PerformancePage() {
                   setSpecs((s) => ({ ...s, [nextTool]: defaults(nextTool) }));
                   setSizes((s) => ({ ...s, [nextTool]: "files" }));
                   setTools((t) => [nextTool, ...t]);
-                  setNextTool((["fio","elbencho","mdtest"] as Tool[]).find(t=>t!==nextTool && !tools.includes(t)) || nextTool);
+                  setNextTool((["fio","elbencho","mdtest"] as AdvancedTool[]).find(t=>t!==nextTool && !tools.includes(t)) || nextTool);
                 }}
               >
                 添加工具

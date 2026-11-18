@@ -1,14 +1,14 @@
 import { useEffect, useRef, useState } from "react";
 import { api } from "../../api/client";
 import type { Options, Preview, Run } from "../performance/types";
-import { buildGuidedPerformancePayload, defaultGuidedPerformanceForm, guidedPerformanceTotals, validateGuidedPerformance, type GuidedPerformanceForm } from "./guidedPerformanceModel";
+import { buildGuidedPerformancePayload, defaultGuidedPerformanceForm, guidedPerformanceTotals, mlperfModels, validateGuidedPerformance, type GuidedPerformanceForm } from "./guidedPerformanceModel";
 import "./guided-performance.css";
 
 const steps = ["测试位置", "选择工具", "设置参数", "确认启动"];
 const sizeUnits = ["MiB", "GiB", "TiB"] as const;
 const blockUnits = ["KiB", ...sizeUnits] as const;
 const modes = [["write", "顺序写"], ["read", "顺序读"], ["randwrite", "随机写"], ["randread", "随机读"], ["rw", "混合顺序读写"], ["randrw", "混合随机读写"]];
-const formatBytes = (value: number) => value >= 1024 ** 4 ? `${value / 1024 ** 4} TiB` : value >= 1024 ** 3 ? `${value / 1024 ** 3} GiB` : `${value / 1024 ** 2} MiB`;
+const formatBytes = (value: number) => value >= 1024 ** 4 ? `${Number((value / 1024 ** 4).toFixed(2))} TiB` : value >= 1024 ** 3 ? `${Number((value / 1024 ** 3).toFixed(2))} GiB` : `${Number((value / 1024 ** 2).toFixed(2))} MiB`;
 const formatDuration = (value: number) => value >= 3600 ? `${(value / 3600).toFixed(1)} 小时` : value >= 60 ? `${(value / 60).toFixed(1)} 分钟` : `${value} 秒`;
 
 export function GuidedPerformanceFlow({ onNavigate, onDirty }: { onNavigate: (hash: string, confirmed?: boolean) => void; onDirty: (dirty: boolean) => void }) {
@@ -27,6 +27,8 @@ export function GuidedPerformanceFlow({ onNavigate, onDirty }: { onNavigate: (ha
   const payload = buildGuidedPerformancePayload(form);
   const key = JSON.stringify(payload);
   const totals = guidedPerformanceTotals(form);
+  const hasMlperf = form.tools.includes("mlperf");
+  const hasTimedTools = totals.timedToolCount > 0;
   const machine = options.machines.find(item => item.id === form.machineId);
   const mounts = options.mounts.filter(item => item.machine_id === form.machineId && item.path && item.state === "mounted");
 
@@ -86,7 +88,7 @@ export function GuidedPerformanceFlow({ onNavigate, onDirty }: { onNavigate: (ha
   }
   return <section className="getting-started guided-performance-flow">
     <p className="eyebrow">GETTING STARTED / PERFORMANCE</p><h1>性能测试引导</h1>
-    <p className="muted">在选定机器上运行 fio 和 elbencho。每种工具使用独立的数据集，结果在现有任务详情中查看。</p>
+    <p className="muted">在选定机器上运行 fio、elbencho 或 MLPerf Storage。每种工具使用独立的数据集，结果在现有任务详情中查看。</p>
     <nav className="guided-performance-steps" aria-label="引导步骤">{steps.map((label, index) => <span key={label} aria-current={index === step ? "step" : undefined}>{index + 1}. {label}</span>)}</nav>
     <div className="getting-started-card">
       <h2>{steps[step]}</h2>
@@ -106,28 +108,41 @@ export function GuidedPerformanceFlow({ onNavigate, onDirty }: { onNavigate: (ha
       {step === 1 && <div className="guided-performance-tools">
         <label><input aria-label="fio" type="checkbox" checked={form.tools.includes("fio")} onChange={event => change({ tools: event.target.checked ? [...form.tools, "fio"] : form.tools.filter(tool => tool !== "fio") })} /><span><strong>fio</strong><small>常用块 I/O 测试，查看吞吐、IOPS 和延迟。</small></span></label>
         <label><input aria-label="elbencho" type="checkbox" checked={form.tools.includes("elbencho")} onChange={event => change({ tools: event.target.checked ? [...form.tools, "elbencho"] : form.tools.filter(tool => tool !== "elbencho") })} /><span><strong>elbencho</strong><small>面向文件系统的并发吞吐测试。</small></span></label>
+        <label><input aria-label="MLPerf Storage" type="checkbox" checked={form.tools.includes("mlperf")} onChange={event => change({ tools: event.target.checked ? [...form.tools, "mlperf"] : form.tools.filter(tool => tool !== "mlperf") })} /><span><strong>MLPerf Storage（训练 I/O）</strong><small>模拟 H100 加速器执行训练数据读取；无需实体 GPU。</small></span></label>
         <p className="muted">需要 mdtest 或参数矩阵？<button type="button" onClick={() => onNavigate("#/performance")}>打开高级性能测试</button></p>
       </div>}
       {step === 2 && <div className="guided-performance-fields">
         <label>任务名称<input value={form.name} maxLength={120} onChange={event => change({ name: event.target.value })} /></label>
-        <div className="guided-performance-pair"><label>测量时长<input type="number" min="1" value={form.duration} onChange={event => change({ duration: Number(event.target.value) })} /></label><label>时长单位<select aria-label="时长单位" value={form.durationUnit} onChange={event => change({ durationUnit: event.target.value as GuidedPerformanceForm["durationUnit"] })}><option value="seconds">秒</option><option value="minutes">分钟</option><option value="hours">小时</option></select></label></div>
-        <small>每种工具每轮各测量一次。准备数据与同步时间不计入测量时长。</small>
-        <div className="guided-performance-pair"><label>每种工具数据量<input type="number" min="1" value={form.dataset} onChange={event => change({ dataset: Number(event.target.value) })} /></label><label>数据量单位<select value={form.datasetUnit} onChange={event => change({ datasetUnit: event.target.value as GuidedPerformanceForm["datasetUnit"] })}>{sizeUnits.map(unit => <option key={unit}>{unit}</option>)}</select></label></div>
-        <label>读写模式<select value={form.rw} onChange={event => change({ rw: event.target.value })}>{modes.map(([value, label]) => <option value={value} key={value}>{label}</option>)}</select></label>
-        <p className="guided-performance-estimate">预计测量时间：{formatDuration(totals.measuredSeconds)} · 预计数据占用：{formatBytes(totals.combinedBytes)}</p>
+        {hasTimedTools && <><div className="guided-performance-pair"><label>{hasMlperf ? "fio / elbencho 测量时长" : "测量时长"}<input type="number" min="1" value={form.duration} onChange={event => change({ duration: Number(event.target.value) })} /></label><label>时长单位<select aria-label="时长单位" value={form.durationUnit} onChange={event => change({ durationUnit: event.target.value as GuidedPerformanceForm["durationUnit"] })}><option value="seconds">秒</option><option value="minutes">分钟</option><option value="hours">小时</option></select></label></div><small>fio / elbencho 每轮各测量一次；准备数据与同步时间不计入测量时长。</small></>}
+        <div className="guided-performance-pair"><label>每种工具请求数据量<input type="number" min="1" value={form.dataset} onChange={event => change({ dataset: Number(event.target.value) })} /></label><label>数据量单位<select value={form.datasetUnit} onChange={event => change({ datasetUnit: event.target.value as GuidedPerformanceForm["datasetUnit"] })}>{sizeUnits.map(unit => <option key={unit}>{unit}</option>)}</select></label></div>
+        {hasMlperf && <><label>训练模型<select aria-label="训练模型" value={form.mlperfModel} onChange={event => change({ mlperfModel: event.target.value as GuidedPerformanceForm["mlperfModel"] })}>{Object.entries(mlperfModels).map(([value, model]) => <option value={value} key={value}>{model.label}</option>)}</select></label><label>模拟 H100 加速器数量<input type="number" min="1" max="1024" value={form.mlperfAccelerators} onChange={event => change({ mlperfAccelerators: Number(event.target.value) })} /></label><label>每轮训练 epochs<input type="number" min="1" max="1000" value={form.mlperfEpochs} onChange={event => change({ mlperfEpochs: Number(event.target.value) })} /></label><p className="muted">模拟加速器无需实体 GPU。自定义数据量与 epochs 仅用于内部对比测试，不代表官方合规成绩。</p><p className="guided-performance-note">MLPerf 预计数据量：{formatBytes(totals.mlperfDatasetBytes)}（{totals.mlperfFileCount} 个完整文件）。实际占用因格式元数据、压缩和样本差异而变化；预览中的规范化计划以服务端为准。</p></>}
+        {hasTimedTools && <label>读写模式<select value={form.rw} onChange={event => change({ rw: event.target.value })}>{modes.map(([value, label]) => <option value={value} key={value}>{label}</option>)}</select></label>}
+        <p className="guided-performance-estimate">{hasTimedTools ? `fio / elbencho 预计测量时间：${formatDuration(totals.measuredSeconds)} · ` : ""}预计数据占用：{formatBytes(totals.combinedBytes)}{hasMlperf ? "；MLPerf 训练时长取决于完整轮次，未计入测量时间估计。" : ""}</p>
+        {!hasTimedTools && <><label>轮数<input type="number" min="1" max="100" value={form.rounds} onChange={event => change({ rounds: Number(event.target.value) })} /></label><label>任务总超时（分钟）<input type="number" min="1" placeholder={`默认 ${totals.defaultTimeoutMinutes} 分钟`} value={form.timeoutMinutes || ""} onChange={event => change({ timeoutMinutes: event.target.value ? Number(event.target.value) : 0 })} /><small>留空采用 {totals.defaultTimeoutMinutes} 分钟；MLPerf 训练耗时依模型、数据与环境变化。</small></label></>}
         <details><summary>高级选项</summary><div className="guided-performance-fields">
-          <label>并发数<input type="number" min="1" max="1024" value={form.concurrency} onChange={event => change({ concurrency: Number(event.target.value) })} /></label>
-          <div className="guided-performance-pair"><label>块大小<input type="number" min="1" value={form.blockSize} onChange={event => change({ blockSize: Number(event.target.value) })} /></label><label>块大小单位<select value={form.blockUnit} onChange={event => change({ blockUnit: event.target.value as GuidedPerformanceForm["blockUnit"] })}>{blockUnits.map(unit => <option key={unit}>{unit}</option>)}</select></label></div>
-          <label>轮数<input type="number" min="1" max="100" value={form.rounds} onChange={event => change({ rounds: Number(event.target.value) })} /></label>
-          <label>I/O 深度<input type="number" min="1" max="1024" value={form.iodepth} onChange={event => change({ iodepth: Number(event.target.value) })} /></label>
-          {["rw", "randrw"].includes(form.rw) && <label>混合读比例（%）<input type="number" min="0" max="100" value={form.readPercent} onChange={event => change({ readPercent: Number(event.target.value) })} /></label>}
-          <label className="guided-performance-check"><input type="checkbox" checked={form.direct} onChange={event => change({ direct: event.target.checked })} />Direct I/O</label>
+          <label>{hasMlperf ? "并发数（MLPerf 数据生成进程）" : "并发数"}<input type="number" min="1" max="1024" value={form.concurrency} onChange={event => change({ concurrency: Number(event.target.value) })} /></label>
+          {hasTimedTools && <div className="guided-performance-pair"><label>块大小<input type="number" min="1" value={form.blockSize} onChange={event => change({ blockSize: Number(event.target.value) })} /></label><label>块大小单位<select value={form.blockUnit} onChange={event => change({ blockUnit: event.target.value as GuidedPerformanceForm["blockUnit"] })}>{blockUnits.map(unit => <option key={unit}>{unit}</option>)}</select></label></div>}
+          {hasTimedTools && <label>轮数<input type="number" min="1" max="100" value={form.rounds} onChange={event => change({ rounds: Number(event.target.value) })} /></label>}
+          {hasTimedTools && <label>I/O 深度<input type="number" min="1" max="1024" value={form.iodepth} onChange={event => change({ iodepth: Number(event.target.value) })} /></label>}
+          {hasTimedTools && ["rw", "randrw"].includes(form.rw) && <label>混合读比例（%）<input type="number" min="0" max="100" value={form.readPercent} onChange={event => change({ readPercent: Number(event.target.value) })} /></label>}
+          {hasTimedTools && <label className="guided-performance-check"><input type="checkbox" checked={form.direct} onChange={event => change({ direct: event.target.checked })} />Direct I/O</label>}
           <label className="guided-performance-check"><input type="checkbox" checked={form.cleanupData} onChange={event => change({ cleanupData: event.target.checked })} />全部成功后清理任务数据</label>
-          <label>任务总超时（分钟）<input type="number" min="1" placeholder={`默认 ${totals.defaultTimeoutMinutes} 分钟`} value={form.timeoutMinutes || ""} onChange={event => change({ timeoutMinutes: event.target.value ? Number(event.target.value) : 0 })} /><small>留空采用 {totals.defaultTimeoutMinutes} 分钟；准备数据耗时会随环境变化。</small></label>
+          {hasTimedTools && <label>任务总超时（分钟）<input type="number" min="1" placeholder={`默认 ${totals.defaultTimeoutMinutes} 分钟`} value={form.timeoutMinutes || ""} onChange={event => change({ timeoutMinutes: event.target.value ? Number(event.target.value) : 0 })} /><small>留空采用 {totals.defaultTimeoutMinutes} 分钟；准备数据耗时会随环境变化。</small></label>}
         </div></details>
       </div>}
       {step === 3 && <div className="guided-performance-confirm">
-        <dl><div><dt>机器</dt><dd>{machine?.name} · {machine?.address} · SSH {machine?.ssh_user}</dd></div><div><dt>目标</dt><dd>{form.targetKind === "mount" ? "挂载文件系统" : "指定目录"} · {form.targetPath}</dd></div><div><dt>工具</dt><dd>{form.tools.join("、")}</dd></div><div><dt>每工具每轮测量</dt><dd>{formatDuration(totals.runtimeSeconds)}</dd></div><div><dt>每工具数据量</dt><dd>{formatBytes(totals.datasetBytes)}</dd></div><div><dt>预计总测量</dt><dd>{formatDuration(totals.measuredSeconds)}</dd></div><div><dt>预计数据占用</dt><dd>{formatBytes(totals.combinedBytes)}</dd></div><div><dt>总超时</dt><dd>{payload.timeout_minutes} 分钟</dd></div></dl>
+        <dl>
+          <div><dt>机器</dt><dd>{machine?.name} · {machine?.address} · SSH {machine?.ssh_user}</dd></div>
+          <div><dt>目标</dt><dd>{form.targetKind === "mount" ? "挂载文件系统" : "指定目录"} · {form.targetPath}</dd></div>
+          <div><dt>工具</dt><dd>{form.tools.join("、")}</dd></div>
+          {hasTimedTools && <div><dt>fio / elbencho 每轮测量</dt><dd>{formatDuration(totals.runtimeSeconds)}</dd></div>}
+          <div><dt>每工具请求数据量</dt><dd>{formatBytes(totals.datasetBytes)}</dd></div>
+          {hasMlperf && <><div><dt>MLPerf 模型</dt><dd>{mlperfModels[form.mlperfModel].label}</dd></div><div><dt>模拟 H100</dt><dd>{form.mlperfAccelerators} 个</dd></div><div><dt>每轮训练 epochs</dt><dd>{form.mlperfEpochs}</dd></div><div><dt>MLPerf 预计数据量</dt><dd>{formatBytes(totals.mlperfDatasetBytes)} · {totals.mlperfFileCount} 个完整文件</dd></div></>}
+          <div><dt>轮数</dt><dd>{form.rounds}</dd></div>
+          {hasTimedTools && <div><dt>fio / elbencho 预计测量</dt><dd>{formatDuration(totals.measuredSeconds)}（不含 MLPerf）</dd></div>}
+          <div><dt>预计数据占用</dt><dd>{formatBytes(totals.combinedBytes)}</dd></div>
+          <div><dt>总超时</dt><dd>{payload.timeout_minutes} 分钟</dd></div>
+        </dl>
         <p className="muted">预览会验证配置并显示生成的 DTT 命令；它不检查远程工具是否可用。</p>
         <button type="button" onClick={() => void prepare()} disabled={busy}>生成预览</button>
         {preview && previewKey === key && <div className="guided-performance-preview"><h3>配置预览</h3>{preview.tests.map((test, index) => <div key={`${test.tool}-${index}`}><strong>{test.tool}</strong><pre>{test.command}</pre><details><summary>规范化参数</summary><pre>{JSON.stringify(test.parameters, null, 2)}</pre></details></div>)}</div>}

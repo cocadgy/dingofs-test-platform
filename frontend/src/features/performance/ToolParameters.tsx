@@ -3,6 +3,7 @@ import { MdtestOption } from "./types";
 import { CandidateInput } from "./CandidateInput";
 import { Tool } from "./types";
 import { MatrixForm, candidates, estimatedCount, modeLabels } from "./matrix";
+type AdvancedTool = Exclude<Tool, "mlperf">;
 
 export function ToolParameters({
   catalog,
@@ -14,11 +15,11 @@ export function ToolParameters({
   onRemove,
 }: {
   catalog?:MdtestOption[];
-  tool: Tool;
+  tool: AdvancedTool;
   s: MatrixForm;
   sizeMode: string;
   change: (
-    tool: Tool,
+    tool: AdvancedTool,
     key: keyof MatrixForm,
     value: string | boolean[] | string[],
   ) => void;

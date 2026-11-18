@@ -4,7 +4,8 @@ import { test, expect } from "vitest";
 import { ToolParameters } from "./ToolParameters";
 import { defaults, matrixParameters } from "./matrix";
 import { Tool } from "./types";
-function Form({ tool }: { tool: Tool }) {
+type AdvancedTool = Exclude<Tool, "mlperf">;
+function Form({ tool }: { tool: AdvancedTool }) {
   const [s, set] = useState(defaults(tool));
   return (
     <>
@@ -21,7 +22,7 @@ function Form({ tool }: { tool: Tool }) {
     </>
   );
 }
-test.each(["fio", "elbencho"] as Tool[])(
+test.each(["fio", "elbencho"] as AdvancedTool[])(
   "%s mixed ratio defaults to 50 and custom input controls submitted percentage",
   (tool) => {
     render(<Form tool={tool} />);

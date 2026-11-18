@@ -20,7 +20,8 @@ export function ScenarioResults({ run }: { run: Run }) {
       parameters,
     }));
   const columns = [
-    ...(scenes.some(s=>s.tool!=="mdtest") ? [["bandwidth_mib_s","平均带宽 MiB/s"],["iops","平均 IOPS"],["latency_mean_us","平均延迟 μs"]] : []),
+    ...(scenes.some(s=>s.tool==="fio" || s.tool==="elbencho") ? [["bandwidth_mib_s","平均带宽 MiB/s"],["iops","平均 IOPS"],["latency_mean_us","平均延迟 μs"]] : []),
+    ...(scenes.some(s=>s.tool==="mlperf") ? [["samples_per_second","训练吞吐 samples/s"],["accelerator_utilization_percent","加速器利用率 %"]] : []),
     ...(scenes.some(s=>s.tool==="mdtest") ? [["create_ops_s","创建 ops/s"],["stat_ops_s","stat ops/s"],["remove_ops_s","删除 ops/s"]] : []),
   ];
   const state = (id: string) => {
