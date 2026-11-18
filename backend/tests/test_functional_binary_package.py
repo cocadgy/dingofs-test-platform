@@ -48,6 +48,18 @@ def source_result(root):
     return json.loads(output.getvalue())
 
 
+@pytest.mark.parametrize('include_adapter',[False,True])
+def test_source_files_lists_optional_mlperf_adapter_only_when_present(tmp_path,include_adapter):
+    root=tmp_path/'source';complete_source(root)
+    scripts=root/'scripts';scripts.mkdir()
+    for name in ('performance_benchmark.py','performance_plan.py','performance_report.py','performance_tools.py'):
+        (scripts/name).write_text('fixture')
+    if include_adapter:(scripts/'mlperf_benchmark.py').write_text('adapter fixture')
+    files=source_result(root)['files']
+    assert ('mlperf_benchmark.py' in files)==include_adapter
+    assert 'performance_plan.py' in files
+
+
 def test_complete_source_paths_and_hashes_are_preserved(tmp_path):
     root=tmp_path/'source with spaces';source=complete_source(root)
     result=source_result(root)
@@ -89,6 +101,9 @@ def test_offline_and_automatic_share_complete_manifest(tmp_path,monkeypatch):
     import runpy
     import sys
     root=tmp_path/'source';complete_source(root)
+    scripts=root/'scripts';scripts.mkdir()
+    for name in ('performance_benchmark.py','performance_plan.py','performance_report.py','performance_tools.py','mlperf_benchmark.py'):
+        (scripts/name).write_text('fixture '+name)
     automatic=source_result(root)
     output=tmp_path/'output'
     calls=[]
@@ -111,6 +126,7 @@ def test_offline_and_automatic_share_complete_manifest(tmp_path,monkeypatch):
     manifest=json.loads((bundle/'manifest.json').read_text())
     assert manifest['source_manifest']==automatic['source_manifest']
     assert all(manifest['files'][name]==value['sha256'] for name,value in automatic['files'].items())
+    assert manifest['files']['mlperf_benchmark.py']==hashlib.sha256((scripts/'mlperf_benchmark.py').read_bytes()).hexdigest()
     assert len(calls)==2
     assert (bundle/'dingofs-integration-test/conf/storage.yaml').stat().st_mode & 0o777 == 0o600
     from dingofs_platform.tool_packages.bundle import inspect_bundle

@@ -32,11 +32,11 @@ def test_complete_automatic_flow_with_isolated_hosts(tmp_path,monkeypatch,scp_ok
     source=tmp_path/'source';target=tmp_path/'target'
     source.mkdir();target.mkdir()
     directory=source/'tools';directory.mkdir()
-    (directory/'dingofs-testsuite-tool').write_text('#!/bin/sh\nif [ "$1" = config ]; then printf "image: "; cat "$DINGOFS_TESTSUITE_CONFIG_DIR/image"; printf "runtime: "; cat "$DINGOFS_TESTSUITE_CONFIG_DIR/runtime"; else echo dtt; fi\n')
+    (directory/'dingofs-testsuite-tool').write_text('#!/bin/sh\nif [ "$1" = config ]; then printf "image: "; cat "$DINGOFS_TESTSUITE_CONFIG_DIR/image"; printf "runtime: "; cat "$DINGOFS_TESTSUITE_CONFIG_DIR/runtime"; elif [ "$1" = --performance-dry-run ]; then test -f "$DTT_PERFORMANCE_RUNTIME_DIR/mlperf_benchmark.py" && printf "mlperf adapter ready\\n"; else echo dtt; fi\n')
     for name in ('dtt-ai-analyze','analysis.schema.json'):(directory/name).write_text('fixture')
     (directory/'scripts').mkdir()
     (directory/'entrypoint.sh').write_text('#!/bin/bash\n')
-    for name in ('performance_benchmark.py','performance_plan.py','performance_report.py','performance_tools.py','ai_storage_scenarios.py'):
+    for name in ('performance_benchmark.py','performance_plan.py','performance_report.py','performance_tools.py','mlperf_benchmark.py','ai_storage_scenarios.py'):
         (directory/'scripts'/name).write_text('# fixture runtime\n')
     if functional:
         if not os.environ.get('DTT_TEST_SOURCE'):
@@ -99,6 +99,8 @@ def test_complete_automatic_flow_with_isolated_hosts(tmp_path,monkeypatch,scp_ok
     assert (installed/'dtt').is_file()
     assert 'DTT_PERFORMANCE_RUNTIME_DIR' in (installed/'dtt').read_text()
     assert (installed/'performance_plan.py').is_file()
+    assert (installed/'mlperf_benchmark.py').is_file()
+    assert subprocess.check_output([str(installed/'dtt'),'--performance-dry-run'],text=True).strip()=='mlperf adapter ready'
     assert (installed/'ai_storage_scenarios.py').is_file()
     if functional:
         assert result['functional_runtime']['version']==2

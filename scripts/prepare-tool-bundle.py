@@ -70,6 +70,8 @@ def main():
                 shutil.copyfile(args.source/'entrypoint.sh',stage/'entrypoint.sh')
                 for name in performance:
                     shutil.copyfile(args.source/'scripts'/name,stage/name)
+                adapter=args.source/'scripts/mlperf_benchmark.py'
+                if adapter.is_file():shutil.copyfile(adapter,stage/'mlperf_benchmark.py')
             if (args.source/'scripts/ai_storage_scenarios.py').is_file():
                 shutil.copyfile(args.source/'scripts/ai_storage_scenarios.py',stage/'ai_storage_scenarios.py')
             print('导出 dtt 镜像，包含 fio、elbencho…', flush=True)
