@@ -17,7 +17,7 @@ export type Spec = {
   mlperf_epochs?: number;
   mlperf_accelerators?: number;
   iodepth: number;
-  read_percent: number;
+  read_percent: number | null;
 };
 export type Options = {
   mdtest_options?: MdtestOption[];

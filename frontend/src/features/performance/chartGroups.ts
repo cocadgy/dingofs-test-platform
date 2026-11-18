@@ -11,6 +11,7 @@ const dimensions: (keyof Spec)[] = [
   "rounds",
   "read_percent",
 ];
+const mlperfDimensions: (keyof Spec)[] = ["mlperf_model", "mlperf_epochs", "mlperf_accelerators", "concurrency", "file_size", "file_count", "rounds"];
 export function chartGroups(rows: Scenario[], parameter: keyof Spec) {
   const groups = new Map<
     string,
@@ -18,7 +19,7 @@ export function chartGroups(rows: Scenario[], parameter: keyof Spec) {
   >();
   for (const scene of rows) {
     const fixed = Object.fromEntries(
-      (scene.tool === "mdtest" ? ["concurrency","file_count","rounds","layout","mdtest_options"] as (keyof Spec)[] : dimensions)
+      (scene.tool === "mdtest" ? ["concurrency","file_count","rounds","layout","mdtest_options"] as (keyof Spec)[] : scene.tool === "mlperf" ? mlperfDimensions : dimensions)
         .filter(
           (key) =>
             key !== parameter &&

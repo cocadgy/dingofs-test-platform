@@ -44,6 +44,21 @@ const options = {
   mounts: [],
 };
 
+test("MLPerf tool summary route displays training metrics instead of fio metrics", async () => {
+  window.location.hash = "#/performance/train/reports";
+  const parameters = {tool:"mlperf",mlperf_model:"resnet50",mlperf_epochs:2,mlperf_accelerators:4,
+    concurrency:4,file_count:8,file_size:"143439748",total_size:"1147517984",rounds:1,read_percent:null};
+  const run = {id:"train",name:"MLPerf",state:"success",phase:"完成",progress:100,error:"",created_at:new Date().toISOString(),
+    snapshot:{machine_name:"node",connection:["host",22,"jenkins"],target_path:"/mnt/train",tests:[parameters],
+      scenarios:[{id:"train-a",tool:"mlperf",parameters}]},
+    reports:{"train-a":{state:"success",files:[],summary:{status:"passed",statistics:{metrics:{samples_per_second:{mean:125.5,samples:1},accelerator_utilization_percent:{mean:81.2,samples:1}}}}}}};
+  vi.mocked(api).mockImplementation(async path => path === "/performance/options" ? options : path === "/performance/runs" ? [] : run);
+  render(<PerformancePage/>);
+  expect(await screen.findByRole("heading",{name:"mlperf · 参数对比报告"})).toBeVisible();
+  expect(screen.getByRole("button",{name:"平均训练吞吐（samples/s）"})).toBeVisible();
+  expect(screen.queryByRole("button",{name:"平均 IOPS（IO/s）"})).toBeNull();
+});
+
 test("select multiple tools with independent settings and preview before create", async () => {
   vi.mocked(api).mockImplementation(async (path, method) =>
     path === "/performance/options"

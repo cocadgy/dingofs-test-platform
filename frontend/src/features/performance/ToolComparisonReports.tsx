@@ -22,6 +22,14 @@ const parameters: Parameter[] = [
   { key: "block_size", label: "Block 大小", format: formatBytes },
   { key: "file_size", label: "每文件大小", format: formatBytes },
 ];
+const mlperfParameters: Parameter[] = [
+  {key:"mlperf_model",label:"训练模型",format:(v:string)=>({resnet50:"ResNet50",unet3d:"UNet3D",cosmoflow:"CosmoFlow"} as Record<string,string>)[v] || v},
+  {key:"mlperf_epochs",label:"每轮训练 epochs"},
+  {key:"mlperf_accelerators",label:"模拟 H100 加速器数"},
+  {key:"concurrency",label:"数据生成进程数"},
+  {key:"file_size",label:"每文件大小",format:formatBytes},
+  {key:"file_count",label:"文件数"},
+];
 export function ToolComparisonReports({ run }: { run: Run }) {
   const scenes =
     run.snapshot.scenarios ||
@@ -35,9 +43,9 @@ export function ToolComparisonReports({ run }: { run: Run }) {
   const [chosen, setChosen] = useState<Tool>();
   const tool = chosen && tools.includes(chosen) ? chosen : tools[0];
   const rows = scenes.filter((s) => s.tool === tool);
-  const metricKeys: ChartMetric[] = tool==="mdtest" ? ((Object.keys(chartMetrics) as ChartMetric[]).filter(key=>rows.some(row=>run.reports[row.id]?.summary?.statistics?.metrics?.[key]?.mean!=null)).length ? (Object.keys(chartMetrics) as ChartMetric[]).filter(key=>rows.some(row=>run.reports[row.id]?.summary?.statistics?.metrics?.[key]?.mean!=null)) : ["create_ops_s"]) : ["bandwidth_mib_s","iops","latency_mean_us"];
+  const metricKeys: ChartMetric[] = tool==="mlperf" ? ["samples_per_second","accelerator_utilization_percent"] : tool==="mdtest" ? ((Object.keys(chartMetrics) as ChartMetric[]).filter(key=>rows.some(row=>run.reports[row.id]?.summary?.statistics?.metrics?.[key]?.mean!=null)).length ? (Object.keys(chartMetrics) as ChartMetric[]).filter(key=>rows.some(row=>run.reports[row.id]?.summary?.statistics?.metrics?.[key]?.mean!=null)) : ["create_ops_s"]) : ["bandwidth_mib_s","iops","latency_mean_us"];
   const metric = metricKeys.includes(chosenMetric) ? chosenMetric : metricKeys[0];
-  const fields = (tool==="mdtest" ? [
+  const fields = (tool==="mlperf" ? mlperfParameters : tool==="mdtest" ? [
     {key:"concurrency",label:"MPI 进程数"},
     {key:"mdtest_options",label:"自定义参数组合",format:(v:Record<string,unknown>)=>Object.entries(v).map(([k,x])=>`${k}=${x}`).join(" / ") || "默认"},
     {key:"layout",label:"目录布局",format:(v:string)=>v==="shared"?"共享目录":"独立目录"},

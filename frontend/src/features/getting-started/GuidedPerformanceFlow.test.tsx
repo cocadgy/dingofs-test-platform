@@ -87,6 +87,20 @@ test("MLPerf-only shows training settings and omits fio controls", async () => {
   expect(screen.getByText(/预计数据量/)).toBeTruthy();
 });
 
+test("mixed guide names both effects of shared concurrency", async () => {
+  vi.mocked(api).mockResolvedValue(options);
+  render(<GuidedPerformanceFlow onNavigate={vi.fn()} onDirty={vi.fn()} />);
+  await screen.findByRole("option", { name: /主机一/ });
+  fireEvent.change(screen.getByLabelText("目标机器"), { target: { value: "m1" } });
+  fireEvent.change(screen.getByLabelText("目标目录"), { target: { value: "/data" } });
+  fireEvent.click(screen.getByRole("button", { name: "下一步" }));
+  fireEvent.click(screen.getByLabelText("fio"));
+  fireEvent.click(screen.getByLabelText("MLPerf Storage"));
+  fireEvent.click(screen.getByRole("button", { name: "下一步" }));
+  fireEvent.click(screen.getByText("高级选项"));
+  expect(screen.getByLabelText("并发数（fio / elbencho 工作线程；MLPerf 数据生成进程）")).toBeVisible();
+});
+
 test("MLPerf preview becomes stale after training edit and submits only once", async () => {
   let resolveRun!: (value: unknown) => void;
   vi.mocked(api).mockImplementation(async path => path === "/performance/options" ? options :

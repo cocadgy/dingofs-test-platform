@@ -32,6 +32,8 @@ export const chartMetrics = {
   bandwidth_mib_s: { label: "平均带宽", unit: "MiB/s", hint: "越高越好" },
   iops: { label: "平均 IOPS", unit: "IO/s", hint: "越高越好" },
   latency_mean_us: { label: "平均延迟", unit: "μs", hint: "越低越好" },
+  samples_per_second: { label: "平均训练吞吐", unit: "samples/s", hint: "越高越好" },
+  accelerator_utilization_percent: { label: "平均加速器利用率", unit: "%", hint: "越高越好" },
 };
 export type ChartMetric = keyof typeof chartMetrics;
 export function ParameterBarChart({
@@ -111,9 +113,12 @@ export function ParameterBarChart({
           file_count: "文件数",
           rounds: "轮次",
           read_percent: "读比例",
+          mlperf_model: "训练模型",
+          mlperf_epochs: "每轮训练 epochs",
+          mlperf_accelerators: "模拟 H100 加速器数",
         };
         const text =
-          k === "layout" ? (v === "shared" ? "共享目录" : "独立目录") : k === "direct"
+          k === "mlperf_model" ? ({resnet50:"ResNet50",unet3d:"UNet3D",cosmoflow:"CosmoFlow"} as Record<string,string>)[String(v)] || v : k === "layout" ? (v === "shared" ? "共享目录" : "独立目录") : k === "direct"
             ? v
               ? "开启"
               : "关闭"
