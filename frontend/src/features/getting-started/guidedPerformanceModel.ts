@@ -37,7 +37,8 @@ export function guidedPerformanceTotals(form: GuidedPerformanceForm) {
   const model = mlperfModels[form.mlperfModel] || mlperfModels.resnet50;
   const accelerators = integer(form.mlperfAccelerators, 1, 1024) ? form.mlperfAccelerators : 1;
   const rawFiles = Math.max(Math.ceil(datasetBytes / model.bytesPerFile), accelerators,
-    Math.ceil(3 * model.batchPerAccelerator * accelerators / model.samplesPerFile));
+    Math.ceil(3 * model.batchPerAccelerator * accelerators / model.samplesPerFile),
+    form.mlperfModel === "cosmoflow" ? 4 * accelerators : 0);
   const mlperfFileCount = Math.ceil(rawFiles / accelerators) * accelerators;
   const mlperfDatasetBytes = mlperfFileCount * model.bytesPerFile;
   const combinedBytes = datasetBytes * timedToolCount + (form.tools.includes("mlperf") ? mlperfDatasetBytes : 0);

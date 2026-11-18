@@ -34,11 +34,29 @@ def test_mlperf_small_dataset_has_three_batches_per_accelerator():
     assert (spec.file_count, spec.total_size) == (42, '6157226376')
 
 
-@pytest.mark.parametrize(('accelerators', 'expected'), [(1, 3), (2, 6), (3, 9)])
-def test_mlperf_tiny_cosmoflow_has_three_batches_per_accelerator(accelerators, expected):
+@pytest.mark.parametrize(('accelerators', 'expected', 'bytes_expected'), [
+    (1, 4, '11313944'), (2, 8, '22627888'), (3, 12, '33941832'),
+])
+def test_mlperf_tiny_cosmoflow_has_reader_minimum_per_accelerator(accelerators, expected, bytes_expected):
     spec = BenchmarkSpec(tool='mlperf', mlperf_model='cosmoflow', total_size='1MiB',
                          mlperf_accelerators=accelerators)
-    assert (spec.file_count, spec.total_size) == (expected, str(expected * 2828486))
+    assert (spec.file_count, spec.total_size) == (expected, bytes_expected)
+
+
+@pytest.mark.parametrize(('accelerators', 'count'), [(1, 3), (2, 6)])
+def test_mlperf_cosmoflow_rejects_three_files_per_accelerator(accelerators, count):
+    with pytest.raises(ValidationError, match='batch'):
+        BenchmarkSpec(tool='mlperf', mlperf_model='cosmoflow', mlperf_accelerators=accelerators,
+                      file_count=count)
+
+
+@pytest.mark.parametrize(('accelerators', 'count', 'bytes_expected'), [
+    (1, 4, '11313944'), (2, 8, '22627888'),
+])
+def test_mlperf_cosmoflow_accepts_reader_minimum(accelerators, count, bytes_expected):
+    spec = BenchmarkSpec(tool='mlperf', mlperf_model='cosmoflow', mlperf_accelerators=accelerators,
+                         file_count=count)
+    assert (spec.file_count, spec.total_size) == (count, bytes_expected)
 
 
 @pytest.mark.parametrize(('model', 'accelerators', 'count'), [

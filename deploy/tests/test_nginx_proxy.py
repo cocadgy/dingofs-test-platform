@@ -51,7 +51,13 @@ class NginxProxyTest(unittest.TestCase):
                         "csrf": self.headers.get("X-CSRF-Token"),
                     }
                 ).encode()
+                report = "/reports/" in self.path
+                if report:
+                    result = b"<html><body>native report</body></html>"
                 self.send_response(200)
+                if report:
+                    self.send_header("Content-Type", "text/html")
+                    self.send_header("Content-Security-Policy", "sandbox allow-scripts; default-src 'none'; frame-ancestors 'self'")
                 self.send_header("Content-Length", str(len(result)))
                 self.end_headers()
                 self.wfile.write(result)
@@ -131,7 +137,10 @@ class NginxProxyTest(unittest.TestCase):
                 headers={"Host": "platform.example:58080", **(headers or {})},
             )
             response = connection.getresponse()
-            return response.status, dict(response.getheaders()), response.read()
+            headers_out = {}
+            for name, value in response.getheaders():
+                headers_out[name] = f"{headers_out[name]}, {value}" if name in headers_out else value
+            return response.status, headers_out, response.read()
         finally:
             connection.close()
 
@@ -168,3 +177,20 @@ class NginxProxyTest(unittest.TestCase):
         )
         self.assertEqual(status, 101)
         self.assertEqual(headers.get("Upgrade", "").lower(), "websocket")
+
+    def test_mlperf_reports_retain_same_origin_frame_policy(self):
+        report_root = "/api/v1/performance/runs/00000000-0000-4000-8000-000000000001/reports"
+        for tool in ("mlperf", "scene-001-mlperf", "fio", "elbencho"):
+            with self.subTest(tool=tool):
+                status, headers, body = self.request("GET", f"{report_root}/{tool}/report.html")
+                self.assertEqual(status, 200, headers)
+                self.assertEqual(body, b"<html><body>native report</body></html>")
+                self.assertEqual(headers.get("Content-Type"), "text/html")
+                self.assertIn("frame-ancestors 'self'", headers.get("Content-Security-Policy", ""))
+                self.assertNotIn("frame-ancestors 'none'", headers.get("Content-Security-Policy", ""))
+                self.assertNotIn("DENY", headers.get("X-Frame-Options", ""))
+
+        status, headers, _ = self.request("GET", "/api/v1/performance/options")
+        self.assertEqual(status, 200)
+        self.assertEqual(headers.get("X-Frame-Options"), "DENY")
+        self.assertIn("frame-ancestors 'none'", headers.get("Content-Security-Policy", ""))

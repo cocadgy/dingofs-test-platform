@@ -35,15 +35,17 @@ test("supports a 4 KiB block with a GiB dataset", () => {
   expect(validateGuidedPerformance({ ...base, blockSize: 4, blockUnit: "KiB" })).toBe("");
 });
 
-test("MLPerf rounds nominal dataset to three complete batches per accelerator", () => {
+test("MLPerf rounds tiny CosmoFlow data to four files per accelerator", () => {
   const form = { ...base, tools: ["mlperf"], dataset: 1, datasetUnit: "MiB",
-    mlperfModel: "cosmoflow", mlperfEpochs: 5, mlperfAccelerators: 3 } as any;
+    mlperfModel: "cosmoflow", mlperfEpochs: 5, mlperfAccelerators: 1 } as any;
   const totals = guidedPerformanceTotals(form);
-  expect(totals.mlperfFileCount).toBe(9);
-  expect(totals.combinedBytes).toBe(25456374);
+  expect(totals.mlperfFileCount).toBe(4);
+  expect(totals.mlperfDatasetBytes).toBe(11313944);
+  expect(guidedPerformanceTotals({ ...form, mlperfAccelerators: 2 }).mlperfFileCount).toBe(8);
+  expect(guidedPerformanceTotals({ ...form, mlperfAccelerators: 2 }).mlperfDatasetBytes).toBe(22627888);
   expect(totals.measuredSeconds).toBe(0);
   expect(buildGuidedPerformancePayload(form).tests).toEqual([{ tool: "mlperf", mlperf_model: "cosmoflow",
-    mlperf_epochs: 5, mlperf_accelerators: 3, concurrency: 4, total_size: "1048576", rounds: 1 }]);
+    mlperf_epochs: 5, mlperf_accelerators: 1, concurrency: 4, total_size: "1048576", rounds: 1 }]);
 });
 
 test("MLPerf default UNet3D budget expands to three batches and rounds across accelerators", () => {
@@ -94,6 +96,11 @@ test("MLPerf-only shows training settings and omits fio controls", async () => {
   expect(screen.getByText(/内部对比测试/)).toBeTruthy();
   expect(screen.getByText(/预计数据量/)).toBeTruthy();
   expect(screen.getByText(/每个模拟加速器至少 3 个完整 batch/)).toBeTruthy();
+  fireEvent.change(screen.getByLabelText("训练模型"), { target: { value: "cosmoflow" } });
+  fireEvent.change(screen.getByLabelText("每种工具请求数据量"), { target: { value: "1" } });
+  fireEvent.change(screen.getByLabelText("数据量单位"), { target: { value: "MiB" } });
+  expect(screen.getByText(/MLPerf 预计数据量/)).toHaveTextContent(/4 个完整文件/);
+  expect(screen.getByText(/CosmoFlow.*4 个完整文件/)).toBeTruthy();
 });
 
 test("mixed guide names both effects of shared concurrency", async () => {
