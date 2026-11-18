@@ -30,19 +30,19 @@
 **Files:** `scripts/mlperf_benchmark.py`, `tests/test_mlperf_benchmark.py`.
 **Interfaces:** Keep `dtt-mlperf-v1`, `build_plan(args)` and native summary contract. Platform uses the identical minimum from Task 2.
 
-- [ ] Add RED tests for UNet3D native summary with four NaN fields:
+- [x] Add RED tests for UNet3D native summary with four NaN fields:
   `save_checkpoint_io_mean_GB_per_second`, `save_checkpoint_io_stdev_GB_per_second`,
   `save_checkpoint_duration_mean_seconds`, `save_checkpoint_duration_stdev_seconds`.
   These optional absent stats must not invalidate valid training. Preserve raw attachments.
-- [ ] Keep/add tests rejecting NaN/Infinity in required metrics, invalid metadata,
+- [x] Keep/add tests rejecting NaN/Infinity in required metrics, invalid metadata,
   missing summaries/epochs, and invalid measured duration. Add explicit 3-file
   rejection and 4-file acceptance for one Cosmo accelerator, 6 rejection/8 acceptance
   for two. Update obsolete three-file positive fixtures to four-file native constraints.
-- [ ] Run failing tests, record relevant RED output; implement narrowly scoped native
+- [x] Run failing tests, record relevant RED output; implement narrowly scoped native
   optional-stat handling and minimum. No broad raw JSON relaxation or invented metrics.
-- [ ] Verify focused tests and real saved UNet report parsing using temp output only.
+- [x] Verify focused tests and real saved UNet report parsing using temp output only.
   Evidence is under `/home/jenkins/.local/share/dingofs-platform/performance/8fb1d9bb-1206-4d8e-abd0-08e9e4c2c08e/output/scene-001-mlperf/performance-mlperf-20261118T045703Z-a7788bc00b9b`.
-- [ ] Run full DTT suite once: `NO_PROXY=127.0.0.1,localhost no_proxy=127.0.0.1,localhost PYTHONPATH=. python3 -m pytest -q tests`.
+- [x] Run full DTT suite once: `NO_PROXY=127.0.0.1,localhost no_proxy=127.0.0.1,localhost PYTHONPATH=. python3 -m pytest -q tests`.
   Persist test logs and report failing names if any. Commit only owned files.
 
 ### Task 2: Platform minimum and report proxy
@@ -54,28 +54,28 @@ and their tests; `deploy/nginx.conf`, `deploy/tests/test_nginx_proxy.py` (or foc
 **Interfaces:** Match Task 1 normalization: Cosmo 1 MiB -> 4 files/11,313,944 bytes;
 two accelerators -> 8 files/22,627,888 bytes. Native reports retain `scene-N-mlperf` routes.
 
-- [ ] Add RED backend/frontend cases deriving four/eight files, rejecting explicit
+- [x] Add RED backend/frontend cases deriving four/eight files, rejecting explicit
   three/six counts, accepting four/eight, unchanged other model minima. Explain reader
   requirement in existing size hint so UI does not imply three files suffice.
-- [ ] Add RED effective Nginx response test with upstream stub for plain `mlperf`
+- [x] Add RED effective Nginx response test with upstream stub for plain `mlperf`
   and `scene-001-mlperf`: HTML 200 and API frame-ancestors self policy survives,
   no DENY/global frame-ancestors none; generic API retains restrictions. Preserve fio/elbencho.
   Test behavior, not substring presence. Reuse existing isolated Nginx fixture.
-- [ ] Implement minimum and scoped MLPerf proxy alternative; no unrelated mdtest expansion.
-- [ ] Run focused frontend, backend and proxy tests; frontend build. Root owns full
+- [x] Implement minimum and scoped MLPerf proxy alternative; no unrelated mdtest expansion.
+- [x] Run focused frontend, backend and proxy tests; frontend build. Root owns full
   backend suite to avoid shared isolated DB concurrency. Agent runs frontend full suite once.
   Existing unrelated failures must be reported by name, not silently omitted.
-- [ ] Commit only owned code/tests; leave root design/plan files to root.
+- [x] Commit only owned code/tests; leave root design/plan files to root.
 
 ### Task 3: Integration, deployment and browser acceptance (root)
 
-- [ ] Review both tasks and cross-component values, run all performance backend tests
+- [x] Review both tasks and cross-component values, run all performance backend tests
   and complete isolated backend suite once, retaining failure list (baseline is not green).
-- [ ] Fresh final review, then version the isolated performance DTT bundle, preserving
+- [x] Fresh final review, then version the isolated performance DTT bundle, preserving
   functional `tools/dtt/current` and prior bundle/image rollback targets.
-- [ ] Build API/web images, verify no active platform workloads, switch only API/web
+- [x] Build API/web images, verify no active platform workloads, switch only API/web
   via existing release Compose wrapper and wait for API health.
-- [ ] Browser guide: one epoch, one accelerator, one generator, one round, requested
+- [x] Browser guide: one epoch, one accelerator, one generator, one round, requested
   1 MiB for ResNet50, UNet3D, CosmoFlow sequentially; enable success data cleanup.
-- [ ] Check native metrics/epochs, all report frames, data cleanup, original failed
+- [x] Check native metrics/epochs, all report frames, data cleanup, original failed
   task evidence unchanged; record exact IDs and verification results.
