@@ -55,7 +55,7 @@ def options(request:Request,user=Depends(current_user)):
             d=r.data
             if can_manage(user,r):mounts.append({'id':r.id,'name':r.name,'state':r.state,'machine_id':d.get('machine_id'),'path':d.get('mountpoint') or d.get('mount_point') or d.get('mount_path')})
         return {'machines':[{'id':m.id,'name':m.name,'address':m.address,'ssh_user':m.ssh_user,'maintenance':m.maintenance} for m in machines],
-                'mdtest_options':OPTIONS,'mounts':mounts,'tools':['fio','elbencho','mdtest']}
+                'mdtest_options':OPTIONS,'mounts':mounts,'tools':['fio','elbencho','mdtest','mlperf']}
 
 
 @router.post('/preview')

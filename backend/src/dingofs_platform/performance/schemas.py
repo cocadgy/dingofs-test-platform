@@ -8,6 +8,13 @@ from typing import Annotated, Literal
 from pydantic import BaseModel, ConfigDict, Field, model_validator, field_validator, PrivateAttr
 
 RuntimeSeconds = Annotated[int, Field(strict=True, ge=1, le=604800)]
+MlperfModel = Literal['resnet50', 'unet3d', 'cosmoflow']
+MlperfEpochs = Annotated[int, Field(strict=True, ge=1, le=1000)]
+MlperfAccelerators = Annotated[int, Field(strict=True, ge=1, le=1024)]
+# MLPerf Storage v2.0 H100: nominal bytes/file, samples/file, batch/accelerator.
+# Byte totals are estimates; native formats and sample distributions add variance.
+MLPERF_MODELS = {'resnet50': (143439748, 1251, 400),
+                 'unet3d': (146600628, 1, 7), 'cosmoflow': (2828486, 1, 1)}
 
 
 def byte_size(value: str) -> int:
@@ -20,7 +27,7 @@ def byte_size(value: str) -> int:
 
 class TestSpec(BaseModel):
     model_config=ConfigDict(extra='forbid')
-    tool: Literal['fio','elbencho','mdtest']
+    tool: Literal['fio','elbencho','mdtest','mlperf']
     direct: bool=True
     concurrency: int=Field(default=4,ge=1,le=1024)
     file_size: str | None=None
@@ -35,9 +42,35 @@ class TestSpec(BaseModel):
 
     mdtest_options: dict = Field(default_factory=dict)
     layout: Literal['unique','shared']='unique'
+    mlperf_model: MlperfModel='resnet50'
+    mlperf_epochs: MlperfEpochs=5
+    mlperf_accelerators: MlperfAccelerators=1
 
     @model_validator(mode='after')
     def validate_plan(self):
+        if self.tool == 'mlperf':
+            if self.runtime_seconds is not None:
+                raise ValueError('MLPerf 按完整训练轮次执行，请设置 epochs、轮数和任务总超时')
+            size, samples, batch = MLPERF_MODELS[self.mlperf_model]
+            accelerators = self.mlperf_accelerators
+            minimum = max(accelerators, (batch * accelerators + samples - 1) // samples)
+            if self.file_count is None:
+                requested = byte_size(self.total_size or '1GiB')
+                count = max(minimum, (requested + size - 1) // size)
+                count = (count + accelerators - 1) // accelerators * accelerators
+            else:
+                count = self.file_count
+                if count < minimum or count % accelerators:
+                    raise ValueError('MLPerf 文件数必须满足每个加速器至少一个 batch 且能被加速器数整除')
+                if self.total_size is not None and byte_size(self.total_size) != count * size:
+                    raise ValueError('MLPerf 预计总大小必须等于名义文件大小乘以文件数')
+            if count > 10000000 or count * size > 1024**5:
+                raise ValueError('MLPerf 文件数或预计数据量超出支持范围')
+            if self.file_size is not None and byte_size(self.file_size) != size:
+                raise ValueError('MLPerf 文件大小由模型决定，不能用 fio 文件大小覆盖')
+            self.file_size, self.file_count, self.total_size = str(size), count, str(size * count)
+            self.block_size, self.rw, self.direct, self.iodepth, self.read_percent = '0', 'read', False, 1, None
+            return self
         if self.tool == 'mdtest':
             if self.runtime_seconds is not None:
                 raise ValueError('mdtest 不支持按测试时长运行，请使用元数据数量参数')
@@ -95,7 +128,7 @@ class TestSpec(BaseModel):
 class ParameterMatrix(BaseModel):
     """Scalar values remain supported; lists define independent candidate axes."""
     model_config=ConfigDict(extra='forbid')
-    tool: Literal['fio','elbencho','mdtest']
+    tool: Literal['fio','elbencho','mdtest','mlperf']
     direct: bool | list[bool]=True
     concurrency: int | list[int]=4
     file_size: str | list[str] | None=None
@@ -110,11 +143,16 @@ class ParameterMatrix(BaseModel):
 
     mdtest_options: dict = Field(default_factory=dict)
     layout: Literal['unique','shared'] | list[Literal['unique','shared']]='unique'
+    mlperf_model: MlperfModel | list[MlperfModel]='resnet50'
+    mlperf_epochs: MlperfEpochs | list[MlperfEpochs]=5
+    mlperf_accelerators: MlperfAccelerators | list[MlperfAccelerators]=1
 
     @model_validator(mode='after')
     def runtime_tool(self):
         if self.tool == 'mdtest' and self.runtime_seconds is not None:
             raise ValueError('mdtest 不支持按测试时长运行，请使用元数据数量参数')
+        if self.tool == 'mlperf' and self.runtime_seconds is not None:
+            raise ValueError('MLPerf 按完整训练轮次执行，请设置 epochs、轮数和任务总超时')
         return self
 
     @field_validator('mdtest_options')
@@ -130,6 +168,14 @@ class ParameterMatrix(BaseModel):
     def axes(self):
         axes={key:list(dict.fromkeys(value)) if isinstance(value,list) else [value]
               for key,value in self.model_dump().items() if key not in ('tool','mdtest_options')}
+        if self.tool == 'mlperf':
+            training_axes = {key: axes[key] for key in ('mlperf_model', 'mlperf_epochs', 'mlperf_accelerators',
+                                                       'concurrency', 'total_size', 'file_count', 'rounds')}
+            if any(not values for values in training_axes.values()):
+                raise ValueError('每个参数至少选择一个值')
+            return training_axes
+        for key in ('mlperf_model', 'mlperf_epochs', 'mlperf_accelerators'):
+            axes.pop(key)
         if self.tool == 'mdtest':
             axes = {key: axes[key] for key in ('concurrency','file_count','rounds','layout')}
         else:
@@ -141,7 +187,7 @@ class ParameterMatrix(BaseModel):
 
     def candidate_count(self):
         axes=self.axes()
-        if self.tool == 'mdtest':return math.prod(len(values) for values in axes.values())
+        if self.tool in ('mdtest', 'mlperf'):return math.prod(len(values) for values in axes.values())
         modes=axes.pop('rw'); ratios=axes.pop('read_percent')
         return math.prod(len(values) for values in axes.values())*sum(len(ratios) if mode in ('rw','randrw') else 1 for mode in modes)
 
@@ -169,7 +215,7 @@ class RunInput(BaseModel):
     machine_id: str=Field(min_length=1,max_length=36)
     target_kind: Literal['directory','mount']='directory'
     target_path: str=Field(min_length=2,max_length=1024)
-    tests: list[ParameterMatrix]=Field(min_length=1,max_length=3)
+    tests: list[ParameterMatrix]=Field(min_length=1,max_length=4)
     cleanup_data: bool=False
     timeout_minutes: int=Field(default=120,ge=1)
 

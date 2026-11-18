@@ -2,6 +2,11 @@ from .schemas import TestSpec
 
 
 def argv_for(spec: TestSpec, target: str, output: str, dtt: str) -> list[str]:
+    if spec.tool == 'mlperf':
+        return [dtt, '-t', 'mlperf', '-s', 'benchmark', '-m', target, '-o', output,
+                '--mlperf-model', spec.mlperf_model, '--mlperf-epochs', str(spec.mlperf_epochs),
+                '--mlperf-accelerators', str(spec.mlperf_accelerators), '--concurrency', str(spec.concurrency),
+                '--file-count', str(spec.file_count), '--rounds', str(spec.rounds)]
     if spec.tool == 'mdtest':
         return [dtt,'-t','mdtest','-s','custom','-m',target,'-o',output,'-n',str(spec.concurrency),'--custom-dir','__CUSTOM__']
     args=[dtt,'-t',spec.tool,'-s','benchmark','-m',target,'-o',output,

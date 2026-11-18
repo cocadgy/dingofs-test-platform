@@ -133,6 +133,59 @@ def mdtest_html(report):
             '<table><tr><th>操作</th><th>平均值</th><th>有效轮次</th></tr>'+rows+'</table>')
 
 
+def mlperf_plan_matches(plan, expected):
+    if not isinstance(plan, dict) or plan.get('format') != 'dtt-mlperf-v1' or plan.get('tool') != 'mlperf':
+        return False
+    fields = {'mlperf_model': str, 'mlperf_epochs': int, 'mlperf_accelerators': int,
+              'concurrency': int, 'file_count': int, 'file_size': str, 'total_size': str, 'rounds': int}
+    return all(type(plan.get(key)) is kind and plan[key] == expected.get(key) for key, kind in fields.items())
+
+
+def mlperf_summary(raw, expected, directory):
+    """Validate the adapter's native-evidence contract, not merely exit status."""
+    if not expected or raw.get('format') != 'dtt-mlperf-v1' or not mlperf_plan_matches(raw.get('plan'), expected):
+        raise ValueError('MLPerf 报告参数与请求不一致，请升级 DTT 后重试')
+    rounds = expected['rounds']
+    rows = raw.get('rounds')
+    if not isinstance(rows, list):raise ValueError('MLPerf 报告轮次格式无效')
+    seen = set()
+    metrics = {'samples_per_second': [], 'accelerator_utilization_percent': []}
+    timings = []
+    for row in rows:
+        if not isinstance(row, dict):raise ValueError('MLPerf 报告轮次格式无效')
+        number = row.get('round')
+        if type(number) is not int or not 1 <= number <= rounds or number in seen:
+            raise ValueError('MLPerf 轮次缺失或重复')
+        if row.get('status') != 'passed':continue
+        values = row.get('metrics')
+        if not isinstance(values, dict):raise ValueError('MLPerf 原生指标格式无效')
+        for key in metrics:
+            value = values.get(key)
+            if type(value) not in (int, float) or not math.isfinite(value):
+                raise ValueError('MLPerf 缺少有效原生指标')
+            if (key == 'samples_per_second' and value <= 0) or (key == 'accelerator_utilization_percent' and not 0 <= value <= 100):
+                raise ValueError('MLPerf 原生指标超出范围')
+            metrics[key].append(value)
+        evidence = row.get('native_reports')
+        if not isinstance(evidence, list) or not evidence or any(
+            not isinstance(name, str) or Path(name).name != name or not name.endswith('.json')
+            or (directory / name).is_symlink() or not (directory / name).is_file() for name in evidence):
+            raise ValueError('MLPerf 缺少本轮原生报告附件')
+        elapsed = values.get('measurement_seconds')
+        if elapsed is not None:
+            if type(elapsed) not in (int, float) or not math.isfinite(elapsed) or elapsed <= 0:
+                raise ValueError('MLPerf 原生训练时间无效')
+            timings.append(elapsed)
+        seen.add(number)
+    complete = raw.get('status') == 'passed' and len(rows) == rounds and len(seen) == rounds
+    if raw.get('status') == 'passed' and not complete:raise ValueError('MLPerf 报告缺少完整训练轮次')
+    if len(timings) == len(seen) and timings:metrics['measurement_seconds'] = timings
+    return {'status': 'passed' if complete else 'failed', 'error': str(raw.get('error') or ('' if complete else 'MLPerf 未完整完成')),
+            'statistics': {'complete': complete, 'requested_rounds': rounds, 'successful_rounds': len(seen),
+                           'metrics': {key: {'mean': statistics.mean(values) if values else None, 'samples': len(values)}
+                                       for key, values in metrics.items()}}}
+
+
 def validate_timed_report(report, expected):
     """Never accept a finite/short result as a successful timed measurement."""
     requested=expected.get('runtime_seconds') if expected else None
@@ -171,6 +224,7 @@ def report_files(output,tool,budget=16*1024*1024,expected=None):
     report=json.loads(paths[0].read_text())
     if not isinstance(report,dict):raise ValueError('报告摘要格式错误')
     if tool == 'mdtest':report=mdtest_summary(report,expected)
+    elif tool == 'mlperf':report=mlperf_summary(report,expected,paths[0].parent)
     else:validate_timed_report(report,expected)
     # Keep live metadata compact; full round data remains in the JSON artifact.
     timed=bool(expected and expected.get('runtime_seconds') is not None)
@@ -189,7 +243,7 @@ def report_files(output,tool,budget=16*1024*1024,expected=None):
     if timed:
         report['runtime_seconds']=expected['runtime_seconds']
     compact_metrics={}
-    for key in (tuple(metrics) if tool == 'mdtest' else ('bandwidth_mib_s','iops','latency_mean_us')):
+    for key in (tuple(metrics) if tool in ('mdtest', 'mlperf') else ('bandwidth_mib_s','iops','latency_mean_us')):
         value=metrics.get(key) or {}
         if not isinstance(value,dict):
             if timed and passed:raise ValueError('定时测试报告统计指标格式无效')
@@ -264,8 +318,10 @@ def resolve_dtt():
 
 def check_timed_dtt(argv, spec, timeout, *, cancel_path=None, runtime=None, data_dir=None, output_dir=None):
     """Dry-run echoes the contract; old wrappers must not silently drop runtime."""
-    if spec.get('runtime_seconds') is None:return
-    message='当前 DTT 无法确认支持定时压测，请升级 DTT（包含 --runtime-seconds 支持）后重试'
+    mlperf = spec.get('tool') == 'mlperf'
+    if spec.get('runtime_seconds') is None and not mlperf:return
+    message=('当前 DTT 无法确认支持 MLPerf 引导，请升级 DTT（包含 dtt-mlperf-v1 支持）后重试' if mlperf
+             else '当前 DTT 无法确认支持定时压测，请升级 DTT（包含 --runtime-seconds 支持）后重试')
     if timeout<=0:raise TimeoutError('DTT 定时支持检查超时')
     probe_timeout=min(30,timeout)
     deadline=time.monotonic()+probe_timeout
@@ -300,7 +356,9 @@ def check_timed_dtt(argv, spec, timeout, *, cancel_path=None, runtime=None, data
     try:plan=json.loads(stdout) if process.returncode == 0 else None
     except ValueError as exc:
         raise RuntimeError(message+'：'+str(exc)[:500]) from exc
-    if (not isinstance(plan,dict) or type(plan.get('runtime_seconds')) is not int
+    if mlperf:
+        if not mlperf_plan_matches(plan, spec):raise RuntimeError(message)
+    elif (not isinstance(plan,dict) or type(plan.get('runtime_seconds')) is not int
             or plan['runtime_seconds'] != spec['runtime_seconds']):
         detail=(stderr or stdout).strip()[:500]
         raise RuntimeError(message+('：'+detail if detail else ''))
@@ -374,8 +432,8 @@ def execute(root):
             output.mkdir(parents=True,exist_ok=True)
             argv=[str(dtt)]+test['args']
             argv=[str(data_dir) if x=='__DATA__' else str(output) if x=='__OUTPUT__' else x for x in argv]
-            if spec.get('runtime_seconds') is not None:
-                state.update(phase=label+' · 检查 DTT 定时压测支持')
+            if spec.get('runtime_seconds') is not None or tool == 'mlperf':
+                state.update(phase=label+(' · 检查 DTT MLPerf 支持' if tool == 'mlperf' else ' · 检查 DTT 定时压测支持'))
                 save()
                 try:check_timed_dtt(argv,spec,timeout-(time.monotonic()-started),
                                     cancel_path=root/'cancel',runtime=runtime,data_dir=data_dir,output_dir=output)
