@@ -13,6 +13,8 @@ export const formatBytes = (value: string | number) => {
   return `${Number(v.toFixed(2))} ${units[i]}`;
 };
 export function ScenarioParameters({ spec }: { spec: Spec }) {
+  if (spec.tool === 'mlperf' && spec.mlperf_scenario === 'checkpointing') return <span className="performance-parameters">Checkpoint · {spec.mlperf_model} · {spec.checkpoint_mode}<br/>{spec.checkpoint_count} 次 · {spec.concurrency} 进程 · {spec.rounds} 轮 · 预计 {formatBytes(spec.total_size)}{spec.checkpoint_mode === 'read' ? ' · 先准备数据，再测读取' : ''}</span>;
+  if (spec.tool === 'mlperf' && spec.mlperf_scenario === 'kvcache') return <span className="performance-parameters">KV Cache · {spec.mlperf_model}<br/>{spec.concurrency} 用户 · 每轮 {spec.runtime_seconds} 秒 · 存储层容量 {formatBytes(spec.total_size)} · {spec.rounds} 轮</span>;
   if (spec.tool === "mlperf") return <span className="performance-parameters">
     {({ resnet50: "ResNet50", unet3d: "UNet3D", cosmoflow: "CosmoFlow" } as Record<string, string>)[spec.mlperf_model || ""] || spec.mlperf_model || "MLPerf Storage"}
     {" · "}{spec.mlperf_epochs} epochs · {spec.mlperf_accelerators} 个模拟 H100

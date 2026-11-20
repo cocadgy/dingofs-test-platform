@@ -2,7 +2,7 @@ import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/re
 import { afterEach, expect, test, vi } from "vitest";
 import { api } from "../../api/client";
 import { GuidedPerformanceFlow } from "./GuidedPerformanceFlow";
-import { buildGuidedPerformancePayload, guidedPerformanceTotals, validateGuidedPerformance } from "./guidedPerformanceModel";
+import { buildGuidedPerformancePayload, guidedPerformanceTotals, validateGuidedPerformance, defaultGuidedPerformanceForm } from "./guidedPerformanceModel";
 
 vi.mock("../../api/client", () => ({ api: vi.fn() }));
 afterEach(() => { cleanup(); vi.resetAllMocks(); });
@@ -13,7 +13,7 @@ const options = { machines: [
 ], mounts: [
   { id: "v1", name: "文件系统一", state: "mounted", machine_id: "m1", path: "/mnt/one" },
 ] };
-const base = { name: "性能测试", machineId: "m1", targetKind: "directory" as const, targetPath: "/data",
+const base = { ...defaultGuidedPerformanceForm(), name: "性能测试", machineId: "m1", targetKind: "directory" as const, targetPath: "/data",
   tools: ["fio" as const], duration: 60, durationUnit: "seconds" as const,
   dataset: 1, datasetUnit: "GiB" as const, rw: "write", concurrency: 4,
   blockSize: 1, blockUnit: "MiB" as const, rounds: 1, direct: true,
@@ -93,6 +93,13 @@ test("MLPerf-only shows training settings and omits fio controls", async () => {
   expect(screen.queryByLabelText("读写模式")).toBeNull();
   expect(screen.queryByLabelText("块大小")).toBeNull();
   expect(screen.queryByLabelText("Direct I/O")).toBeNull();
+  fireEvent.change(screen.getByLabelText('MLPerf 场景'), {target:{value:'checkpointing'}});
+  expect(screen.getByLabelText('检查点模式')).toBeVisible();
+  expect(screen.queryByLabelText('训练模型')).toBeNull();
+  fireEvent.change(screen.getByLabelText('MLPerf 场景'), {target:{value:'kvcache'}});
+  expect(screen.getByLabelText('KV Cache 模型')).toBeVisible();
+  expect(screen.getByLabelText('KV Cache 每轮时长（秒）')).toBeVisible();
+  fireEvent.change(screen.getByLabelText('MLPerf 场景'), {target:{value:'training'}});
   expect(screen.getByText(/内部对比测试/)).toBeTruthy();
   expect(screen.getByText(/预计数据量/)).toBeTruthy();
   expect(screen.getByText(/每个模拟加速器至少 3 个完整 batch/)).toBeTruthy();

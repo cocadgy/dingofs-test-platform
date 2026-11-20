@@ -63,6 +63,8 @@ elif op=='source_files':
             files.update({name:file_info(path) for name,path in runtime.items()})
             adapter=directory/'scripts/mlperf_benchmark.py'
             if adapter.is_file():files['mlperf_benchmark.py']=file_info(adapter)
+            adapter_v3=directory/'scripts/mlperf_v3.py'
+            if adapter_v3.is_file():files['mlperf_v3.py']=file_info(adapter_v3)
         functional={name:directory/'dingofs-integration-test'/path for name,path in {'run_tests.py':'run_tests.py','test_suite.py':'src/test_runner/test_suite.py','functional_plan.py':'src/test_runner/functional_plan.py','env_parser.py':'src/config/env_parser.py','env_setup.py':'src/config/env_setup.py','command_utils.py':'src/config/command_utils.py','client_mount_ops.py':'src/client_test/mixins/mount_ops.py','client_cache_group_ops.py':'src/client_test/mixins/cache_group_ops.py','large_scale_cache_setup.py':'src/large_scale_test/cache_setup.py','large_scale_cache_observer.py':'src/large_scale_test/cache_observer.py',**{name+'_executor.py':'src/'+name+'_test/executor.py' for name in ('mount_subdir','trash','cache_node','hot_upgrade','dirstat','mds_manage')}}.items()}
         if not (directory/'functional_runtime.py').exists() and all(path.is_file() for path in functional.values()):
             files.update({name:file_info(path) for name,path in functional.items()})

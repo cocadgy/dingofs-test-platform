@@ -23,6 +23,14 @@ const parameters: Parameter[] = [
   { key: "file_size", label: "每文件大小", format: formatBytes },
 ];
 const mlperfParameters: Parameter[] = [
+  {key:'mlperf_scenario',label:'MLPerf 场景'},
+  {key:'checkpoint_mode',label:'Checkpoint 模式'},
+  {key:'checkpoint_count',label:'检查点次数'},
+  {key:'checkpoint_size',label:'检查点大小',format:formatBytes},
+  {key:'runtime_seconds',label:'每轮时长（秒）'},
+  {key:'total_size',label:'数据量 / 缓存容量',format:formatBytes},
+  {key:'gpu_memory_gib',label:'GPU 缓存层 GiB'},
+  {key:'cpu_memory_gib',label:'CPU 缓存层 GiB'},
   {key:"mlperf_model",label:"训练模型",format:(v:string)=>({resnet50:"ResNet50",unet3d:"UNet3D",cosmoflow:"CosmoFlow"} as Record<string,string>)[v] || v},
   {key:"mlperf_epochs",label:"每轮训练 epochs"},
   {key:"mlperf_accelerators",label:"模拟 H100 加速器数"},
@@ -43,7 +51,8 @@ export function ToolComparisonReports({ run }: { run: Run }) {
   const [chosen, setChosen] = useState<Tool>();
   const tool = chosen && tools.includes(chosen) ? chosen : tools[0];
   const rows = scenes.filter((s) => s.tool === tool);
-  const metricKeys: ChartMetric[] = tool==="mlperf" ? ["samples_per_second","accelerator_utilization_percent"] : tool==="mdtest" ? ((Object.keys(chartMetrics) as ChartMetric[]).filter(key=>rows.some(row=>run.reports[row.id]?.summary?.statistics?.metrics?.[key]?.mean!=null)).length ? (Object.keys(chartMetrics) as ChartMetric[]).filter(key=>rows.some(row=>run.reports[row.id]?.summary?.statistics?.metrics?.[key]?.mean!=null)) : ["create_ops_s"]) : ["bandwidth_mib_s","iops","latency_mean_us"];
+  const availableMetrics = (Object.keys(chartMetrics) as ChartMetric[]).filter(key=>rows.some(row=>run.reports[row.id]?.summary?.statistics?.metrics?.[key]?.mean!=null));
+  const metricKeys: ChartMetric[] = tool==='mlperf' ? (availableMetrics.length ? availableMetrics : ['samples_per_second','accelerator_utilization_percent']) : tool==='mdtest' ? (availableMetrics.length ? availableMetrics : ['create_ops_s']) : ['bandwidth_mib_s','iops','latency_mean_us'];
   const metric = metricKeys.includes(chosenMetric) ? chosenMetric : metricKeys[0];
   const fields = (tool==="mlperf" ? mlperfParameters : tool==="mdtest" ? [
     {key:"concurrency",label:"MPI 进程数"},

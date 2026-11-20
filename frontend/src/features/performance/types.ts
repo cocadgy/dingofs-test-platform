@@ -13,7 +13,13 @@ export type Spec = {
   rw: string;
   rounds: number;
   runtime_seconds?: number | null;
-  mlperf_model?: "resnet50" | "unet3d" | "cosmoflow";
+  mlperf_model?: string;
+  mlperf_scenario?: 'training' | 'checkpointing' | 'kvcache';
+  checkpoint_mode?: 'read' | 'write' | 'write-read';
+  checkpoint_count?: number;
+  checkpoint_size?: string;
+  gpu_memory_gib?: number;
+  cpu_memory_gib?: number;
   mlperf_epochs?: number;
   mlperf_accelerators?: number;
   iodepth: number;

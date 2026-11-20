@@ -21,7 +21,9 @@ export function ScenarioResults({ run }: { run: Run }) {
     }));
   const columns = [
     ...(scenes.some(s=>s.tool==="fio" || s.tool==="elbencho") ? [["bandwidth_mib_s","平均带宽 MiB/s"],["iops","平均 IOPS"],["latency_mean_us","平均延迟 μs"]] : []),
-    ...(scenes.some(s=>s.tool==="mlperf") ? [["samples_per_second","训练吞吐 samples/s"],["accelerator_utilization_percent","加速器利用率 %"]] : []),
+    ...(scenes.some(s=>s.tool==='mlperf' && (!s.parameters.mlperf_scenario || s.parameters.mlperf_scenario==='training')) ? [["samples_per_second","训练吞吐 samples/s"],["accelerator_utilization_percent","加速器利用率 %"]] : []),
+    ...(scenes.some(s=>s.parameters.mlperf_scenario==='checkpointing') ? [['write_gib_per_second','写入 GiB/s'],['read_gib_per_second','读取 GiB/s']] : []),
+    ...(scenes.some(s=>s.parameters.mlperf_scenario==='kvcache') ? [['tokens_per_second','Token/s'],['requests_per_second','请求/s'],['end_to_end_latency_ms_p99','P99 延迟 ms']] : []),
     ...(scenes.some(s=>s.tool==="mdtest") ? [["create_ops_s","创建 ops/s"],["stat_ops_s","stat ops/s"],["remove_ops_s","删除 ops/s"]] : []),
   ];
   const state = (id: string) => {

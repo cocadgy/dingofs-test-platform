@@ -11,7 +11,7 @@ const dimensions: (keyof Spec)[] = [
   "rounds",
   "read_percent",
 ];
-const mlperfDimensions: (keyof Spec)[] = ["mlperf_model", "mlperf_epochs", "mlperf_accelerators", "concurrency", "file_size", "file_count", "rounds"];
+const mlperfDimensions: (keyof Spec)[] = ["mlperf_scenario", "checkpoint_mode", "checkpoint_count", "checkpoint_size", "runtime_seconds", "total_size", "gpu_memory_gib", "cpu_memory_gib", "mlperf_model", "mlperf_epochs", "mlperf_accelerators", "concurrency", "file_size", "file_count", "rounds"];
 export function chartGroups(rows: Scenario[], parameter: keyof Spec) {
   const groups = new Map<
     string,

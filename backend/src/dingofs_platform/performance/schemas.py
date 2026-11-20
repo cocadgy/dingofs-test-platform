@@ -8,7 +8,13 @@ from typing import Annotated, Literal
 from pydantic import BaseModel, ConfigDict, Field, model_validator, field_validator, PrivateAttr
 
 RuntimeSeconds = Annotated[int, Field(strict=True, ge=1, le=604800)]
-MlperfModel = Literal['resnet50', 'unet3d', 'cosmoflow']
+MlperfModel = Literal['resnet50', 'unet3d', 'cosmoflow', 'custom', 'llama3-8b', 'llama3-70b', 'llama3-405b', 'llama3-1t', 'tiny-1b', 'mistral-7b', 'llama2-7b', 'llama3.1-8b', 'llama3.1-70b-instruct']
+MlperfScenario = Literal['training', 'checkpointing', 'kvcache']
+CheckpointMode = Literal['write', 'read', 'write-read']
+MemoryGiB = Annotated[float, Field(ge=0, le=1048576, allow_inf_nan=False)]
+CHECKPOINT_MODELS = {'llama3-8b': 8_030_261_248, 'llama3-70b': 70_553_706_496,
+                     'llama3-405b': 405_853_388_800, 'llama3-1t': 1_000_000_000_000}
+KV_MODELS = {'tiny-1b', 'mistral-7b', 'llama2-7b', 'llama3.1-8b', 'llama3.1-70b-instruct'}
 MlperfEpochs = Annotated[int, Field(strict=True, ge=1, le=1000)]
 MlperfAccelerators = Annotated[int, Field(strict=True, ge=1, le=1024)]
 # MLPerf Storage v2.0 H100: nominal bytes/file, samples/file, batch/accelerator.
@@ -45,10 +51,52 @@ class TestSpec(BaseModel):
     mlperf_model: MlperfModel='resnet50'
     mlperf_epochs: MlperfEpochs=5
     mlperf_accelerators: MlperfAccelerators=1
+    mlperf_scenario: MlperfScenario='training'
+    checkpoint_mode: CheckpointMode='write-read'
+    checkpoint_count: MlperfEpochs=1
+    checkpoint_size: str | None=None
+    gpu_memory_gib: MemoryGiB=0.0
+    cpu_memory_gib: MemoryGiB=0.0
 
     @model_validator(mode='after')
     def validate_plan(self):
         if self.tool == 'mlperf':
+            if self.mlperf_scenario != 'training':
+                if self.mlperf_epochs != 5 or self.mlperf_accelerators != 1:
+                    raise ValueError('epochs 和加速器数量仅适用于训练场景')
+                if self.file_count is not None or self.file_size not in (None, '0'):
+                    raise ValueError('文件数和文件大小仅适用于训练场景')
+                if self.mlperf_scenario == 'checkpointing':
+                    if self.runtime_seconds is not None:
+                        raise ValueError('Checkpoint 按次数执行，不支持固定测试时长')
+                    if self.mlperf_model == 'custom':
+                        size = byte_size(self.checkpoint_size or '1GiB')
+                        self.checkpoint_size = str(size)
+                    elif self.mlperf_model in CHECKPOINT_MODELS and self.checkpoint_size is None:
+                        size = CHECKPOINT_MODELS[self.mlperf_model] * 14
+                    else:
+                        raise ValueError('请选择有效的 Checkpoint 模型；自定义大小仅适用于 custom')
+                    if self.cpu_memory_gib or self.gpu_memory_gib:
+                        raise ValueError('缓存层内存仅适用于 KV Cache')
+                    self.total_size = str(size * self.checkpoint_count)
+                else:
+                    if self.mlperf_model not in KV_MODELS:
+                        raise ValueError('请选择有效的 KV Cache 模型')
+                    if self.checkpoint_size is not None or self.checkpoint_mode != 'write-read' or self.checkpoint_count != 1:
+                        raise ValueError('Checkpoint 参数不能用于 KV Cache')
+                    self.runtime_seconds = self.runtime_seconds or 60
+                    if self.runtime_seconds > 86400:
+                        raise ValueError('KV Cache 单轮测试最长 24 小时')
+                    self.total_size = str(byte_size(self.total_size or '1GiB'))
+                if int(self.total_size) > 1024**5:
+                    raise ValueError('预计数据量不能超过 1PiB')
+                self.file_size, self.block_size, self.direct = '0', '0', False
+                self.rw, self.iodepth, self.read_percent = 'rw', 1, None
+                return self
+            if self.mlperf_model not in MLPERF_MODELS:
+                raise ValueError('请选择有效的训练模型')
+            if self.checkpoint_size is not None or self.checkpoint_mode != 'write-read' or self.checkpoint_count != 1 or self.gpu_memory_gib or self.cpu_memory_gib:
+                raise ValueError('训练场景不能使用 Checkpoint 或 KV Cache 参数')
             if self.runtime_seconds is not None:
                 raise ValueError('MLPerf 按完整训练轮次执行，请设置 epochs、轮数和任务总超时')
             size, samples, batch = MLPERF_MODELS[self.mlperf_model]
@@ -147,12 +195,28 @@ class ParameterMatrix(BaseModel):
     mlperf_model: MlperfModel | list[MlperfModel]='resnet50'
     mlperf_epochs: MlperfEpochs | list[MlperfEpochs]=5
     mlperf_accelerators: MlperfAccelerators | list[MlperfAccelerators]=1
+    mlperf_scenario: MlperfScenario='training'
+    checkpoint_mode: CheckpointMode | list[CheckpointMode]='write-read'
+    checkpoint_count: MlperfEpochs | list[MlperfEpochs]=1
+    checkpoint_size: str | list[str] | None=None
+    gpu_memory_gib: MemoryGiB | list[MemoryGiB]=0.0
+    cpu_memory_gib: MemoryGiB | list[MemoryGiB]=0.0
 
     @model_validator(mode='after')
     def runtime_tool(self):
+        if self.tool == 'mlperf':
+            defaults = {'mlperf_epochs':5,'mlperf_accelerators':1,'checkpoint_mode':'write-read',
+                        'checkpoint_count':1,'checkpoint_size':None,'gpu_memory_gib':0.0,'cpu_memory_gib':0.0}
+            allowed = {'training':{'mlperf_epochs','mlperf_accelerators'},
+                       'checkpointing':{'checkpoint_mode','checkpoint_count','checkpoint_size'},
+                       'kvcache':{'gpu_memory_gib','cpu_memory_gib'}}[self.mlperf_scenario]
+            if any(getattr(self, key) != default for key, default in defaults.items() if key not in allowed):
+                raise ValueError('不能混用不同 MLPerf 场景的参数')
+            if self.mlperf_scenario != 'training' and (self.file_count is not None or self.file_size not in (None, '0')):
+                raise ValueError('文件数和文件大小仅适用于训练场景')
         if self.tool == 'mdtest' and self.runtime_seconds is not None:
             raise ValueError('mdtest 不支持按测试时长运行，请使用元数据数量参数')
-        if self.tool == 'mlperf' and self.runtime_seconds is not None:
+        if self.tool == 'mlperf' and self.mlperf_scenario != 'kvcache' and self.runtime_seconds is not None:
             raise ValueError('MLPerf 按完整训练轮次执行，请设置 epochs、轮数和任务总超时')
         return self
 
@@ -170,12 +234,20 @@ class ParameterMatrix(BaseModel):
         axes={key:list(dict.fromkeys(value)) if isinstance(value,list) else [value]
               for key,value in self.model_dump().items() if key not in ('tool','mdtest_options')}
         if self.tool == 'mlperf':
+            if self.mlperf_scenario != 'training':
+                fields = ('mlperf_scenario', 'mlperf_model', 'concurrency', 'rounds')
+                fields += (('checkpoint_mode', 'checkpoint_count', 'checkpoint_size') if self.mlperf_scenario == 'checkpointing'
+                           else ('runtime_seconds', 'total_size', 'gpu_memory_gib', 'cpu_memory_gib'))
+                selected = {key: axes[key] for key in fields}
+                if any(not values for values in selected.values()):
+                    raise ValueError('每个参数至少选择一个值')
+                return selected
             training_axes = {key: axes[key] for key in ('mlperf_model', 'mlperf_epochs', 'mlperf_accelerators',
                                                        'concurrency', 'total_size', 'file_count', 'rounds')}
             if any(not values for values in training_axes.values()):
                 raise ValueError('每个参数至少选择一个值')
             return training_axes
-        for key in ('mlperf_model', 'mlperf_epochs', 'mlperf_accelerators'):
+        for key in ('mlperf_model', 'mlperf_epochs', 'mlperf_accelerators', 'mlperf_scenario', 'checkpoint_mode', 'checkpoint_count', 'checkpoint_size', 'gpu_memory_gib', 'cpu_memory_gib'):
             axes.pop(key)
         if self.tool == 'mdtest':
             axes = {key: axes[key] for key in ('concurrency','file_count','rounds','layout')}

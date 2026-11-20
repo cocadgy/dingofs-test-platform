@@ -134,7 +134,29 @@ def mdtest_html(report):
 
 
 def mlperf_plan_matches(plan, expected):
+    if isinstance(plan, dict) and plan.get('format') == 'dtt-mlperf-v2':
+        scene = expected.get('mlperf_scenario', 'training')
+        if plan.get('engine_version') != '3.0.46' or plan.get('mlperf_scenario') != scene or plan.get('tool') != 'mlperf':
+            return False
+        keys = ['mlperf_model', 'concurrency', 'rounds', 'total_size']
+        if scene == 'training':
+            keys += ['mlperf_epochs', 'mlperf_accelerators', 'file_count', 'file_size']
+        elif scene == 'checkpointing':
+            keys += ['checkpoint_mode', 'checkpoint_count']
+            if expected.get('checkpoint_size') is not None and str(plan.get('checkpoint_size')) != expected['checkpoint_size']:
+                return False
+            if plan.get('preparation_required') is not (expected.get('checkpoint_mode') == 'read'):
+                return False
+        elif scene == 'kvcache':
+            keys += ['runtime_seconds', 'gpu_memory_gib', 'cpu_memory_gib']
+            if str(plan.get('capacity_bytes')) != expected['total_size']:
+                return False
+        else:
+            return False
+        return all(not isinstance(plan.get(k), bool) and plan.get(k) == expected.get(k) for k in keys)
     if not isinstance(plan, dict) or plan.get('format') != 'dtt-mlperf-v1' or plan.get('tool') != 'mlperf':
+        return False
+    if expected.get('mlperf_scenario', 'training') != 'training':
         return False
     fields = {'mlperf_model': str, 'mlperf_epochs': int, 'mlperf_accelerators': int,
               'concurrency': int, 'file_count': int, 'file_size': str, 'total_size': str, 'rounds': int}
@@ -143,13 +165,29 @@ def mlperf_plan_matches(plan, expected):
 
 def mlperf_summary(raw, expected, directory):
     """Validate the adapter's native-evidence contract, not merely exit status."""
-    if not expected or raw.get('format') != 'dtt-mlperf-v1' or not mlperf_plan_matches(raw.get('plan'), expected):
+    if not expected or raw.get('format') not in ('dtt-mlperf-v1', 'dtt-mlperf-v2') or not mlperf_plan_matches(raw.get('plan'), expected):
         raise ValueError('MLPerf 报告参数与请求不一致，请升级 DTT 后重试')
+    scene = expected.get('mlperf_scenario', 'training')
+    if raw.get('format') == 'dtt-mlperf-v2':
+        if raw.get('engine_version') != '3.0.46' or raw['plan'].get('format') != raw['format']:
+            raise ValueError('MLPerf 引擎版本不匹配，请升级 DTT')
+        if scene == 'checkpointing' and expected.get('checkpoint_mode') == 'read' and raw.get('status') == 'passed':
+            if not isinstance(raw.get('preparation'), dict) or raw['preparation'].get('status') != 'passed':
+                raise ValueError('Checkpoint 只读测试缺少已完成的数据准备阶段')
     rounds = expected['rounds']
     rows = raw.get('rounds')
     if not isinstance(rows, list):raise ValueError('MLPerf 报告轮次格式无效')
     seen = set()
     metrics = {'samples_per_second': [], 'accelerator_utilization_percent': []}
+    if scene == 'checkpointing':
+        metrics = {'checkpoint_gib': []}
+        for phase in ('write', 'read'):
+            if phase in expected['checkpoint_mode']:
+                metrics.update({phase + '_gib_per_second': [], phase + '_seconds': []})
+    elif scene == 'kvcache':
+        metrics = {k: [] for k in ('tokens_per_second', 'requests_per_second', 'requests',
+                   'end_to_end_latency_ms_mean', 'end_to_end_latency_ms_p95', 'end_to_end_latency_ms_p99',
+                   'storage_io_latency_ms_mean', 'storage_io_latency_ms_p95', 'storage_io_latency_ms_p99')}
     timings = []
     for row in rows:
         if not isinstance(row, dict):raise ValueError('MLPerf 报告轮次格式无效')
@@ -165,6 +203,8 @@ def mlperf_summary(raw, expected, directory):
                 raise ValueError('MLPerf 缺少有效原生指标')
             if (key == 'samples_per_second' and value <= 0) or (key == 'accelerator_utilization_percent' and not 0 <= value <= 100):
                 raise ValueError('MLPerf 原生指标超出范围')
+            if scene != 'training' and (value < 0 or ('latency' not in key and value == 0)):
+                raise ValueError('MLPerf 场景指标超出范围')
             metrics[key].append(value)
         evidence = row.get('native_reports')
         if not isinstance(evidence, list) or not evidence or any(
@@ -172,6 +212,8 @@ def mlperf_summary(raw, expected, directory):
             or (directory / name).is_symlink() or not (directory / name).is_file() for name in evidence):
             raise ValueError('MLPerf 缺少本轮原生报告附件')
         elapsed = values.get('measurement_seconds')
+        if scene == 'kvcache' and (type(elapsed) not in (int, float) or not math.isfinite(elapsed) or elapsed < expected['runtime_seconds'] * .9):
+            raise ValueError('KV Cache 未完成请求的测量时间')
         if elapsed is not None:
             if type(elapsed) not in (int, float) or not math.isfinite(elapsed) or elapsed <= 0:
                 raise ValueError('MLPerf 原生训练时间无效')
@@ -227,7 +269,7 @@ def report_files(output,tool,budget=16*1024*1024,expected=None):
     elif tool == 'mlperf':report=mlperf_summary(report,expected,paths[0].parent)
     else:validate_timed_report(report,expected)
     # Keep live metadata compact; full round data remains in the JSON artifact.
-    timed=bool(expected and expected.get('runtime_seconds') is not None)
+    timed=bool(tool != 'mlperf' and expected and expected.get('runtime_seconds') is not None)
     passed=report.get('status') == 'passed'
     source_report=report
     stats=report.get('statistics') or {}
@@ -321,7 +363,7 @@ def check_timed_dtt(argv, spec, timeout, *, cancel_path=None, runtime=None, data
     """Dry-run echoes the contract; old wrappers must not silently drop runtime."""
     mlperf = spec.get('tool') == 'mlperf'
     if spec.get('runtime_seconds') is None and not mlperf:return
-    message=('当前 DTT 无法确认支持 MLPerf 引导，请升级 DTT（包含 dtt-mlperf-v1 支持）后重试' if mlperf
+    message=('当前 DTT 无法确认支持 MLPerf 场景，请升级 DTT 至 MLPerf Storage 3.0（dtt-mlperf-v2）后重试' if mlperf
              else '当前 DTT 无法确认支持定时压测，请升级 DTT（包含 --runtime-seconds 支持）后重试')
     if timeout<=0:raise TimeoutError('DTT 定时支持检查超时')
     probe_timeout=min(30,timeout)
