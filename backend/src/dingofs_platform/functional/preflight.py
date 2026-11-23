@@ -94,7 +94,10 @@ try:
             after = (p / 'stat').read_text().rsplit(')', 1)[1].split()
             if pathlib.Path(exe).name != comm or not start.isdigit() or start != after[19] or after[0] == 'Z': raise ValueError('identity')
             processes.append((comm, argv))
-        except FileNotFoundError: continue
+        # A stale/deleted executable or unreadable unrelated process does not
+        # make /proc unusable. Only verified processes can satisfy the exact
+        # enclosing-mount identity check below; unrelated old runs are ignored.
+        except (OSError, ValueError, IndexError, UnicodeError): continue
 except Exception: checks['proc'] = False; processes = []
 if r['cache']:
     checks['pidfd'] = hasattr(os, 'pidfd_open') and hasattr(signal, 'pidfd_send_signal')

@@ -297,6 +297,37 @@ def test_configured_owned_base_must_exist_even_when_parent_is_writable(tmp_path,
     assert not folder.exists()
 
 
+@pytest.mark.parametrize('enclosing_mount', [False, True])
+def test_stale_process_only_blocks_the_mount_whose_identity_is_needed(tmp_path, monkeypatch, capsys, enclosing_mount):
+    import os, pwd, sys, subprocess
+    from pathlib import Path
+    from types import SimpleNamespace
+    folder = tmp_path / 'root'
+    folder.mkdir()
+    target = folder if enclosing_mount else folder / 'old-task'
+    process = tmp_path / '123'
+    process.mkdir()
+    (process / 'comm').write_text('dingo-client\n')
+    (process / 'stat').write_text('123 (dingo-client) ' + ' '.join(['S'] + ['0'] * 18 + ['123']))
+    (process / 'cmdline').write_bytes(f'dingo-client\0mds://host:6900/old\0{target}\0'.encode())
+    (process / 'exe').symlink_to('/usr/bin/dingo-client (deleted)')
+    original = Path.iterdir
+    monkeypatch.setattr(Path, 'iterdir', lambda p: iter([process]) if str(p) == '/proc' else original(p))
+    def query(argv, **kwargs):
+        assert argv == ['findmnt', '--json', '--output', 'ID,TARGET,SOURCE,FSTYPE']
+        return SimpleNamespace(returncode=0, stderr='', stdout=json.dumps({'filesystems': [
+            {'id': 42, 'target': str(target), 'source': 'DingoFS:old', 'fstype': 'fuse.dingofs'}]}))
+    monkeypatch.setattr(subprocess, 'run', query)
+    request = {'user': pwd.getpwuid(os.geteuid()).pw_name, 'tools': [], 'binaries': [],
+        'paths': [str(folder)], 'ports': [], 'cache': False, 'client': False,
+        'fs_query': [], 'mount_roots': [str(folder)], 'mds': 'host:6900'}
+    monkeypatch.setattr(sys, 'argv', ['probe', json.dumps(request)])
+    exec(compile(api().READ_ONLY_PROBE, '<read-only probe>', 'exec'), {})
+    checks = json.loads(capsys.readouterr().out)['checks']
+    assert checks['proc'], 'an unrelated stale process is not a /proc access failure'
+    assert checks['mount_identity'] is not enclosing_mount
+
+
 def test_non_ip_route_is_refused_before_any_remote_probe(app, ready):
     with app.state.session_factory.begin() as db:
         row = db.get(Machine, ready[3]['id'])

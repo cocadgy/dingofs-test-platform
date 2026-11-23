@@ -3,6 +3,9 @@ from copy import deepcopy
 from datetime import timedelta
 from sqlalchemy import select
 from dingofs_platform.errors import Problem
+from dingofs_platform.inventory.models import Machine
+from dingofs_platform.inventory.host_identity import normalize_host
+from .external_cache import machine_addresses
 from .models import ManagedResource, ResourceOperation
 from .views import now, ACTIVE
 
@@ -15,14 +18,27 @@ def fresh_plan(plan):
 
 def reserved_ports(db, member):
     ports = set()
+    machine = db.get(Machine, member['machine_id'])
+    addresses = machine_addresses(machine) if machine else set()
+    if member.get('listen_ip'):
+        addresses.add(normalize_host(member['listen_ip']))
     for resource in db.scalars(select(ManagedResource).where(ManagedResource.kind == "cache", ManagedResource.state.in_(("planned", "pending", "running", "partial")))):
         if resource.state in ("planned", "pending"):
             operations = list(db.scalars(select(ResourceOperation).where(ResourceOperation.resource_id == resource.id)))
             if not any(op.expires_at > now() and (op.state in ACTIVE or op.action == "cache.plan" and op.state == "succeeded" and fresh_plan(op)) for op in operations):
                 continue
         for other in resource.data.get("members", []):
-            if other["machine_id"] == member["machine_id"] and other["member_id"] != member["member_id"]:
-                ports.add(other["listen_port"])
+            same_machine = other.get('machine_id') == member['machine_id']
+            if not other.get('machine_id'):
+                try:
+                    address = other.get('listen_ip')
+                    same_machine = isinstance(address, str) and normalize_host(address) in addresses
+                except (ValueError, TypeError):
+                    same_machine = False
+            port = other.get('listen_port')
+            if (same_machine and other.get('member_id') != member['member_id']
+                    and type(port) is int and 1 <= port <= 65535):
+                ports.add(port)
     return ports
 
 

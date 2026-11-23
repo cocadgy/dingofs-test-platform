@@ -80,6 +80,22 @@ def test_prelaunch_error_releases_only_own_leases(admin):
         assert not check_conflicts(db, [LeaseRequest('machine:' + payload['machine_id'])])
 
 
+def test_ssh_banner_failure_before_dispatch_is_terminal_and_releases_leases(admin, monkeypatch):
+    from dingofs_platform.performance import transport
+    from dingofs_platform.operations.leases import check_conflicts, LeaseRequest
+    payload = setup(admin)
+    row = admin.post('/api/v1/performance/runs', json=payload).json()
+    def disconnected(*args, **kwargs):
+        raise ConnectionError('Error reading SSH protocol banner')
+    monkeypatch.setattr(transport, 'Remote', disconnected)
+    admin.app.state.performance_manager.process(row['id'])
+    detail = admin.get('/api/v1/performance/runs/' + row['id']).json()
+    assert detail['state'] == 'failed'
+    assert 'SSH' in detail['error']
+    with admin.app.state.session_factory() as db:
+        assert not check_conflicts(db, [LeaseRequest('machine:' + payload['machine_id'])])
+
+
 def test_readonly_tool_check_does_not_block_performance_submission(admin):
     from datetime import datetime, timezone, timedelta
     from dingofs_platform.tool_packages.models import ToolJob

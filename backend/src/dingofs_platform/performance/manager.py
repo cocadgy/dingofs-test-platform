@@ -10,7 +10,7 @@ from dingofs_platform.inventory.ssh_transport import SSHConfig
 from .models import PerformanceRun,ACTIVE
 from .commands import argv_for
 from .schemas import TestSpec
-from .transport import Transport
+from .transport import Transport, StartNotDispatched
 from dingofs_platform.operations.leases import (performance_requests, ensure_leases, lock_keys,
     release_verified, completion_evidence)
 
@@ -86,7 +86,11 @@ class PerformanceManager:
                          'cleanup_data':snapshot.get('cleanup_data',False),
                          'tests':[{'id':snapshot['scenarios'][i]['id'] if snapshot.get('scenarios') else t.tool,'spec':t.model_dump(),'custom_script':custom_script(t) if t.tool=='mdtest' else None,'args':argv_for(t,'__DATA__','__OUTPUT__','dtt')[1:]} for i,t in enumerate(specs)]}
                 remote_attempted=True
-                root=transport.start(payload)['root']
+                try:
+                    root=transport.start(payload)['root']
+                except StartNotDispatched:
+                    remote_attempted=False
+                    raise
                 with factory.begin() as db:db.get(PerformanceRun,id).remote_root=root
             while not self.stop_event.is_set():
                 with factory() as db:

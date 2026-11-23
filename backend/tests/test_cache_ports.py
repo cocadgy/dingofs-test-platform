@@ -78,3 +78,44 @@ def test_port_probe_uses_wildcards_so_other_local_address_is_not_missed(monkeypa
         occupied.bind(('127.0.0.1',0)); occupied.listen()
         port=occupied.getsockname()[1]
         assert helper.port_busy(port)
+
+
+@pytest.mark.parametrize('other,expected', [
+    ({'member_id': 'external', 'listen_ip': '192.0.2.1', 'listen_port': 21000}, {21000}),
+    ({'member_id': 'external', 'listen_ip': '192.0.2.2', 'listen_port': 21000}, {21000}),
+    ({'member_id': 'external', 'listen_ip': '198.51.100.1', 'listen_port': 21000}, set()),
+    ({'member_id': 'external', 'listen_ip': '192.0.2.1', 'listen_port': None}, set()),
+    ({'member_id': 'external', 'listen_ip': '192.0.2.1', 'listen_port': True}, set()),
+    ({'member_id': 'new', 'listen_ip': '192.0.2.1', 'listen_port': 21000}, set()),
+])
+def test_external_members_reserve_only_valid_ports_on_target_machine(admin, app, other, expected):
+    from conftest import linked
+    from dingofs_platform.inventory.models import Machine
+    from dingofs_platform.resources.models import ManagedResource
+    from dingofs_platform.resources.port_planning import reserved_ports
+    m, cluster, _ = linked(admin)
+    with app.state.session_factory.begin() as db:
+        target = db.get(Machine, m['id'])
+        target.address = '192.0.2.1'
+        target.hardware_info = {'interfaces': [{'addresses': ['192.0.2.2/24']}]}
+        db.add(ManagedResource(cluster_id=cluster['id'], creator_id=target.creator_id,
+            kind='cache', name='external', state='running', data={'members': [other]}))
+        db.flush()
+        assert reserved_ports(db, {'machine_id': m['id'], 'member_id': 'new',
+                                  'listen_ip': '192.0.2.1'}) == expected
+
+
+@pytest.mark.parametrize('address', [None, 123, []])
+def test_malformed_external_address_does_not_break_other_reservations(address):
+    from types import SimpleNamespace
+    from dingofs_platform.resources.port_planning import reserved_ports
+    machine = SimpleNamespace(address='192.0.2.1', aliases=[], hardware_info={})
+    members = [
+        {'member_id': 'unmapped', 'listen_ip': address, 'listen_port': 21000},
+        {'member_id': 'managed', 'machine_id': 'machine', 'listen_ip': address, 'listen_port': 21001},
+    ]
+    # Only the DB I/O is replaced; exercise the actual reservation algorithm.
+    db = SimpleNamespace(get=lambda *args: machine, scalars=lambda *args: [
+        SimpleNamespace(state='running', data={'members': members})])
+    assert reserved_ports(db, {'machine_id': 'machine', 'member_id': 'new',
+                              'listen_ip': '192.0.2.1'}) == {21001}
