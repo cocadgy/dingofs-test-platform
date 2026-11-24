@@ -88,6 +88,8 @@ def _payload(parent, child):
     return {'version': 2, 'parent_id': parent.id, 'child_id': child.id, 'module': child.module,
             'env_name': child.environment_snapshot['env_name'], 'cases': list(child.cases),
             'hashes': dict(child.case_hashes), 'retries': child.retries,
+            **({'timeout_minutes': child.remote_identity['timeout_minutes']}
+               if 'timeout_minutes' in child.remote_identity else {}),
             'launch_token': child.remote_identity['launch_token'],
             'immutable_path': binding['immutable_path'], 'runtime_manifest': binding['functional_runtime'],
             'context': {'version': 1, 'parent_id': parent.id, 'child_id': child.id,
@@ -140,7 +142,8 @@ def advance_parent(db: Session, run_id: str) -> DispatchDecision:
                 _finish(db, parent, children, requests, 'failed', releasable=True)
                 return DispatchDecision('done')
             child.launch_attempted_at = now()
-            child.remote_identity = {'launch_token': uuid4().hex, 'cursor': {}}
+            child.remote_identity = {'launch_token': uuid4().hex, 'cursor': {},
+                                     'timeout_minutes': child.timeout_minutes}
             child.state, parent.state, parent.phase = 'running', 'running', '启动 ' + child.module
             db.flush()
             return DispatchDecision('launch', child.id, _payload(parent, child), {})
@@ -210,6 +213,12 @@ def record_observation(db: Session, run_id: str, child_id: str, observation: dic
                     child.deadline = started + timedelta(minutes=child.timeout_minutes)
                 except (ValueError, KeyError, TypeError):
                     observation = {**observation, 'protocol_error': 'invalid process start timestamp'}
+            if observation.get('termination_cause') == 'timeout' and not observation.get('protocol_error'):
+                # The supervisor records timeout only before receiving any
+                # manual cancellation. Its durable cause survives later stops.
+                identity.update(timeout=True, termination_cause='timeout')
+                if not child.cancel_requested:
+                    child.cancel_requested, child.cancel_requested_at = True, now()
     batch = observation.get('event_batch')
     events = list(db.scalars(select(FunctionalEvent.record).where(FunctionalEvent.child_id == child.id)
                              .order_by(FunctionalEvent.seq)))

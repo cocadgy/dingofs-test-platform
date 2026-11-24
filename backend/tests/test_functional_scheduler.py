@@ -155,6 +155,41 @@ def test_response_lost_does_not_relaunch_child(app, job):
     assert held(app, job)
 
 
+def test_launch_freezes_child_timeout(app, job):
+    decision = advance(app, job)
+    assert decision.payload.get('timeout_minutes') == 1440
+    assert advance(app, job).payload == decision.payload
+
+
+def test_poll_preserves_old_launch_request_without_timeout(app, job):
+    decision = advance(app, job)
+    with app.state.session_factory.begin() as db:
+        child = db.get(FunctionalModuleRun, decision.child_id)
+        child.remote_identity = {'launch_token': decision.payload['launch_token'], 'cursor': {}}
+    expected = {key: value for key, value in decision.payload.items() if key != 'timeout_minutes'}
+    assert advance(app, job).payload == expected
+
+
+@pytest.mark.parametrize('cleanup', ['cleaned', 'retained'])
+@pytest.mark.parametrize('later_manual_stop', [False, True])
+def test_autonomous_remote_timeout_preserves_reason_and_recovery(app, job, tmp_path, cleanup, later_manual_stop):
+    decision = advance(app, job)
+    outcome = finished(decision, cleanup=cleanup)
+    outcome['termination_cause'] = 'timeout'
+    if later_manual_stop:
+        with app.state.session_factory.begin() as db:
+            db.get(FunctionalRun, job).cancel_requested = True
+        assert advance(app, job).cancel is True
+    ingest(app, job, decision, outcome, tmp_path)
+    from dingofs_platform.functional.routes import view
+    with app.state.session_factory() as db:
+        result = view(db.get(FunctionalRun, job), True)
+        assert result['termination_cause'] == 'timeout'
+        assert result['state'] == ('cancelled' if cleanup == 'cleaned' else 'needs_attention')
+    assert children(app, job)[1].launch_attempted_at is None
+    assert bool(held(app, job)) is (cleanup == 'retained')
+
+
 @pytest.mark.parametrize('cleanup,recovery', [('retained', 'not_required'), ('failed', 'not_required'),
                                             ('cleaned', 'failed')])
 def test_retained_failure_marks_remaining_not_run(app, job, tmp_path, cleanup, recovery):

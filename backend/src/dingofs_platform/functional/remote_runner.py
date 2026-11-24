@@ -41,6 +41,10 @@ def bootstrap_child(request,source,event_source):
     root.mkdir(parents=True,exist_ok=True)
     with (root/'bootstrap.lock').open('a') as lock:
         fcntl.flock(lock,fcntl.LOCK_EX)
+        if (root/'cancel-request.json').exists():
+            if json.loads((root/'cancel-request.json').read_text())!=request:
+                raise ValueError('child request differs')
+            return {'root':str(root)}
         if (root/'request.json').exists():
             if json.loads((root/'request.json').read_text())!=request:
                 raise ValueError('child request differs')
@@ -83,11 +87,29 @@ def forward_cancel(root,output):
 def snapshot_child(request,cursor,cancel=False):
     from dataclasses import asdict
     root=child_root(request)
+    if cancel:
+        os.umask(0o077)
+        root.mkdir(parents=True,exist_ok=True)
+        with (root/'bootstrap.lock').open('a') as lock:
+            fcntl.flock(lock,fcntl.LOCK_EX)
+            for name in ('request.json','cancel-request.json'):
+                if (root/name).exists() and json.loads((root/name).read_text())!=request:
+                    raise ValueError('child request differs')
+            if not (root/'request.json').exists():
+                # A durable, identity-bound fence is a zero-start proof even
+                # when an earlier bootstrap RPC arrives after cancellation.
+                save(root/'cancel-request.json',request)
+            else:
+                save(root/'cancel',{'child_id':request['child_id'],'launch_token':request['launch_token']})
+    if (root/'cancel-request.json').exists():
+        if json.loads((root/'cancel-request.json').read_text())!=request:
+            raise ValueError('child request differs')
+        return {'state':'cancelled','zero_start':{'child_id':request['child_id'],
+                'launch_token':request['launch_token']},'cursor_before':cursor,'root':str(root)}
     if not (root/'request.json').exists():return {'missing':True,'cursor_before':cursor}
     if json.loads((root/'request.json').read_text())!=request:raise ValueError('child request differs')
     output=child_output(root,request)
     if cancel:
-        (root/'cancel').touch()
         forward_cancel(root,output)
     value=json.loads((root/'state.json').read_text())
     value.update(root=str(root),output=str(output))
@@ -147,6 +169,9 @@ def run_child(root,request):
              'launch_token':request['launch_token']}})
         return
     with (root/'console.log').open('ab',buffering=0) as log:
+        started=time.monotonic()
+        timeout=request.get('timeout_minutes')
+        deadline=started+timeout*60 if timeout is not None else None
         process=subprocess.Popen(args,stdin=subprocess.DEVNULL,stdout=log,stderr=subprocess.STDOUT,
                                  start_new_session=True)
         identity={'child_id':request['child_id'],'launch_token':request['launch_token'],
@@ -155,13 +180,20 @@ def run_child(root,request):
         state={'state':'running','process':identity}
         save(root/'state.json',state)
         while process.poll() is None:
+            if deadline is not None and time.monotonic()>=deadline:
+                with (root/'bootstrap.lock').open('a') as lock:
+                    fcntl.flock(lock,fcntl.LOCK_EX)
+                    if not (root/'cancel').exists():
+                        state['termination_cause']='timeout'
+                        save(root/'state.json',state)
+                        save(root/'cancel',{'termination_cause':'timeout'})
             forward_cancel(root,output)
             time.sleep(0.2)
         rc=process.wait()
     identity={**identity,'state':'exited'}
     proof={key:identity[key] for key in ('child_id','launch_token','pid','start_time')}
     proof['returncode']=rc
-    state={'state':'exited','process':identity,'returncode':rc,'end_proof':proof}
+    state={**state,'state':'exited','process':identity,'returncode':rc,'end_proof':proof}
     resources={}
     path=output/'functional-events.jsonl'
     if path.exists():

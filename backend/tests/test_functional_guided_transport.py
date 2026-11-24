@@ -204,3 +204,73 @@ def test_shipped_reader_runs_on_host_python_without_annotation_evaluation(payloa
         str(root)], capture_output=True, text=True, timeout=10)
     assert result.returncode == 0, result.stderr
     assert result.stdout.strip() == 'EventBatch'
+
+
+def test_missing_poll_is_readonly_but_cancel_fences_delayed_bootstrap(payload, monkeypatch):
+    root = remote_runner.child_root(payload)
+    assert execute(transport.child_snapshot_code(payload, {}))['missing'] is True
+    assert not root.exists()
+    cancelled = execute(transport.child_snapshot_code(payload, {}, True))
+    assert cancelled.get('zero_start') == {'child_id': 'child', 'launch_token': 'token'}
+    _, launches = bootstrap(payload, monkeypatch)
+    assert launches == []
+    assert execute(transport.child_snapshot_code(payload, {}))['zero_start'] == cancelled['zero_start']
+    for changed in ({**payload, 'launch_token': 'other'}, {**payload, 'cases': ['other.yaml']}):
+        with pytest.raises(ValueError):
+            execute(transport.child_bootstrap_code(changed))
+        with pytest.raises(ValueError):
+            execute(transport.child_snapshot_code(changed, {}, True))
+
+
+def test_bootstrap_before_cancel_prevents_workload_start(payload, monkeypatch):
+    root, launches = bootstrap(payload, monkeypatch)
+    execute(transport.child_snapshot_code(payload, {}, True))
+    remote_runner.run(root)
+    assert len(launches) == 1  # Only the supervisor was dispatched.
+    assert execute(transport.child_snapshot_code(payload, {}))['zero_start'] == {
+        'child_id': 'child', 'launch_token': 'token'}
+    with pytest.raises(ValueError):
+        execute(transport.child_snapshot_code({**payload, 'launch_token': 'other'}, {}, True))
+
+
+@pytest.mark.parametrize('timeout_minutes,finish_at,expect_timeout,manual_at', [
+    (1, 60.4, True, None), (1, 59.8, False, None), (None, 60.4, False, None),
+    (1, 60.4, False, 59.8),
+])
+def test_supervisor_enforces_timeout_without_polling(payload, monkeypatch, timeout_minutes, finish_at, expect_timeout, manual_at):
+    if timeout_minutes is not None:
+        payload['timeout_minutes'] = timeout_minutes
+    root, _ = bootstrap(payload, monkeypatch)
+    output = remote_runner.child_output(root, payload)
+    elapsed = [0.0]
+    cancellation_times = []
+    class Process:
+        pid = 42
+        def __init__(self, *args, **kwargs):
+            output.mkdir(parents=True)
+            (output / 'functional-events.jsonl').touch()
+        def poll(self):
+            return 0 if elapsed[0] >= finish_at else None
+        def wait(self):
+            return 0
+    def tick(seconds):
+        if elapsed[0] == manual_at:
+            remote_runner.snapshot_child(payload, {}, True)
+        if (output / 'functional-cancel').exists() and manual_at is None:
+            cancellation_times.append(elapsed[0])
+            assert json.loads((root / 'state.json').read_text())['termination_cause'] == 'timeout'
+        elapsed[0] = round(elapsed[0] + seconds, 6)
+    monkeypatch.setattr(subprocess, 'Popen', Process)
+    monkeypatch.setattr(remote_runner, 'process_identity', lambda pid: '123456')
+    monkeypatch.setattr(remote_runner.time, 'monotonic', lambda: elapsed[0])
+    monkeypatch.setattr(remote_runner.time, 'sleep', tick)
+    remote_runner.run(root)
+    state = execute(transport.child_snapshot_code(payload, {}))
+    assert bool(cancellation_times) is expect_timeout
+    if expect_timeout:
+        assert cancellation_times[0] == 60.0
+        assert state['termination_cause'] == 'timeout'
+    else:
+        assert state.get('termination_cause') is None
+    assert state['end_proof']['returncode'] == 0
+    assert state['journal_verified'] is True

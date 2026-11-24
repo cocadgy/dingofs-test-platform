@@ -8,6 +8,7 @@ from .permissions import require_manage
 from .credentials import credential_changes
 from .host_identity import sync_host_identifiers
 from .schemas import MachineInput, ClusterInput, EnvironmentInput
+from dingofs_platform.operations.leases import LeaseRequest, check_conflicts
 from .service import (
     MODELS,
     serialize,
@@ -158,6 +159,10 @@ def patch(
 ):
     model = model_for(kind)
     with get_db(request) as db, db.begin():
+        # Serialize with operation admission before taking inventory/row locks.
+        # Keep these key locks through validation and commit, including no-op edits.
+        conflicts = (check_conflicts(db, [LeaseRequest('machine:' + id), LeaseRequest('runtime:' + id)])
+                     if kind == 'machines' else [])
         lock_inventory(db)
         row = db.scalar(select(model).where(model.id == id).with_for_update())
         if not row:
@@ -182,6 +187,8 @@ def patch(
             },
         )
         if kind == "machines":
+            if conflicts and any(data[key] != getattr(row, key) for key in ('address', 'ssh_port', 'ssh_user')):
+                raise Problem(409, 'operation_conflict', '目标资源被其他操作占用或远端结果尚未确认')
             data = credential_changes(
                 data, request.app.state.settings.credential_encryption_key
             )
