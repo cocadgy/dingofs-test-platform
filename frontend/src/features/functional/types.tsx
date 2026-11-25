@@ -23,7 +23,7 @@ export type GuidedCompatibility = {modules:Record<string,{
   targets?:EnvironmentDescriptor["targets"]}>};
 export type GuidedPreflight = {
   can_start:boolean;token:string|null;expires_at:string|null;
-  checks:{code:string;ok:boolean;reason?:string;host?:string;user?:string;conflicts?:{key:string;reason:string}[]}[];
+  checks:{code:string;ok:boolean;status?:'passed'|'failed'|'skipped';env_name?:string;modules?:string[];reason?:string;host?:string;user?:string;conflicts?:{key:string;reason:string}[]}[];
   required_confirmations:string[];impacts:{module?:string;description:string}[];
 };
 export type Case = {

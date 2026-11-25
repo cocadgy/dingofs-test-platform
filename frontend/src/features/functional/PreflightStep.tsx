@@ -42,7 +42,9 @@ export function PreflightStep({configuration,profiles,metadata,compatibility,pre
     {preflight && <div className="functional-target">
       <strong>{preflight.can_start ? "预检通过" : "预检未通过"}</strong>
       {preflight.checks.map((check,index) => <p key={index}>
-        {check.ok ? "通过" : "未通过"} · {check.code}
+        {!check.ok ? "未通过" : check.status === "skipped" ? "跳过（不适用）" : "通过"} · {check.code}
+        {check.env_name ? ` · 环境：${check.env_name}` : ""}
+        {check.modules?.length ? ` · 模块：${check.modules.map(name => moduleLabels[name] || name).join("、")}` : ""}
         {check.reason ? ` · ${check.reason}` : ""}
         {check.host ? ` · ${check.host}` : ""}{check.user ? ` · ${check.user}` : ""}
         {check.conflicts?.map(item => ` · ${item.key}：${item.reason}`).join("")}

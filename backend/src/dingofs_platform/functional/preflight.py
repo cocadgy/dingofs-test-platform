@@ -59,6 +59,7 @@ READ_ONLY_PROBE = r'''
 import hashlib, json, os, pathlib, pwd, re, shutil, signal, stat, subprocess, sys
 r = json.loads(sys.argv[1])
 checks = {k: True for k in ('identity','tools','binaries','directories','ports','proc','pidfd','fuse_cleanup','filesystem_schema','mount_identity')}
+details = {}
 user = pwd.getpwuid(os.geteuid()).pw_name
 checks['identity'] = user == r['user']
 def query(argv):
@@ -78,6 +79,15 @@ checks['binaries'] = all(pathlib.Path(p).is_file() and os.access(p, os.X_OK) for
 checks['directories'] = all(parent_safe(p) for p in r['paths'])
 checks['directories'] = checks['directories'] and all(
     pathlib.Path(p).is_dir() and parent_safe(p) for p in r.get('required_existing_paths', []))
+missing_paths = [p for p in r.get('required_existing_paths', []) if not pathlib.Path(p).is_dir()]
+unsafe_paths = [p for p in r['paths'] if not parent_safe(p)]
+if not checks['directories']:
+    details['directories'] = {'reason': ('目录不存在或不是目录：' + '、'.join(missing_paths)
+        if missing_paths else '目录不可写、不可进入或含符号链接：' + '、'.join(unsafe_paths))}
+if not checks['tools']:
+    details['tools'] = {'reason': '执行用户 PATH 中缺少工具：' + '、'.join(t for t in r['tools'] if not shutil.which(t))}
+if not checks['binaries']:
+    details['binaries'] = {'reason': '程序不存在或不可执行：' + '、'.join(p for p in r['binaries'] if not pathlib.Path(p).is_file() or not os.access(p, os.X_OK))}
 try:
     pathlib.Path('/proc/self/stat').read_text()
     pathlib.Path('/proc/self/mountinfo').read_text()
@@ -104,6 +114,17 @@ if r['cache']:
     if checks['pidfd']:
         try: os.close(os.pidfd_open(os.getpid()))
         except Exception: checks['pidfd'] = False
+    if not checks['pidfd']:
+        details['pidfd'] = {'reason': '执行解释器 ' + sys.executable + '（' + sys.version.split()[0] +
+            '）缺少 pidfd 接口或内核调用不可用；缓存清理需要 os.pidfd_open 和 signal.pidfd_send_signal，请修复实际运行环境后重试'}
+else:
+    details['pidfd'] = {'status': 'skipped', 'reason': '当前环境没有需要管理的缓存进程，无需检查 pidfd'}
+if not r['client']:
+    details['fuse_cleanup'] = {'status': 'skipped', 'reason': '当前目标没有客户端挂载，无需检查卸载权限'}
+if not r['fs_query']:
+    details['filesystem_schema'] = {'status': 'skipped', 'reason': '非文件系统查询目标'}
+if not r['mount_roots']:
+    details['mount_identity'] = {'status': 'skipped', 'reason': '当前目标没有挂载基础目录'}
 if r['client']:
     try:
         if os.geteuid() == 0:
@@ -210,7 +231,7 @@ try:
         observations['parents'][value] = [identity.st_dev, identity.st_ino]
 except Exception: checks['directories'] = False
 fingerprint = hashlib.sha256(json.dumps(observations, sort_keys=True, separators=(',', ':')).encode()).hexdigest()
-print(json.dumps({'user': user, 'checks': checks, 'fingerprint': fingerprint}))
+print(json.dumps({'user': user, 'checks': checks, 'fingerprint': fingerprint, 'details': details}))
 '''
 
 
@@ -370,8 +391,9 @@ def _evaluate(db, actor, request, pinned=None, owner=None, *, admitted=False):
     if fresh.request_digest != request.request_digest:
         raise Problem(409, 'preflight_changed', '请求或环境源已改变，请重新预检')
     checks, impacts = [], []
+    context = {}
     def check(code, ok, **metadata):
-        checks.append({'code': code, 'ok': bool(ok), **metadata})
+        checks.append({'code': code, 'ok': bool(ok), **context, **metadata})
     # Authorize the full union, including read/status and declared SSH identities,
     # before making any connection, and preserve the actual execution username.
     targets = {}
@@ -442,6 +464,7 @@ def _evaluate(db, actor, request, pinned=None, owner=None, *, admitted=False):
         return checks, impacts, binding
     binding['observations'] = []
     for snapshot in request.environment_snapshots.values():
+        context = {'env_name': snapshot['env_name'], 'modules': sorted(snapshot['modules'])}
         snapshot_targets = {(t['host'], t['user']): targets[(t['host'], t['user'])] for t in snapshot['targets']}
         authentication = [{'user': user, 'value': decrypt_password(machine.ssh_password_ciphertext,
                            settings.credential_encryption_key)} for (host, user), machine in snapshot_targets.items()]
@@ -494,7 +517,8 @@ def _evaluate(db, actor, request, pinned=None, owner=None, *, admitted=False):
                                       'hot_upgrade' in modules and execution['mds_node_count'] > 0)
                 if needs_mds_client:
                     path = snapshot['programs'].get('mds_client')
-                    check('mds_client_configuration', bool(path), host=host, user=user)
+                    check('mds_client_configuration', bool(path), host=host, user=user,
+                          reason='' if path else '环境未配置 mds_client_path；所选模块需要 MDS 客户端，请填写目标机器上的可执行程序路径')
                     if path: binaries.append(path)
                 if 'fault-recovery' in requirements:
                     check('fault_recovery_configuration', not snapshot['programs'].get('chaos_tool'))
@@ -516,7 +540,12 @@ def _evaluate(db, actor, request, pinned=None, owner=None, *, admitted=False):
             binding['observations'].append({'env_name': snapshot['env_name'], 'host': host, 'user': user,
                                             'fingerprint': result['fingerprint']})
             for code, ok in result['checks'].items():
-                check(code, ok, host=host, user=user)
+                detail = result.get('details', {}).get(code, {}) if isinstance(result.get('details', {}), dict) else {}
+                reason = detail.get('reason', '') if isinstance(detail, dict) else ''
+                reason = reason[:4096] if isinstance(reason, str) else ''
+                skipped = ok and isinstance(detail, dict) and detail.get('status') == 'skipped'
+                check(code, ok, host=host, user=user, status='skipped' if skipped else ('passed' if ok else 'failed'),
+                      reason=reason or ('' if ok else '检查未通过，请核对该环境在目标机器上的配置与执行权限'))
     impacts.append({'description': '平台资源占用不覆盖外部 Jenkins 或人工操作；执行及清理期间禁止共同使用测试资源。'})
     return checks, impacts, binding
 

@@ -36,7 +36,7 @@ def test_complete_automatic_flow_with_isolated_hosts(tmp_path,monkeypatch,scp_ok
     for name in ('dtt-ai-analyze','analysis.schema.json'):(directory/name).write_text('fixture')
     (directory/'scripts').mkdir()
     (directory/'entrypoint.sh').write_text('#!/bin/bash\n')
-    for name in ('performance_benchmark.py','performance_plan.py','performance_report.py','performance_tools.py','mlperf_benchmark.py','ai_storage_scenarios.py'):
+    for name in ('performance_benchmark.py','performance_plan.py','performance_report.py','performance_tools.py','mlperf_benchmark.py','ai_storage_scenarios.py','integration_summary.py'):
         (directory/'scripts'/name).write_text('# fixture runtime\n')
     if functional:
         if not os.environ.get('DTT_TEST_SOURCE'):
@@ -102,6 +102,7 @@ def test_complete_automatic_flow_with_isolated_hosts(tmp_path,monkeypatch,scp_ok
     assert (installed/'mlperf_benchmark.py').is_file()
     assert subprocess.check_output([str(installed/'dtt'),'--performance-dry-run'],text=True).strip()=='mlperf adapter ready'
     assert (installed/'ai_storage_scenarios.py').is_file()
+    assert (installed/'integration_summary.py').is_file()
     if functional:
         assert result['functional_runtime']['version']==2
         assert (Path(result['immutable_path']).parent/'dingofs-integration-test/testcases/quota_test_cases/alias.yaml').is_symlink()

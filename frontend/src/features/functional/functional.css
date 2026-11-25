@@ -436,3 +436,9 @@
   display: grid;
   gap: 6px;
 }
+.guided-functional .functional-card .functional-tree label {
+  display: flex;
+  flex-direction: row;
+  align-items: flex-start;
+  gap: 8px;
+}

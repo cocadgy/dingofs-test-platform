@@ -70,6 +70,8 @@ elif op=='source_files':
             files.update({name:file_info(path) for name,path in functional.items()})
         metadata=directory/'scripts/ai_storage_scenarios.py'
         if metadata.is_file():files['ai_storage_scenarios.py']=file_info(metadata)
+        summary=directory/'scripts/integration_summary.py'
+        if summary.is_file():files['integration_summary.py']=file_info(summary)
         if (directory/'functional_runtime.py').exists():
             source_files,source_manifest,source_aliases=functional_source_files(directory)
             files.update({name:file_info(path) for name,path in source_files.items()})

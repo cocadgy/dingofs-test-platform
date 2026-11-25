@@ -81,6 +81,21 @@ test("test_module_environment_required_when_incompatible", async () => {
   expect(await screen.findByRole("heading",{name:"运行设置"})).toBeInTheDocument();
 });
 
+test("compatible modules inherit the first-step environment without a second selector", async () => {
+  window.history.replaceState(null,"","#/start/functional");
+  mockApi();
+  render(<App />);
+  fireEvent.change(await screen.findByLabelText("测试环境"),{target:{value:"e1"}});
+  fireEvent.click(screen.getByRole("button",{name:"下一步"}));
+  fireEvent.click(await screen.findByLabelText("选择 quota 全部用例"));
+  expect(await screen.findByText("使用第一步环境：env_one")).toBeInTheDocument();
+  expect(screen.queryByLabelText("quota 测试环境")).not.toBeInTheDocument();
+  fireEvent.click(screen.getByRole("button",{name:"更换环境"}));
+  expect(screen.getByLabelText("quota 测试环境")).toHaveValue("e1");
+  fireEvent.change(screen.getByLabelText("quota 测试环境"),{target:{value:"e2"}});
+  expect(await screen.findByText("使用单独环境：env_two")).toBeInTheDocument();
+});
+
 test("applying one environment updates every other selected module", async () => {
   window.history.replaceState(null,"","#/start/functional");
   mockApi();
@@ -90,11 +105,10 @@ test("applying one environment updates every other selected module", async () =>
   await screen.findByRole("heading",{name:"选择模块和用例"});
   for (const module of ["quota","fault","client"])
     fireEvent.click(screen.getByLabelText(`选择 ${module} 全部用例`));
-  fireEvent.change(screen.getByLabelText("fault 测试环境"),{target:{value:"e2"}});
+  fireEvent.change(await screen.findByLabelText("fault 测试环境"),{target:{value:"e2"}});
   await waitFor(() => expect(screen.getAllByRole("button",{name:"将此环境应用到其他模块"})).toHaveLength(3));
   fireEvent.click(screen.getAllByRole("button",{name:"将此环境应用到其他模块"})[1]);
-  expect(screen.getByLabelText("quota 测试环境")).toHaveValue("e2");
-  expect(screen.getByLabelText("client 测试环境")).toHaveValue("e2");
+  expect(screen.getAllByText("使用单独环境：env_two")).toHaveLength(3);
 });
 
 test("test_defaults_1440_minutes_zero_retries", async () => {

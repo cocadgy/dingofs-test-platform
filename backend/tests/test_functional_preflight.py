@@ -295,6 +295,33 @@ def test_configured_owned_base_must_exist_even_when_parent_is_writable(tmp_path,
     answer = json.loads(capsys.readouterr().out)
     assert not answer['checks']['directories']
     assert not folder.exists()
+    assert str(folder) in answer['details']['directories']['reason']
+    assert '不存在' in answer['details']['directories']['reason']
+    assert answer['details']['pidfd']['status'] == 'skipped'
+
+
+def test_remote_failures_are_attributed_to_environment_and_module(app, ready):
+    ready[2].failed_check = 'directories'
+    result = invoke(app, ready)
+    failure = next(c for c in result.checks if c['code'] == 'directories' and not c['ok'])
+    assert failure['env_name'] == 'env_ready'
+    assert failure['modules'] == ['quota']
+    assert failure['reason']
+
+
+def test_pidfd_failure_names_actual_interpreter(monkeypatch, capsys):
+    import os, pwd, sys
+    monkeypatch.delattr(os, 'pidfd_open', raising=False)
+    request = {'user':pwd.getpwuid(os.geteuid()).pw_name,'tools':[],'binaries':[],
+               'paths':[],'ports':[],'cache':True,'client':False,'fs_query':[],
+               'mount_roots':[],'mds':''}
+    monkeypatch.setattr(sys, 'argv', ['probe', json.dumps(request)])
+    exec(compile(api().READ_ONLY_PROBE, '<read-only probe>', 'exec'), {})
+    result = json.loads(capsys.readouterr().out)
+    assert result['checks']['pidfd'] is False
+    assert sys.executable in result['details']['pidfd']['reason']
+    assert 'os.pidfd_open' in result['details']['pidfd']['reason']
+    assert result['details']['pidfd'].get('status') != 'skipped'
 
 
 @pytest.mark.parametrize('enclosing_mount', [False, True])

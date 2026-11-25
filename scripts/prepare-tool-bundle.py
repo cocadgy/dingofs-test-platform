@@ -74,6 +74,8 @@ def main():
                 if adapter.is_file():shutil.copyfile(adapter,stage/'mlperf_benchmark.py')
             if (args.source/'scripts/ai_storage_scenarios.py').is_file():
                 shutil.copyfile(args.source/'scripts/ai_storage_scenarios.py',stage/'ai_storage_scenarios.py')
+            if (args.source/'scripts/integration_summary.py').is_file():
+                shutil.copyfile(args.source/'scripts/integration_summary.py',stage/'integration_summary.py')
             print('导出 dtt 镜像，包含 fio、elbencho…', flush=True)
             subprocess.run([args.runtime,'save','-o',str(stage/'image.tar'),manifest['image_id']],check=True)
         else:

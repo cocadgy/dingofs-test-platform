@@ -102,7 +102,7 @@ def test_offline_and_automatic_share_complete_manifest(tmp_path,monkeypatch):
     import sys
     root=tmp_path/'source';complete_source(root)
     scripts=root/'scripts';scripts.mkdir()
-    for name in ('performance_benchmark.py','performance_plan.py','performance_report.py','performance_tools.py','mlperf_benchmark.py'):
+    for name in ('performance_benchmark.py','performance_plan.py','performance_report.py','performance_tools.py','mlperf_benchmark.py','integration_summary.py'):
         (scripts/name).write_text('fixture '+name)
     automatic=source_result(root)
     output=tmp_path/'output'
